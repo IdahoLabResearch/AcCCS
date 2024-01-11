@@ -1,0 +1,7 @@
+# Ignore all zip files (probably a backup)
+__pycache__/
+*.zip
+*test.py
+*.pyc
+*.lck
+PWM_PCB.kicad_prl
