@@ -18,6 +18,7 @@ In order to include the third-party libraries when cloning AcCCS, use the proper
 
 ```
 git clone --recurse-submodules <clone url>
+git submodule sync
 ```
 
 If you encounter errors about git not locating specific repository versions, using this dirty hack seems to work:
