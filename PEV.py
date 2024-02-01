@@ -24,8 +24,6 @@ import xml.etree.ElementTree as ET
 import binascii
 import os.path
 import random
-from tqdm import trange
-from glob import glob
 from smbus import SMBus
 import argparse
 
@@ -39,6 +37,17 @@ class PEV:
         self.sourceIP = args.source_ip[0] if args.source_ip else "fe80::21e:c0ff:fef2:72f3"
         self.sourcePort = args.source_port[0] if args.source_port else random.randint(1025, 65534)
         self.protocol = Protocol(args.protocol[0]) if args.protocol else Protocol.DIN
+        self.nmapMAC = args.nmap_mac[0] if args.nmap_mac else ""
+        self.nmapIP = args.nmap_ip[0] if args.nmap_ip else ""
+        self.nmapPorts = []
+        if args.nmap_ports:
+            for arg in args.nmap_port[0].split(','):
+                if "-" in arg:
+                    i1,i2 = arg.split("-")
+                    for i in range(int(i1), int(i2)+1):
+                        self.nmapPorts.append(i)
+                else:
+                    self.nmapPorts.append(arg)
 
         self.destinationMAC = None
         self.destinationIP = None
@@ -617,7 +626,9 @@ class _TCPHandler:
                     if self.pev.mode == RunMode.SCAN:
                         # Start nmap scan while connection is kept alive
                         if self.scanner == None:
-                            self.scanner = NMAPScanner(EmulatorType.EVSE, [], self.iface, self.sourceMAC, self.sourceIP, self.destinationMAC, self.destinationIP)
+                            nmapMAC = self.pev.nmapMAC if self.pev.nmapMAC else self.destinationMAC
+                            nmapIP = self.pev.nmapIP if self.pev.nmapIP else self.destinationIP
+                            self.scanner = NMAPScanner(EmulatorType.PEV, self.pev.nmapPorts, self.iface, self.sourceMAC, self.sourceIP, nmapMAC, nmapIP)
                         self.scanner.start()
                 else:
                     self.xml.ChargeParameterDiscoveryRequest()
@@ -850,6 +861,9 @@ if __name__ == "__main__":
     parser.add_argument("--source-ip", nargs=1, help="Source IP address of packets (default: fe80::21e:c0ff:fef2:72f3)")
     parser.add_argument("--source-port", nargs=1, type=int, help="Source port of packets (default: 25565)")
     parser.add_argument("-p", "--protocol", nargs=1, help="Protocol for EXI encoding/decoding: DIN, ISO-2, ISO-20 (default: DIN)")
+    parser.add_argument("--nmap-mac", nargs=1, help="The MAC address of the target device to NMAP scan (default: SECC MAC address)")
+    parser.add_argument("--nmap-ip", nargs=1, help="The IP address of the target device to NMAP scan (default: SECC IP address)")
+    parser.add_argument("--nmap-ports", nargs=1, help="List of ports to scan seperated by commas (ex. 1,2,5-10,19,...) (default: Top 8000 common ports)")
     args = parser.parse_args()
 
     pev = PEV(args)

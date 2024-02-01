@@ -22,8 +22,6 @@ from EmulatorEnum import *
 from NMAPScanner import NMAPScanner
 import xml.etree.ElementTree as ET
 import binascii
-from tqdm import trange
-from glob import glob
 from smbus import SMBus
 import argparse
 
@@ -39,6 +37,17 @@ class EVSE:
         self.NID = args.NID[0] if args.NID else b"\x9c\xb0\xb2\xbb\xf5\x6c\x0e"
         self.NMK = args.NMK[0] if args.NMK else b"\x48\xfe\x56\x02\xdb\xac\xcd\xe5\x1e\xda\xdc\x3e\x08\x1a\x52\xd1"
         self.protocol = Protocol(args.protocol[0]) if args.protocol else Protocol.DIN
+        self.nmapMAC = args.nmap_mac[0] if args.nmap_mac else ""
+        self.nmapIP = args.nmap_ip[0] if args.nmap_ip else ""
+        self.nmapPorts = []
+        if args.nmap_ports:
+            for arg in args.nmap_port[0].split(','):
+                if "-" in arg:
+                    i1,i2 = arg.split("-")
+                    for i in range(int(i1), int(i2)+1):
+                        self.nmapPorts.append(i)
+                else:
+                    self.nmapPorts.append(arg)
 
         self.destinationMAC = None
         self.destinationIP = None
@@ -561,7 +570,9 @@ class _TCPHandler:
                     self.xml.EVSEProcessing.text = "Ongoing"
                     # Start nmap scan while connection is kept alive
                     if self.scanner == None:
-                        self.scanner = NMAPScanner(EmulatorType.EVSE, [], self.iface, self.sourceMAC, self.sourceIP, self.destinationMAC, self.destinationIP)
+                        nmapMAC = self.evse.nmapMAC if self.evse.nmapMAC else self.destinationMAC
+                        nmapIP = self.evse.nmapIP if self.evse.nmapIP else self.destinationIP
+                        self.scanner = NMAPScanner(EmulatorType.EVSE, self.evse.nmapPorts, self.iface, self.sourceMAC, self.sourceIP, nmapMAC, nmapIP)
                     self.scanner.start()
             elif "ChargeParameterDiscoveryReq" in name:
                 self.xml.ChargeParameterDiscoveryResponse()
@@ -758,6 +769,8 @@ if __name__ == "__main__":
         help="Network Membership Key of the HomePlug GreenPHY AVLN (default: \\x48\\xfe\\x56\\x02\\xdb\\xac\\xcd\\xe5\\x1e\\xda\\xdc\\x3e\\x08\\x1a\\x52\\xd1)",
     )
     parser.add_argument("-p", "--protocol", nargs=1, help="Protocol for EXI encoding/decoding: DIN, ISO-2, ISO-20 (default: DIN)")
+    parser.add_argument("--nmap-mac", nargs=1, help="The MAC address of the target device to NMAP scan (default: EVCC MAC address)")
+    parser.add_argument("--nmap-ip", nargs=1, help="The IP address of the target device to NMAP scan (default: EVCC IP address)")
     args = parser.parse_args()
 
     evse = EVSE(args)
