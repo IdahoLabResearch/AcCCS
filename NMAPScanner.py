@@ -50,7 +50,7 @@ class NMAPScanner():
                 file.write("{: <5} | {}\n".format(result[0], result[1]))
 
     def start(self):
-        if (not self.scanThread) or (not self.scanThread.is_alive):
+        if (not self.scanThread) or (not self.scanThread.is_alive()):
             self.scanThread = Thread(target=self._scan)
             self.scanThread.start()
         

@@ -484,9 +484,9 @@ class _TCPHandler:
 
     def killThreads(self):
         print("INFO (EVSE): Killing sniffing threads")
-        if self.scanner != None:
-            self.scanner.stop()
         self.running = False
+        if self.scanner:
+            self.scanner.stop()
         if self.recvThread.running:
             self.recvThread.stop()
         if self.handshakeThread.running:
