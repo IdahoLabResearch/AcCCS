@@ -32,7 +32,7 @@ class EVSE:
         self.mode = RunMode(args.mode[0]) if args.mode else RunMode.FULL
         self.iface = args.interface[0] if args.interface else "eth1"
         self.sourceMAC = args.source_mac[0] if args.source_mac else "00:1e:c0:f2:6c:a0"
-        self.sourceIP = args.source_ip[0] if args.source_ip else "fe80::21e:c0ff:fef2:72f3"
+        self.sourceIP = args.source_ip[0] if args.source_ip else "fe80::21e:c0ff:fef2:6ca0"
         self.sourcePort = args.source_port[0] if args.source_port else 25565
         self.NID = args.NID[0] if args.NID else b"\x9c\xb0\xb2\xbb\xf5\x6c\x0e"
         self.NMK = args.NMK[0] if args.NMK else b"\x48\xfe\x56\x02\xdb\xac\xcd\xe5\x1e\xda\xdc\x3e\x08\x1a\x52\xd1"

@@ -33,8 +33,8 @@ class PEV:
     def __init__(self, args):
         self.mode = RunMode(args.mode[0]) if args.mode else RunMode.FULL
         self.iface = args.interface[0] if args.interface else "eth1"
-        self.sourceMAC = args.source_mac[0] if args.source_mac else "00:1e:c0:f2:6c:a0"
-        self.sourceIP = args.source_ip[0] if args.source_ip else "fe80::21e:c0ff:fef2:72f3"
+        self.sourceMAC = args.source_mac[0] if args.source_mac else "00:1e:c0:f2:6c:a1"
+        self.sourceIP = args.source_ip[0] if args.source_ip else "fe80::21e:c0ff:fef2:6ca1"
         self.sourcePort = args.source_port[0] if args.source_port else random.randint(1025, 65534)
         self.protocol = Protocol(args.protocol[0]) if args.protocol else Protocol.DIN
         self.nmapMAC = args.nmap_mac[0] if args.nmap_mac else ""
