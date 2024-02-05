@@ -72,7 +72,7 @@ class NMAPScanner():
         for i in trange(currentPort, maxPorts, initial=currentPort, unit=" ports", desc="Ports Scanned", ncols=100, total=maxPorts):
             if not self.running:
                 break
-
+            time.sleep(0.1) # Throttle the port scan
             self.lastPort = i
 
             sport = random.randint(1025, 65534)
@@ -80,7 +80,7 @@ class NMAPScanner():
                 Ether(src=self.sourceMAC, dst=self.destinationMAC)
                 / IPv6(src=self.sourceIP, dst=self.destinationIP)
                 / TCP(sport=sport, dport=self.portList[i], flags="S"),
-                timeout=1,
+                timeout=0.2,
                 verbose=0,
                 iface=self.iface,
             )
@@ -96,7 +96,7 @@ class NMAPScanner():
                         Ether(src=self.sourceMAC, dst=self.destinationMAC)
                         / IPv6(src=self.sourceIP, dst=self.destinationIP)
                         / TCP(sport=sport, dport=self.portList[i], flags="R"),
-                        timeout=1,
+                        timeout=0.2,
                         verbose=0,
                         iface=self.iface,
                     )
