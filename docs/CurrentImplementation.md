@@ -23,6 +23,8 @@ And this is an image of the board layout we used to print the custom circuit boa
 
 The schematic and the board layout files were generated using [KiCad](https://www.kicad.org/), and the project files are located in the [resources](/resources/) folder of the AcCCS project. The PCB were printed by a regional company [Circuitboard.com](https://www.circuitboard.com/).
 
+**SPECIAL NOTE:** This PWM circuit board is capable of simulating the EVSE cordset being removed and replugged by simulating pressing the button on the handle. If this functionality is desired, you will need (1) a modified EVSE cordset in which you remove the 150 Ohm resistor tied to the button, and (2) populate the **R12** pad on the circuit board with a 150 Ohm resistor. If you are using an unmodified EVSE cordset and will manually unplug and replug the cordset to reset the EVSE to EV connection, leave **R12** unpopulated.
+
 # Wiring Diagram
 The enclosure wiring follows this pattern:
 
@@ -95,6 +97,8 @@ The EVSE cordset we are using is a CCS Type 1 cord from Phoenix Contact: (https:
 The EV inlet port is also CCS Type 1 from Phoenix Contact: (https://www.mouser.com/ProductDetail/Phoenix-Contact/1210900?qs=T94vaHKWudRqtRNWYLAGvg%3D%3D)
 
 BNC connectors were added to the cordset and inlet port so that they are easily connected to the AcCCS enclosure.
+
+**NOTE:** If you want the PWM circuit to automatically disconnect and reconnect the EVSE emulator from a target EV, you will need to modify the cordset and the PWM circuit. This functionality may be desired if you are performing long NMap scans of a target EV and the EV frequently resets the network connection. See the **SPECIAL NOTE** found in the [PWM Generation Circuit](#pwm-generation-circuit) section.
 
 # Basic Operating Instructions
 Connect a research laptop to the RJ-45 connector on the side of the AcCCS enclosure. Configure the network interface on the research laptop to use a static IP address in the ```10.10.10.0/24``` address space. Just don't use the same address you used for the static IP address on the Raspberry Pi. You do not need to change any of the IPv6 settings on the research laptop.
