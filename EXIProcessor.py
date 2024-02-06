@@ -38,7 +38,7 @@ class EXIProcessor:
 
     def _isServerStarted(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(1)
+        sock.settimeout(2)
         try:
             sock.connect(("localhost", self.port))
             sock.shutdown(socket.SHUT_RDWR)
@@ -67,7 +67,7 @@ class EXIProcessor:
     def encode(self, xmlString):
         # Make post request to java webserver
         try:
-            req = requests.post(url=f"http://localhost:{self.port}/", headers={"Format": "XML"}, data=xmlString, timeout=1)
+            req = requests.post(url=f"http://localhost:{self.port}/", headers={"Format": "XML"}, data=xmlString, timeout=2)
         except Timeout:
             print("ERROR: Connection to the java webserver timed out.")
         except Exception as e:
@@ -84,7 +84,7 @@ class EXIProcessor:
     def decode(self, exiString):
         # Make post request to java webserver
         try:
-            req = requests.post(url=f"http://localhost:{self.port}/", headers={"Format": "EXI"}, data=exiString, timeout=1)
+            req = requests.post(url=f"http://localhost:{self.port}/", headers={"Format": "EXI"}, data=exiString, timeout=2)
         except Timeout:
             print(f"ERROR: Connection to the java webserver timed out when trying to decode {exiString}")
         except Exception as e:
