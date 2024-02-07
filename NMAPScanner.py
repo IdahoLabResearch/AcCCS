@@ -4,6 +4,7 @@ import time
 from tqdm import *
 import random
 from scapy.all import *
+from ipaddress import ip_address, IPv4Address
 
 SCAN_RESULTS_DIR = "scan_results/"
 
@@ -22,6 +23,19 @@ class NMAPScanner():
         self.destinationMAC = destinationMAC
         self.destinationIP = destinationIP
         
+        # Check if address types match
+        sourceType = self.getType(sourceIP)
+        self.destinationType = self.getType(destinationIP)
+        if not sourceType:
+            raise ValueError("source IP for NMAP scan is not valid")
+        if not self.destinationType:
+            raise ValueError("destination IP for NMAP scan is not valid")
+        if self.destinationType == "ipv4" and sourceType == "ipv6":
+            self.sourceIP = "10.42.0.{}".format(random.randint(1,255))
+        if self.destinationType == "ipv6" and sourceType == "ipv4":
+            # Random link local ipv6 address
+            self.sourceIP = "fe80::9656:d028:8652:66b6"
+            
         # Get list of current scan results
         fileList = glob(SCAN_RESULTS_DIR + "scan_res_{}_[0-9][0-9][0-9].txt".format(emulatorType.value))
         maxFileNum = 0
@@ -35,6 +49,12 @@ class NMAPScanner():
         # Use provided portlist if not empty, use most common ports if not
         self.portList = portList if portList else self.getPortList()
 
+    def getType(self, ipAddress):
+        try: 
+            return "ipv4" if type(ip_address(ipAddress)) is IPv4Address else "ipv6"
+        except ValueError: 
+            return None
+    
     def getPortList(self):
         res = []
         with open("modportlist.txt", "r") as file:
@@ -78,7 +98,7 @@ class NMAPScanner():
             sport = random.randint(1025, 65534)
             resp = srp1(
                 Ether(src=self.sourceMAC, dst=self.destinationMAC)
-                / IPv6(src=self.sourceIP, dst=self.destinationIP)
+                / (IPv6(src=self.sourceIP, dst=self.destinationIP) if self.destinationType == "ipv6" else IP(src=self.sourceIP, dst=self.destinationIP))
                 / TCP(sport=sport, dport=self.portList[i], flags="S"),
                 timeout=1,
                 verbose=0,
@@ -94,7 +114,7 @@ class NMAPScanner():
                     # Send a gratuitous RST to close the connection
                     send_rst = srp(
                         Ether(src=self.sourceMAC, dst=self.destinationMAC)
-                        / IPv6(src=self.sourceIP, dst=self.destinationIP)
+                        / (IPv6(src=self.sourceIP, dst=self.destinationIP) if self.destinationType == "ipv6" else IP(src=self.sourceIP, dst=self.destinationIP))
                         / TCP(sport=sport, dport=self.portList[i], flags="R"),
                         timeout=1,
                         verbose=0,
