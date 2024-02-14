@@ -86,11 +86,12 @@ class EVSE:
 
     # Close the circuit for the proximity pins
     def closeProximity(self):
-        print("INFO (EVSE): Closing CP relay connection")
-        self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.EVSE_CP)
         if self.modified_cordset:
-            print("INFO (EVSE): Closing PP relay connection")
-            self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.EVSE_PP)
+            print("INFO (EVSE): Closing CP/PP relay connections")
+            self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.EVSE_PP | self.EVSE_CP)
+        else:
+            print("INFO (EVSE): Closing CP relay connection")
+            self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.EVSE_CP)
 
     # Close the circuit for the proximity pins
     def openProximity(self):
@@ -692,10 +693,7 @@ if __name__ == "__main__":
     parser.add_argument("--nmap-mac", nargs=1, help="The MAC address of the target device to NMAP scan (default: EVCC MAC address)")
     parser.add_argument("--nmap-ip", nargs=1, help="The IP address of the target device to NMAP scan (default: EVCC IP address)")
     parser.add_argument("--nmap-ports", nargs=1, help="List of ports to scan seperated by commas (ex. 1,2,5-10,19,...) (default: Top 8000 common ports)")
-    parser.add_argument("--modified_cordset", 
-                        nargs=1, 
-                        action="store_true",
-                        help="Set this option when using a modified cordset during testing of a target vehicle. The AcCCS system will provide a 150 ohm ground on the proximity line to reset the connection. (default: False)")
+    parser.add_argument("--modified-cordset", action="store_true", help="Set this option when using a modified cordset during testing of a target vehicle. The AcCCS system will provide a 150 ohm ground on the proximity line to reset the connection. (default: False)")
     args = parser.parse_args()
 
     evse = EVSE(args)
