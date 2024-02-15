@@ -1,0 +1,78 @@
+The following parts were used to build the PWM board and enclosure for an AcCCS box.
+
+Enclosure
+https://www.mcmaster.com/69945K156/
+
+Enclosure Panel (1x per box)
+https://www.mcmaster.com/69945K57/
+
+24V to 12V Isolated DC/DC Converter (2x per box)
+https://www.digikey.com/en/products/detail/cui-inc/PYBE30-Q24-S12-T/9859982
+
+24V to 5V Isolated DC/DC Converter (1x per box)
+https://www.digikey.com/en/products/detail/cui-inc/PYBE30-Q24-S5-T/9859981
+
+Description: 555 Timer
+https://www.digikey.com/en/products/detail/texas-instruments/TLC555CP/277502
+
+Description Op-Amp
+https://www.digikey.com/en/products/detail/rochester-electronics-llc/TLE2142AMJG/13446742
+
+Description: I2C GPIO Expansion
+https://www.digikey.com/en/products/detail/microchip-technology/MCP23008-E-P/735951
+
+Description: Relay (5x per box)
+https://www.amazon.com/Songle-Household-Appliance-Relay-SRD-05VDC-SL-C/dp/B00O9WPAJ6
+
+Description: Optocoupler (10x per box)
+https://www.digikey.com/en/products/detail/vishay-semiconductor-opto-division/SFH617A-1/4075067
+
+Description: NPN Transistor (10x per box)
+https://www.digikey.com/en/products/detail/central-semiconductor-corp/2SC1815-PBFREE/5777301
+
+Description: Red LED (10x per box)
+https://www.digikey.com/en/products/detail/kingbright/WP7113ID/1747663
+
+Description: Potentiometer (2x per box)
+https://www.digikey.com/en/products/detail/sparkfun-electronics/COM-09806/7319606
+
+Description: Screw Terminals (6x per box)
+https://www.digikey.com/en/products/detail/te-connectivity-amp-connectors/282837-4/2187975
+
+Description: 100-piece resistor packs
+
+100 ohm
+https://www.amazon.com/gp/product/B07QKDSCSM
+
+1K ohm
+https://www.amazon.com/gp/product/B07HDDWFDD
+
+10K ohm
+https://www.amazon.com/gp/product/B07HDGX5LM
+
+470 ohm
+https://www.amazon.com/gp/product/B07HDFBR2P
+
+4.7K ohm
+https://www.amazon.com/gp/product/B07HDFHPP3
+
+47K ohm
+https://www.amazon.com/gp/product/B07HDFHVLL
+
+2.2K ohm
+https://www.amazon.com/gp/product/B07HDFT8NF
+
+22K ohm
+https://www.amazon.com/gp/product/B07HDF633C
+
+330 ohm
+https://www.amazon.com/gp/product/B07HDFFN81
+
+510 ohm
+https://www.amazon.com/gp/product/B07HDFSV7C
+
+680 ohm
+https://www.amazon.com/gp/product/B07HDFJVYF
+
+150 ohm
+https://www.amazon.com/gp/product/B07HDH2M4M
