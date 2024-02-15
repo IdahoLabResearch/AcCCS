@@ -47,7 +47,7 @@ class PEV:
                     for i in range(int(i1), int(i2)+1):
                         self.nmapPorts.append(i)
                 else:
-                    self.nmapPorts.append(arg)
+                    self.nmapPorts.append(int(arg))
 
         self.destinationMAC = None
         self.destinationIP = None
