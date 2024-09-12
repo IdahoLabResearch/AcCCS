@@ -32,6 +32,7 @@ class PEV:
 
     def __init__(self, args):
         self.mode = RunMode(args.mode[0]) if args.mode else RunMode.FULL
+        self.skip_slac = True if args.skip_slac else False
         self.disable_i2c = True if args.disable_i2c else False
         self.iface = args.interface[0] if args.interface else "eth1"
         self.sourceMAC = args.source_mac[0] if args.source_mac else "00:1e:c0:f2:6c:a1"
@@ -78,7 +79,8 @@ class PEV:
             self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00)
 
         self.toggleProximity()
-        self.doSLAC()
+        if not self.skip_slac:
+            self.doSLAC()
         self.doSDP()
         self.doTCP()
         # If NMAP is not done, restart connection
@@ -814,6 +816,7 @@ if __name__ == "__main__":
     parser.add_argument("--nmap-mac", nargs=1, help="The MAC address of the target device to NMAP scan (default: SECC MAC address)")
     parser.add_argument("--nmap-ip", nargs=1, help="The IP address of the target device to NMAP scan (default: SECC IP address)")
     parser.add_argument("--nmap-ports", nargs=1, help="List of ports to scan seperated by commas (ex. 1,2,5-10,19,...) (default: Top 8000 common ports)")
+    parser.add_argument("--skip-slac", action="store_true", help="Set this option when not using QCA based powerline chip. You will have to handle slac externally. (default: False)")
     parser.add_argument("--disable-i2c", action="store_true", help="Set this option when not using the original AcCCS hardware, i.e. no I2C bus is present. (default: False)")
     args = parser.parse_args()
 
