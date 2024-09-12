@@ -59,6 +59,7 @@ class EVSE:
         self.exi = EXIProcessor(self.protocol)
 
         self.slac = _SLACHandler(self)
+        self.sdp = _SDPHandler(self)
         self.tcp = _TCPHandler(self)
 
         # I2C bus for relays
@@ -78,6 +79,7 @@ class EVSE:
 
         self.toggleProximity()
         self.doSLAC()
+        self.doSDP()
         self.doTCP()
         # If NMAP is not done, restart connection
         if not self.tcp.finishedNMAP:
@@ -108,6 +110,10 @@ class EVSE:
     def doTCP(self):
         self.tcp.start()
         print("INFO (EVSE): Done TCP")
+
+    def doSDP(self):
+        self.sdp.start()
+        print("INFO (EVSE): Done SDP")
 
     # Starts SLAC thread that handles layer 2 comms
     def doSLAC(self):
@@ -155,21 +161,12 @@ class _SLACHandler:
         sniff(iface=self.iface, prn=self.handlePacket, stop_filter=self.stopSniff)
 
     def stopSniff(self, pkt):
-        if pkt.haslayer("SECC_RequestMessage"):
-            print("INDO (EVSE): Recieved SECC_RequestMessage")
-            # self.evse.destinationMAC = pkt[Ether].src
-            # use this to send 3 secc responses incase car doesnt see one
-            self.destinationIP = pkt[IPv6].src
-            self.destinationPort = pkt[UDP].sport
-            Thread(target=self.sendSECCResponse).start()
+        if pkt.haslayer("CM_SLAC_MATCH_REQ"):
+            print("INFO (EVSE): Recieved SLAC_MATCH_REQ")
+            print("INFO (EVSE): Sending SLAC_MATCH_CNF")
+            sendp(self.buildSlacMatchCnf(), iface=self.iface, verbose=0)
             self.stop = True
         return self.stop
-
-    def sendSECCResponse(self):
-        time.sleep(0.2)
-        for i in range(3):
-            print("INFO (EVSE): Sending SECC_ResponseMessage")
-            sendp(self.buildSECCResponse(), iface=self.iface, verbose=0)
 
     def handlePacket(self, pkt):
         if pkt[Ether].type != 0x88E1 or pkt[Ether].src == self.sourceMAC:
@@ -188,11 +185,6 @@ class _SLACHandler:
             print("INFO (EVSE): Recieved last MNBC_SOUND_IND")
             print("INFO (EVSE): Sending ATTEN_CHAR_IND")
             sendp(self.buildAttenCharInd(), iface=self.iface, verbose=0)
-
-        if pkt.haslayer("CM_SLAC_MATCH_REQ"):
-            print("INFO (EVSE): Recieved SLAC_MATCH_REQ")
-            print("INFO (EVSE): Sending SLAC_MATCH_CNF")
-            sendp(self.buildSlacMatchCnf(), iface=self.iface, verbose=0)
 
     def buildSlacParmCnf(self):
         ethLayer = Ether()
@@ -348,13 +340,41 @@ class _SLACHandler:
         responsePacket = ethLayer / homePlugAVLayer / homePlugLayer
         return responsePacket
 
+class _SDPHandler:
+    def __init__(self, evse: EVSE):
+        self.evse = evse
+
+        self.destinationIP = None
+        self.destinationPort = None
+
+    def start(self):
+        sniff(iface=self.evse.iface, stop_filter=self.stopSniff)
+
+    def stopSniff(self, pkt):
+        if pkt.haslayer("SECC_RequestMessage"):
+            print("INDO (EVSE): Recieved SECC_RequestMessage")
+            # self.evse.destinationMAC = pkt[Ether].src
+            # use this to send 3 secc responses incase car doesnt see one
+            self.destinationIP = pkt[IPv6].src
+            self.destinationPort = pkt[UDP].sport
+            Thread(target=self.sendSECCResponse).start()
+            return True
+        return False
+
+    def sendSECCResponse(self):
+        time.sleep(0.2)
+        for i in range(3):
+            print("INFO (EVSE): Sending SECC_ResponseMessage")
+            sendp(self.buildSECCResponse(), iface=self.evse.iface, verbose=0)
+
+
     def buildSECCResponse(self):
         e = Ether()
-        e.src = self.sourceMAC
-        e.dst = self.destinationMAC
+        e.src = self.evse.sourceMAC
+        e.dst = self.evse.destinationMAC
 
         ip = IPv6()
-        ip.src = self.sourceIP
+        ip.src = self.evse.sourceIP
         ip.dst = self.destinationIP
 
         udp = UDP()
@@ -367,8 +387,8 @@ class _SLACHandler:
 
         seccRM = SECC_ResponseMessage()
         seccRM.SecurityProtocol = 16
-        seccRM.TargetPort = self.sourcePort
-        seccRM.TargetAddress = self.sourceIP  # eno1
+        seccRM.TargetPort = self.evse.sourcePort
+        seccRM.TargetAddress = self.evse.sourceIP  # eno1
 
         responsePacket = e / ip / udp / secc / seccRM
         return responsePacket

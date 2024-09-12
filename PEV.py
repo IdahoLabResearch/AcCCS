@@ -56,6 +56,7 @@ class PEV:
         self.exi = EXIProcessor(self.protocol)
 
         self.slac = _SLACHandler(self)
+        self.sdp = _SDPHandler(self)
         self.tcp = _TCPHandler(self)
 
         # I2C bus for relays
@@ -75,6 +76,7 @@ class PEV:
 
         self.toggleProximity()
         self.doSLAC()
+        self.doSDP()
         self.doTCP()
         # If NMAP is not done, restart connection
         if not self.tcp.finishedNMAP:
@@ -84,6 +86,12 @@ class PEV:
     def doTCP(self):
         self.tcp.start()
         print("INFO (PEV) : Done TCP")
+
+    def doSDP(self):
+        print("INFO (PEV) : Starting SDP")
+        self.sdp.start()
+        self.sdp.sniffThread.join()
+        print("INFO (PEV) : Done SDP")
 
     def doSLAC(self):
         print("INFO (PEV) : Starting SLAC")
@@ -160,11 +168,18 @@ class _SLACHandler:
 
     # Stop the thread when the slac match is done
     def stopSniff(self, pkt):
-        if pkt.haslayer("SECC_ResponseMessage"):
-            self.pev.destinationIP = pkt[SECC_ResponseMessage].TargetAddress
-            self.pev.destinationPort = pkt[SECC_ResponseMessage].TargetPort
+        if pkt.haslayer("CM_SLAC_MATCH_CNF"):
+            print("INFO (PEV) : Recieved SLAC_MATCH_CNF")
+            self.NID = pkt[CM_SLAC_MATCH_CNF].VariableField.NetworkID
+            self.NMK = pkt[CM_SLAC_MATCH_CNF].VariableField.NMK
+            print("INFO (PEV) : Sending SET_KEY_REQ")
+            sendp(self.buildSetKeyReq(), iface=self.iface, verbose=0)
+            time.sleep(3) # give modem some time to reboot
+
             if self.neighborSolicitationThread.running:
                 self.neighborSolicitationThread.stop()
+
+            self.stop = True
             return True
         return False
 
@@ -202,21 +217,6 @@ class _SLACHandler:
             self.timeSinceLastPkt = time.time()
             return
 
-        if pkt.haslayer("CM_SLAC_MATCH_CNF"):
-            print("INFO (PEV) : Recieved SLAC_MATCH_CNF")
-            self.NID = pkt[CM_SLAC_MATCH_CNF].VariableField.NetworkID
-            self.NMK = pkt[CM_SLAC_MATCH_CNF].VariableField.NMK
-            print("INFO (PEV) : Sending SET_KEY_REQ")
-            sendp(self.buildSetKeyReq(), iface=self.iface, verbose=0)
-            self.stop = True
-            Thread(target=self.sendSECCRequest).start()
-            return
-
-    def sendSECCRequest(self):
-        time.sleep(3)
-        print("INFO (PEV) : Sending 3 SECC_RequestMessage")
-        for i in range(1):
-            sendp(self.buildSECCRequest(), iface=self.iface, verbose=0)
 
     def sendSounds(self):
         self.numRemainingSounds = self.numSounds
@@ -344,31 +344,6 @@ class _SLACHandler:
         responsePacket = ethLayer / homePlugAVLayer / homePlugLayer
         return responsePacket
 
-    def buildSECCRequest(self):
-        ethLayer = Ether()
-        ethLayer.src = self.sourceMAC
-        ethLayer.dst = "33:33:00:00:00:01"
-
-        ipLayer = IPv6()
-        ipLayer.src = self.sourceIP
-        ipLayer.dst = "ff02::1"
-        ipLayer.hlim = 255
-
-        udpLayer = UDP()
-        udpLayer.sport = self.pev.sourcePort
-        udpLayer.dport = 15118
-
-        seccLayer = SECC()
-        seccLayer.SECCType = 0x9000
-        seccLayer.PayloadLen = 2
-
-        seccRequestLayer = SECC_RequestMessage()
-        seccRequestLayer.SecurityProtocol = 16
-        seccRequestLayer.TransportProtocol = 0
-
-        responsePacket = ethLayer / ipLayer / udpLayer / seccLayer / seccRequestLayer
-        return responsePacket
-
     def buildNeighborAdvertisement(self):
         ethLayer = Ether()
         ethLayer.src = self.sourceMAC
@@ -402,6 +377,60 @@ class _SLACHandler:
         # print("INFO (EVSE): Sending Neighor Advertisement")
         sendp(self.buildNeighborAdvertisement(), iface=self.iface, verbose=0)
 
+class _SDPHandler:
+    def __init__(self, pev: PEV):
+        self.pev = pev
+
+    # This method starts the slac process and will stop
+    def start(self):
+        self.runID = os.urandom(8)
+        self.stop = False
+        # Thread for sniffing packets and handling responses
+        # self.sniffThread = Thread(target=self.startSniff)
+        # self.sniffThread.start()
+
+        self.sniffThread = AsyncSniffer(iface=self.pev.iface, stop_filter=self.stopSniff)
+        self.sniffThread.start()
+
+        self.sendSECCRequest()
+
+    # Stop the thread when the slac match is done
+    def stopSniff(self, pkt):
+        if pkt.haslayer("SECC_ResponseMessage"):
+            self.pev.destinationIP = pkt[SECC_ResponseMessage].TargetAddress
+            self.pev.destinationPort = pkt[SECC_ResponseMessage].TargetPort
+            return True
+        return False
+
+    def sendSECCRequest(self):
+        print("INFO (PEV) : Sending 3 SECC_RequestMessage")
+        for i in range(1):
+            sendp(self.buildSECCRequest(), iface=self.pev.iface, verbose=0)
+
+    def buildSECCRequest(self):
+        ethLayer = Ether()
+        ethLayer.src = self.pev.sourceMAC
+        ethLayer.dst = "33:33:00:00:00:01"
+
+        ipLayer = IPv6()
+        ipLayer.src = self.pev.sourceIP
+        ipLayer.dst = "ff02::1"
+        ipLayer.hlim = 255
+
+        udpLayer = UDP()
+        udpLayer.sport = self.pev.sourcePort
+        udpLayer.dport = 15118
+
+        seccLayer = SECC()
+        seccLayer.SECCType = 0x9000
+        seccLayer.PayloadLen = 2
+
+        seccRequestLayer = SECC_RequestMessage()
+        seccRequestLayer.SecurityProtocol = 16
+        seccRequestLayer.TransportProtocol = 0
+
+        responsePacket = ethLayer / ipLayer / udpLayer / seccLayer / seccRequestLayer
+        return responsePacket
 
 class _TCPHandler:
     def __init__(self, pev: PEV):
