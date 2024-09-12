@@ -63,7 +63,7 @@ class EVSE:
         self.tcp = _TCPHandler(self)
 
         # I2C bus for relays
-        self.bus = SMBus(1)
+        # self.bus = SMBus(1)
 
         # Constants for i2c controlled relays
         self.I2C_ADDR = 0x20
@@ -75,7 +75,7 @@ class EVSE:
     # Start the emulator
     def start(self):
         # Initialize the I2C bus for wwrite
-        self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00)
+        # self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00)
 
         self.toggleProximity()
         self.doSLAC()
@@ -90,15 +90,15 @@ class EVSE:
     def closeProximity(self):
         if self.modified_cordset:
             print("INFO (EVSE): Closing CP/PP relay connections")
-            self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.EVSE_PP | self.EVSE_CP)
+            # self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.EVSE_PP | self.EVSE_CP)
         else:
             print("INFO (EVSE): Closing CP relay connection")
-            self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.EVSE_CP)
+            # self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.EVSE_CP)
 
     # Close the circuit for the proximity pins
     def openProximity(self):
         print("INFO (EVSE): Opening CP/PP relay connections")
-        self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.ALL_OFF)
+        # self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.ALL_OFF)
 
     # Opens and closes proximity circuit with a delay
     def toggleProximity(self, t: int = 5):
