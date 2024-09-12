@@ -32,6 +32,7 @@ class PEV:
 
     def __init__(self, args):
         self.mode = RunMode(args.mode[0]) if args.mode else RunMode.FULL
+        self.disable_i2c = True if args.disable_i2c else False
         self.iface = args.interface[0] if args.interface else "eth1"
         self.sourceMAC = args.source_mac[0] if args.source_mac else "00:1e:c0:f2:6c:a1"
         self.sourceIP = args.source_ip[0] if args.source_ip else "fe80::21e:c0ff:fef2:6ca1"
@@ -60,7 +61,8 @@ class PEV:
         self.tcp = _TCPHandler(self)
 
         # I2C bus for relays
-        # self.bus = SMBus(1)
+        if not self.disable_i2c:
+            self.bus = SMBus(1)
 
         # Constants for i2c controlled relays
         self.I2C_ADDR = 0x20
@@ -72,7 +74,8 @@ class PEV:
 
     def start(self):
         # Initialize the smbus for I2C commands
-        # self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00)
+        if not self.disable_i2c:
+            self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00)
 
         self.toggleProximity()
         self.doSLAC()
@@ -106,15 +109,19 @@ class PEV:
         self.setState(PEVState.A)
 
     def setState(self, state: PEVState):
+        if self.disable_i2c:
+            print(f"INFO (PEV) : State transition to {state}")
+            return
+
         if state == PEVState.A:
             print("INFO (PEV) : Going to state A")
-            # self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.ALL_OFF)
+            self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.ALL_OFF)
         elif state == PEVState.B:
             print("INFO (PEV) : Going to state B")
-            # self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.PEV_PP | self.PEV_CP1)
+            self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.PEV_PP | self.PEV_CP1)
         elif state == PEVState.C:
             print("INFO (PEV) : Going to state C")
-            # self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.PEV_PP | self.PEV_CP1 | self.PEV_CP2)
+            self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.PEV_PP | self.PEV_CP1 | self.PEV_CP2)
 
     def toggleProximity(self, t: int = 5):
         self.openProximity()
@@ -807,6 +814,7 @@ if __name__ == "__main__":
     parser.add_argument("--nmap-mac", nargs=1, help="The MAC address of the target device to NMAP scan (default: SECC MAC address)")
     parser.add_argument("--nmap-ip", nargs=1, help="The IP address of the target device to NMAP scan (default: SECC IP address)")
     parser.add_argument("--nmap-ports", nargs=1, help="List of ports to scan seperated by commas (ex. 1,2,5-10,19,...) (default: Top 8000 common ports)")
+    parser.add_argument("--disable-i2c", action="store_true", help="Set this option when not using the original AcCCS hardware, i.e. no I2C bus is present. (default: False)")
     args = parser.parse_args()
 
     pev = PEV(args)
