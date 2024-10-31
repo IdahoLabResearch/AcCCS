@@ -1,0 +1,39 @@
+#,Reference,Qty,Value,Footprint,Website
+1,"C1, C3, C4",3,100nF,Capacitor_THT:C_Disc_D7.5mm_W5.0mm_P5.00mm,https://www.digikey.com/en/products/detail/kemet/C322C104K5R5TA/818105
+2,C2,1,47nF,Capacitor_THT:C_Disc_D7.5mm_W5.0mm_P5.00mm,https://www.digikey.com/en/products/detail/kemet/C322C473K5R5TA7301/6562350
+3,"D1, D2, D6, D7, D8, D9, D10, D11",8,~,Diode_THT:D_DO-41_SOD81_P7.62mm_Horizontal,https://www.digikey.com/en/products/detail/micro-commercial-co/1N4002-TP/773639
+4,"D3, D4, D5, D12, D13, D14, D15, D16",8,LED,LED_THT:LED_D1.8mm_W3.3mm_H2.4mm,https://www.digikey.com/en/products/detail/w%C3%BCrth-elektronik/151033RS03000/4490003
+5,"D17, D19, D20, D22, D23, D25",6,ZPD10,Diode_THT:D_DO-35_SOD27_P7.62mm_Horizontal,https://www.digikey.com/en/products/detail/diotec-semiconductor/ZPD10/13153578
+6,"D18, D24",2,ZPD12,Diode_THT:D_DO-35_SOD27_P7.62mm_Horizontal,https://www.digikey.com/en/products/detail/diotec-semiconductor/ZPD12/22190185
+7,D21,1,ZPD5.1,Diode_THT:D_DO-35_SOD27_P7.62mm_Horizontal,https://www.digikey.com/en/products/detail/diotec-semiconductor/ZPD5-1/13153915
+8,"J1, J5",2,GND,"TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-4_1x04_P5.00mm_Horizontal",https://www.digikey.com/en/products/detail/te-connectivity-amp-connectors/282837-4/2187975
+9,J2,1,+12V,"TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-4_1x04_P5.00mm_Horizontal",https://www.digikey.com/en/products/detail/te-connectivity-amp-connectors/282837-4/2187975
+10,J3,1,-12V,"TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-4_1x04_P5.00mm_Horizontal",https://www.digikey.com/en/products/detail/te-connectivity-amp-connectors/282837-4/2187975
+11,J4,1,+5V,"TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-4_1x04_P5.00mm_Horizontal",https://www.digikey.com/en/products/detail/te-connectivity-amp-connectors/282837-4/2187975
+12,J6,1,PWM Test Point,Connector_PinHeader_2.54mm:PinHeader_1x01_P2.54mm_Vertical,https://www.digikey.com/en/products/detail/sullins-connector-solutions/PRPC020SACN-RC/2776086
+13,J7,1,OUTPUTS,"TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-4_1x04_P5.00mm_Horizontal",https://www.digikey.com/en/products/detail/te-connectivity-amp-connectors/282837-4/2187975
+14,J8,1,I2C,Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical,https://www.digikey.com/en/products/detail/sullins-connector-solutions/PRPC020SACN-RC/2776086
+15,"K1, K2, K3, K4, K5",5,SRD-05VDC-SL-C,Relay_THT:Relay_SPDT_SANYOU_SRD_Series_Form_C,https://www.digikey.com/en/products/detail/amphenol-anytek/AWHSH105D00G/16721986
+16,"Q1, Q2, Q3, Q4, Q5",5,2SC1815,Package_TO_SOT_THT:TO-92_Inline,https://www.digikey.com/en/products/detail/central-semiconductor-corp/2SC1815-PBFREE/5777301
+17,"Q6, Q7, Q8",3,GT088N06T,Package_TO_SOT_THT:TO-220-3_Vertical,https://www.digikey.com/en/products/detail/goford-semiconductor/GT088N06T/16533532
+18,"Q9, Q10, Q11, Q12, Q13, Q14",6,G75P04T,Package_TO_SOT_THT:TO-220-3_Vertical,https://www.digikey.com/en/products/detail/goford-semiconductor/G75P04T/18768879
+19,R1,1,24k,Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal,https://www.amazon.com/gp/product/B07HDGJC2N
+20,"R2, R6",2,4.7k,Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal,https://www.amazon.com/gp/product/B07HDFHPP3
+21,"R3, R9",2,680,Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal,https://www.amazon.com/gp/product/B07HDFJVYF
+22,"R4, R5, R14, R27, R28, R29, R30, R31",8,1k,Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal,https://www.amazon.com/gp/product/B07HDDWFDD
+23,R7,1,10k,Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal,https://www.amazon.com/gp/product/B07HDGX5LM
+24,R8,1,47k,Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal,https://www.amazon.com/gp/product/B07HDFHVLL
+25,"R10, R12, R15, R21",4,2.2k,Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal,https://www.amazon.com/gp/product/B07HDFT8NF
+26,"R11, R18",2,470,Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal,https://www.amazon.com/gp/product/B07HDFBR2P
+27,R13,1,100,Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal,https://www.amazon.com/gp/product/B07QKDSCSM
+28,"R16, R19",2,330,Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal,https://www.amazon.com/gp/product/B07HDFFN81
+29,R17,1,150,Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal,https://www.amazon.com/gp/product/B07HDH2M4M
+30,"R20, R22, R23, R24, R25, R26",6,510,Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal,https://www.amazon.com/gp/product/B07HDFSV7C
+31,"R32, R33, R34, R35, R36, R37, R38, R39, R40",9,100k,Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal,https://www.amazon.com/gp/product/B07HDG9K8P
+32,"RV1, RV2",2,2k Pot,Potentiometer_THT:Potentiometer_Bourns_3386F_Vertical,https://www.digikey.com/en/products/detail/bourns-inc./3386F-1-202TLF/2536922
+33,U1,1,TLC555CP,Package_DIP:DIP-8_W7.62mm,https://www.digikey.com/en/products/detail/texas-instruments/TLC555CP/277502
+34,U2,1,LM6132BIN/NOPB,Package_DIP:DIP-8_W7.62mm,https://www.digikey.com/en/products/detail/texas-instruments/LM6132BIN-NOPB/120154
+35,U3,1,MCP23008-xP,Package_DIP:DIP-18_W7.62mm,https://www.digikey.com/en/products/detail/microchip-technology/MCP23008-E-P/735951
+36,"U4, U5, U6, U7, U8",5,SFH617A-1,Package_DIP:DIP-4_W7.62mm,https://www.digikey.com/en/products/detail/vishay-semiconductor-opto-division/SFH617A-1/4075067
+,,,,,https://www.digikey.com/en/products/detail/te-connectivity-amp-connectors/1-2199298-2/5022039
+,,,,,https://www.digikey.com/en/products/detail/te-connectivity-amp-connectors/1-2199298-5/5022042

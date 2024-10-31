@@ -34,9 +34,9 @@
         "other_text_thickness": 0.15,
         "other_text_upright": false,
         "pads": {
-          "drill": 3.2,
-          "height": 5.6,
-          "width": 5.6
+          "drill": 0.762,
+          "height": 1.524,
+          "width": 1.524
         },
         "silk_line_width": 0.15,
         "silk_text_italic": false,
@@ -172,7 +172,9 @@
         }
       ],
       "track_widths": [
-        0.0
+        0.0,
+        0.5,
+        1.0
       ],
       "via_dimensions": [
         {
@@ -405,7 +407,7 @@
     "pinned_symbol_libs": []
   },
   "meta": {
-    "filename": "PWM_PCB.kicad_pro",
+    "filename": "AcCCS.kicad_pro",
     "version": 1
   },
   "net_settings": {
@@ -470,14 +472,6 @@
       "version": 1
     },
     "net_format_name": "",
-    "ngspice": {
-      "fix_include_paths": true,
-      "meta": {
-        "version": 0
-      },
-      "model_mode": 0,
-      "workbook_filename": ""
-    },
     "page_layout_descr_file": "",
     "plot_directory": "",
     "spice_current_sheet_as_root": false,
@@ -490,7 +484,7 @@
   },
   "sheets": [
     [
-      "fee56ac5-0019-4724-be36-0779893a585f",
+      "abaea4f0-e67d-4574-8530-396098ac11f1",
       ""
     ]
   ],
