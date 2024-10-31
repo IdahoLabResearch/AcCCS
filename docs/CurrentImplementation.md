@@ -11,7 +11,7 @@ All of the AcCCS hardware is mounted to a backing plate inside a plastic enclosu
 A full list of the hardware components is found in the [README](/README) file.
 
 # PWM Generation Circuit 
-To emulate an EVSE, it is necessary to generate a +/-12vdc Pulse-Width Modulated signal for the embedded HomePlug GreenPHY CCS communications. We were unable to locate an off the shelf component to generate this signal, so we created a custom circuit board to accomplish this task.
+To emulate an EVSE, it is necessary to generate a +/-12vdc Pulse-Width Modulated signal for the embedded HomePlug GreenPHY CCS communications. We were unable to locate an off the shelf component to generate this signal, so we created a custom circuit board (PCB) to accomplish this task. Using the PCB is much easier (and more reliable) than using the basic circuit outlined in the [README](/README) file.  But it certainly usable to create the PWM generator circuit on a bread-board if you want to avoid printing a custom circuit board.
 
 This is the full schematic of the PWM signal generation:
 
@@ -23,7 +23,7 @@ And this is an image of the board layout we used to print the custom circuit boa
 
 The schematic and the board layout files were generated using [KiCad](https://www.kicad.org/), and the project files are located in the [resources](/resources/) folder of the AcCCS project. The PCB were printed by a regional company [Circuitboard.com](https://www.circuitboard.com/).
 
-**SPECIAL NOTE:** This PWM circuit board is capable of simulating the EVSE cordset being removed and replugged by simulating pressing the button on the handle. If this functionality is desired, you will need (1) a modified EVSE cordset in which you remove the 150 Ohm resistor tied to the button, and (2) populate the **R12** pad on the circuit board with a 150 Ohm resistor. If you are using an unmodified EVSE cordset and will manually unplug and replug the cordset to reset the EVSE to EV connection, leave **R12** unpopulated.
+> **SPECIAL NOTE:** This PWM circuit board is capable of simulating the EVSE cordset being removed and replugged by simulating pressing the button on the handle. If this functionality is desired, you will need (1) a modified EVSE cordset in which you remove the 150 Ohm resistor tied to the button, and (2) populate the **R12** pad on the circuit board with a 150 Ohm resistor. If you are using an unmodified EVSE cordset and will manually unplug and replug the cordset to reset the EVSE to EV connection, leave **R12** unpopulated.
 
 # Wiring Diagram
 The enclosure wiring follows this pattern:
@@ -67,12 +67,26 @@ MACAddress=11:22:33:44:55:66 # Update with your MAC
 Name=eth2
 ```
 
-**Note:** Even after using several methods to configure a MAC address to match an interface name (e.g. ```eth1```), we found Raspbian still seems to chose the name based on which USB port the interface is plugged into. This is very odd behavior and we have not yet determined the cause or a solution.
+> **Note:** Even after using several methods to configure a MAC address to match an interface name (e.g. ```eth1```), we found Raspbian still seems to chose the name based on which USB port the interface is plugged into. This is very odd behavior and we have not yet determined the cause or a solution.
 
 # I/O Connections
-A single AcCCS enclosure can be used to emulate an EVSE and/or EV by connecting the enclosure to a proper EVSE charge cable or vehicle inlet port. We use BNC connectors on the side of the AcCCS enclosure to make these connections. **HUGE Safety Note: Make sure you isolate and thoroughly insulate the DC power cables on the inlet port and EVSE cordset as the vehicle or EVSE may present HIGH voltage at any time.** You have been warned.
+A single AcCCS enclosure can be used to emulate an EVSE and/or EV by connecting the enclosure to a proper EVSE charge cable or vehicle inlet port. We use BNC connectors on the side of the AcCCS enclosure to make these connections. 
+
+> **HUGE Safety Note: Make sure you isolate and thoroughly insulate the DC power cables on the inlet port and EVSE cordset as the vehicle or EVSE may present HIGH voltage at any time.** You have been warned.
 
 ![Alt text](/docs/Images/Enclosure-Side.png?raw=true "AcCCS Box Side View")
+
+The EVSE cordset we are using is a CCS Type 1 cord from Phoenix Contact: (https://www.mouser.com/ProductDetail/Phoenix-Contact/1236563?qs=Jslch3jnSjl2upE49erPRA%3D%3D)
+
+The EV inlet port is also CCS Type 1 from Phoenix Contact: (https://www.mouser.com/ProductDetail/Phoenix-Contact/1210900?qs=T94vaHKWudRqtRNWYLAGvg%3D%3D)
+
+BNC connectors were added to the cordset and inlet port so that they are easily connected to the AcCCS enclosure.
+
+![CCS Cable](/docs/Images/CordsetConfiguration.jpg?raw=true "CCS Cable and Enclosuer")
+
+![CCS Inlet Port](/docs/Images/InletPortConfiguration.jpg "CCS Inlet Port and Enclosure")
+
+> **NOTE:** If you want the PWM circuit to automatically disconnect and reconnect the EVSE emulator from a target EV, you will need to modify the cordset and the PWM circuit. This functionality may be desired if you are performing long NMap scans of a target EV and the EV frequently resets the network connection. See the **SPECIAL NOTE** found in the [PWM Generation Circuit](#pwm-generation-circuit) section.
 
 The Raspberry Pi communicates with the PWM circuit board using I2C. Ensure I2C is enabled in ```raspi-config```, and then check the board connection using ```i2c-detect```.
 
@@ -91,14 +105,6 @@ The Raspberry Pi communicates with the PWM circuit board using I2C. Ensure I2C i
 ```
 
 The PWM circuit board should appear at the I2C address 0x20 as shown above.
-
-The EVSE cordset we are using is a CCS Type 1 cord from Phoenix Contact: (https://www.mouser.com/ProductDetail/Phoenix-Contact/1236563?qs=Jslch3jnSjl2upE49erPRA%3D%3D)
-
-The EV inlet port is also CCS Type 1 from Phoenix Contact: (https://www.mouser.com/ProductDetail/Phoenix-Contact/1210900?qs=T94vaHKWudRqtRNWYLAGvg%3D%3D)
-
-BNC connectors were added to the cordset and inlet port so that they are easily connected to the AcCCS enclosure.
-
-**NOTE:** If you want the PWM circuit to automatically disconnect and reconnect the EVSE emulator from a target EV, you will need to modify the cordset and the PWM circuit. This functionality may be desired if you are performing long NMap scans of a target EV and the EV frequently resets the network connection. See the **SPECIAL NOTE** found in the [PWM Generation Circuit](#pwm-generation-circuit) section.
 
 # Basic Operating Instructions
 Connect a research laptop to the RJ-45 connector on the side of the AcCCS enclosure. Configure the network interface on the research laptop to use a static IP address in the ```10.10.10.0/24``` address space. Just don't use the same address you used for the static IP address on the Raspberry Pi. You do not need to change any of the IPv6 settings on the research laptop.
@@ -135,6 +141,8 @@ The emulator scripts [EVSE.py](/emulator/EVSE.py) and [PEV.py](/emulator/PEV.py)
 
 ## Java Decoder
 Unfortunately the only method we have readily available to encode/decode the XML communications between the EV and EVSE is by reusing the Java webserver from the [V2Gdecoder](https://github.com/FlUxIuS/V2Gdecoder) project. We patched the ```jar``` file to fix a few bugs we found in the latest release, and it is included in the [java_decoder](/emulator/java_decoder) folder along with a couple of schema folders.
+
+A future release of the AcCCS project will replace the V2Gdecoder with a full python implementation for EXI encoding and decoding.
 
 ## Schemas
 The primary CCS schema we are using is DIN Spec 70121.  This has been the most stable schema, and it is also accepted by most every EV and EVSE.  We also included a copy of ISO 15118-2:2010 in the [schemas](/emulator/java_decoder/schemas_15118/) folder if you chose to use it instead. We are not currently trying to exercise all of the latest protocol features, but rather using the old DIN spec to simply establish a network connection so that we can perform other cyber activities (e.g. port scanning).  
