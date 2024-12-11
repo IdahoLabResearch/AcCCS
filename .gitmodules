@@ -12,6 +12,3 @@
 [submodule "external_libs/RISE-V2G"]
 	path = external_libs/RISE-V2G
 	url = https://github.com/JakeMG-INL/RISE-V2G.git
-[submodule "exernal_libs/V2GInjector"]
-	path = external_libs/V2GInjector
-	url = https://github.com/JakeMG-INL/V2GInjector.git
