@@ -15,7 +15,7 @@
 [submodule "external_libs/RISE-V2G"]
 	path = external_libs/RISE-V2G
 	url = https://github.com/JakeMG-INL/RISE-V2G.git
-
+	
 [submodule "external_libs/CH4ESE"]
 	path = external_libs/CH4ESE
-	url = https://github.com/IdahoLabResearch/CH4ESE
+	url = https://github.com/IdahoLabResearch/CH4ESE.git
