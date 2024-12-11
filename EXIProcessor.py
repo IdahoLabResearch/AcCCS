@@ -53,8 +53,9 @@ class EXIProcessor:
         # os.chdir(os.path.abspath(__file__ + "/../java_decoder"))
         my_path = os.path.abspath(os.path.dirname(__file__))
         self.port = self._findOpenPort()
-        self.cmd = subprocess.Popen(["java", "-jar", "V2GdecoderMOD.jar", "-w", str(self.port), "-c", self.protocol.value], cwd=my_path + "/java_decoder/")
-        print(f"INFO: Started Java webserver with PID: {self.cmd.pid} on port: {self.port}")
+        # self.cmd = subprocess.Popen(["java", "-jar", "V2GdecoderMOD.jar", "-w", str(self.port), "-c", self.protocol.value], cwd=my_path + "/java_decoder/")
+        self.cmd = subprocess.Popen(["python", "./external_libs/CH4ESE/main.py", "-w", "-p", f"{self.port}", "-profile", self.protocol.value.lower()])
+        print(f"INFO: Started Python webserver with PID: {self.cmd.pid} on port: {self.port}")
 
     def _findOpenPort(self):
         sock = socket.socket()
@@ -69,13 +70,13 @@ class EXIProcessor:
         try:
             req = requests.post(url=f"http://localhost:{self.port}/", headers={"Format": "XML"}, data=xmlString, timeout=2)
         except Timeout:
-            print("ERROR: Connection to the java webserver timed out.")
+            print("ERROR: Connection to the python webserver timed out.")
         except Exception as e:
             print(f"ERROR: XML string\n{xmlString}\ncaused exception\n{e}")
 
         # This occurs sometimes, specifically if the html body of the request is greater than 4096 bytes
         if req.text == "null":
-            print("ERROR: Java webserver returned null")
+            print("ERROR: Python webserver returned null")
             return None
 
         # java webserver returns hex string
@@ -86,13 +87,13 @@ class EXIProcessor:
         try:
             req = requests.post(url=f"http://localhost:{self.port}/", headers={"Format": "EXI"}, data=exiString, timeout=2)
         except Timeout:
-            print(f"ERROR: Connection to the java webserver timed out when trying to decode {exiString}")
+            print(f"ERROR: Connection to the python webserver timed out when trying to decode {exiString}")
         except Exception as e:
             print(f"ERROR: EXI string\n{exiString}\ncaused exception\n{e}")
 
         # This occurs sometimes, specifically if the html body of the request is greater than 4096 bytes
         if req.text == "null":
-            print("ERROR: Java webserver returned null")
+            print("ERROR: Python webserver returned null")
             return None
 
         # java webserver returns hex string
