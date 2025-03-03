@@ -6,13 +6,14 @@
 """
 
 # need to do this to import the custom SECC and V2G scapy layer
-import sys, os
+import sys, os, random, time
+import binascii, argparse, logging
 
 sys.path.append("./external_libs/HomePlugPWN")
 sys.path.append("./external_libs/V2GInjector/core")
 
+from datetime import datetime
 from threading import Thread
-
 from layers.SECC import *
 from layers.V2G import *
 from layerscapy.HomePlugGP import *
@@ -21,12 +22,15 @@ from EXIProcessor import EXIProcessor
 from EmulatorEnum import *
 from NMAPScanner import NMAPScanner
 import xml.etree.ElementTree as ET
-import binascii
-import os.path
-import random
 from smbus import SMBus
-import argparse
 
+if not os.path.isdir("logs"):
+    os.makedirs("logs")
+
+logger = logging.getLogger("EVCC")
+logging.basicConfig(filename="logs/EVCC_"+datetime.now().strftime("%d-%m-%Y_%H-%M-%S")+".log",
+                    format="%(asctime)s (%(name)s) %(levelname)s: %(message)s",
+                    level=logging.DEBUG)
 
 class PEV:
 
@@ -78,18 +82,18 @@ class PEV:
         self.doTCP()
         # If NMAP is not done, restart connection
         if not self.tcp.finishedNMAP:
-            print("INFO (PEV) : Attempting to restart connection...")
+            logger.info("Attempting to restart connection...")
             self.start()
 
     def doTCP(self):
         self.tcp.start()
-        print("INFO (PEV) : Done TCP")
+        logger.info("Done TCP")
 
     def doSLAC(self):
-        print("INFO (PEV) : Starting SLAC")
+        logger.info("Starting SLAC")
         self.slac.start()
         self.slac.sniffThread.join()
-        print("INFO (PEV) : Done SLAC")
+        logger.info("Done SLAC")
 
     def closeProximity(self):
         self.setState(PEVState.B)
@@ -99,13 +103,13 @@ class PEV:
 
     def setState(self, state: PEVState):
         if state == PEVState.A:
-            print("INFO (PEV) : Going to state A")
+            logger.info("Going to state A")
             self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.ALL_OFF)
         elif state == PEVState.B:
-            print("INFO (PEV) : Going to state B")
+            logger.info("Going to state B")
             self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.PEV_PP | self.PEV_CP1)
         elif state == PEVState.C:
-            print("INFO (PEV) : Going to state C")
+            logger.info("Going to state C")
             self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.PEV_PP | self.PEV_CP1 | self.PEV_CP2)
 
     def toggleProximity(self, t: int = 5):
@@ -151,7 +155,7 @@ class _SLACHandler:
     def checkForTimeout(self):
         while self.stop == False:
             if time.time() - self.timeSinceLastPkt > self.timeout:
-                print("INFO (PEV) : Timed out... Sending SLAC_PARM_REQ")
+                logger.info("Timed out... Sending SLAC_PARM_REQ")
                 sendp(self.buildSlacParmReq(), iface=self.iface, verbose=0)
                 self.timeSinceLastPkt = time.time()
 
@@ -176,16 +180,16 @@ class _SLACHandler:
             return
 
         if pkt.haslayer("CM_SLAC_PARM_CNF"):
-            print("INFO (PEV) : Recieved SLAC_PARM_CNF")
+            logger.info("Recieved SLAC_PARM_CNF")
             self.destinationMAC = pkt[Ether].src
             self.pev.destinationMAC = pkt[Ether].src
             self.numSounds = pkt[CM_SLAC_PARM_CNF].NumberMSounds
             self.numRemainingSounds = self.numSounds
             startSoundsPkts = [self.buildStartAttenCharInd() for i in range(3)]
             soundPkts = [self.buildMNBCSoundInd() for i in range(self.numSounds)]
-            print("INFO (PEV) : Sending 3 START_ATTEN_CHAR_IND")
+            logger.info("Sending 3 START_ATTEN_CHAR_IND")
             sendp(startSoundsPkts, iface=self.iface, verbose=0, inter=0.05)
-            print(f"INFO (PEV) : Sending {self.numSounds} MNBC_SOUND_IND")
+            logger.info(f"Sending {self.numSounds} MNBC_SOUND_IND")
             sendp(soundPkts, iface=self.iface, verbose=0, inter=0.05)
             # self.stopSounds = False
             # Thread(target=self.sendSounds).start()
@@ -193,20 +197,20 @@ class _SLACHandler:
 
         if pkt.haslayer("CM_ATTEN_CHAR_IND"):
             self.stopSounds = True
-            print("INFO (PEV) : Recieved ATTEN_CHAR_IND")
-            print("INFO (PEV) : Sending ATTEN_CHAR_RES")
+            logger.info("Recieved ATTEN_CHAR_IND")
+            logger.info("Sending ATTEN_CHAR_RES")
             sendp(self.buildAttenCharRes(), iface=self.iface, verbose=0)
             self.timeSinceLastPkt = time.time()
-            print("INFO (PEV) : Sending SLAC_MATCH_REQ")
+            logger.info("Sending SLAC_MATCH_REQ")
             sendp(self.buildSlacMatchReq(), iface=self.iface, verbose=0)
             self.timeSinceLastPkt = time.time()
             return
 
         if pkt.haslayer("CM_SLAC_MATCH_CNF"):
-            print("INFO (PEV) : Recieved SLAC_MATCH_CNF")
+            logger.info("Recieved SLAC_MATCH_CNF")
             self.NID = pkt[CM_SLAC_MATCH_CNF].VariableField.NetworkID
             self.NMK = pkt[CM_SLAC_MATCH_CNF].VariableField.NMK
-            print("INFO (PEV) : Sending SET_KEY_REQ")
+            logger.info("Sending SET_KEY_REQ")
             sendp(self.buildSetKeyReq(), iface=self.iface, verbose=0)
             self.stop = True
             Thread(target=self.sendSECCRequest).start()
@@ -214,19 +218,19 @@ class _SLACHandler:
 
     def sendSECCRequest(self):
         time.sleep(3)
-        print("INFO (PEV) : Sending 3 SECC_RequestMessage")
+        logger.info("Sending 3 SECC_RequestMessage")
         for i in range(1):
             sendp(self.buildSECCRequest(), iface=self.iface, verbose=0)
 
     def sendSounds(self):
         self.numRemainingSounds = self.numSounds
-        print("INFO (PEV) : Sending 3 START_ATTEN_CHAR_IND")
+        logger.info("Sending 3 START_ATTEN_CHAR_IND")
         for i in range(3):
             if self.stopSounds:
                 return
             sendp(self.buildStartAttenCharInd(), iface=self.iface, verbose=0)
             self.timeSinceLastPkt = time.time()
-        print(f"INFO (PEV) : Sending {self.numSounds} MNBC_SOUND_IND")
+        logger.info(f"Sending {self.numSounds} MNBC_SOUND_IND")
         soundPkts = [self.buildMNBCSoundInd() for i in range(self.numSounds)]
         sendp(soundPkts, iface=self.iface, verbose=0, inter=0.05)
         self.timeSinceLastPkt = time.time()
@@ -234,7 +238,7 @@ class _SLACHandler:
         #     if self.stopSounds: return
         #     sendp(self.buildMNBCSoundInd(), iface=self.iface, verbose=0)
         #     self.timeSinceLastPkt = time.time()
-        print("INFO (PEV) : Done sending sounds")
+        logger.info("Done sending sounds")
 
     def buildSlacParmReq(self):
         ethLayer = Ether()
@@ -399,7 +403,7 @@ class _SLACHandler:
         # if not (pkt.haslayer("ICMPv6ND_NS") and pkt[ICMPv6ND_NS].tgt == self.sourceIP): return
         # self.destinationMAC = pkt[Ether].src
         self.destinationIP = pkt[IPv6].src
-        # print("INFO (EVSE): Sending Neighor Advertisement")
+        # logger.info("Sending Neighor Advertisement")
         sendp(self.buildNeighborAdvertisement(), iface=self.iface, verbose=0)
 
 
@@ -439,7 +443,7 @@ class _TCPHandler:
         self.msgList = {}
         self.running = True
         self.prechargeCount = 0
-        print("INFO (PEV) : Starting TCP")
+        logger.info("Starting TCP")
 
         # self.sendNeighborSolicitation()
 
@@ -466,19 +470,19 @@ class _TCPHandler:
             time.sleep(1)
 
     def checkForTimeout(self):
-        print("INFO (PEV) : Starting timeout thread")
+        logger.info("Starting timeout thread")
         self.lastMessageTime = time.time()
         while True:
             # if self.stop: break
             if time.time() - self.lastMessageTime > self.timeout or self.running == False:
-                print("INFO (PEV) : TCP timed out, resetting connection...")
+                logger.info("TCP timed out, resetting connection...")
                 # self.reset()
                 self.killThreads()
                 break
             time.sleep(1)
 
     def killThreads(self):
-        print("INFO (PEV) : Killing sniffing threads")
+        logger.info("Killing sniffing threads")
         if self.scanner != None:
             self.scanner.stop()
         self.running = False
@@ -488,7 +492,7 @@ class _TCPHandler:
             self.neighborSolicitationThread.stop()
 
     def recv(self):
-        print("INFO (PEV) : Starting recv thread")
+        logger.info("Starting recv thread")
         sniff(
             iface=self.iface,
             lfilter=lambda x: x.haslayer("TCP") and x[TCP].sport == self.destinationPort and x[TCP].dport == self.sourcePort,
@@ -497,7 +501,7 @@ class _TCPHandler:
         )
 
     def fin(self):
-        print("INFO (PEV): Recieved FIN")
+        logger.info("Recieved FIN")
         self.running = False
         self.ack = self.ack + 1
 
@@ -524,11 +528,11 @@ class _TCPHandler:
 
         finAck = ethLayer / ipLayer / tcpLayer
 
-        print("INFO (PEV): Sending FINACK")
+        logger.info("Sending FINACK")
 
         sendp(finAck, iface=self.iface, verbose=0)
 
-        # print("INFO (PEV) : Sending LEAVE_REQ")
+        # logger.info("Sending LEAVE_REQ")
 
         # sendp(self.buildLeaveReq(), iface=self.iface, verbose=0)
 
@@ -553,7 +557,7 @@ class _TCPHandler:
         self.ack = self.last_recv[TCP].seq + len(self.last_recv[TCP].payload)
 
         if self.last_recv.flags == 0x12:
-            print("INFO (PEV) : Recieved SYNACK")
+            logger.info("Recieved SYNACK")
             self.startSession()
         if "F" in self.last_recv.flags:
             self.fin()
@@ -602,7 +606,7 @@ class _TCPHandler:
     def getEXIFromPayload(self, data):
         data = binascii.hexlify(data)
         xmlString = self.exi.decode(data)
-        # print(f"XML String: {xmlString}")
+        # logger.info(f"XML String: {xmlString}")
         root = ET.fromstring(xmlString)
 
         if root.text is None:
@@ -611,7 +615,7 @@ class _TCPHandler:
                 return self.xml.getEXI()
 
             name = root[1][0].tag
-            # print(f"Response: {name}")
+            logger.info(f"V2G message sent: {name}")
             if "SessionSetupRes" in name:
                 self.xml.ServiceDiscoveryRequest()
                 self.SessionID = root[0][0].text
@@ -622,7 +626,7 @@ class _TCPHandler:
             elif "ContractAuthenticationRes" in name:
                 if root[1][0][1].text == "Ongoing":
                     self.xml.ContractAuthenticationRequest()
-                    # print("INFO (PEV) : Sending Contract Authenication Request")
+                    # logger.info("Sending Contract Authenication Request")
                     if self.pev.mode == RunMode.SCAN:
                         # Start nmap scan while connection is kept alive
                         if self.scanner == None:
@@ -657,7 +661,7 @@ class _TCPHandler:
                 self.xml.CurrentDemandRequest()
                 # self.xml.EVRESSSOC.text = str(random.randint(0,100))
                 # self.xml.EVRESSSOC.text = str(self.soc % 100)
-                # print(f"Current SOC: {self.soc}")
+                # logger.info(f"Current SOC: {self.soc}")
                 # self.soc = self.soc + 5
             else:
                 raise Exception(f'Packet type "{name}" not recognized')
@@ -690,7 +694,7 @@ class _TCPHandler:
         tcpLayer.seq = self.seq
 
         synPacket = ethLayer / ipLayer / tcpLayer
-        print("INFO (PEV) : Sending SYN")
+        logger.info("Sending SYN")
         sendp(synPacket, iface=self.iface, verbose=0)
 
     def sendNeighborSolicitation(self):
@@ -712,7 +716,7 @@ class _TCPHandler:
         optLayer.lladdr = self.sourceMAC
 
         pkt = ethLayer / ipLayer / icmpLayer / optLayer
-        print("INFO (PEV) : Sending Neighbor Solicitation")
+        logger.info("Sending Neighbor Solicitation")
         sendp(pkt, iface=self.iface, verbose=0)
 
     def sendNeighborAdvertisement(self, pkt):
@@ -720,7 +724,7 @@ class _TCPHandler:
         # if not (pkt.haslayer("ICMPv6ND_NS") and pkt[ICMPv6ND_NS].tgt == self.sourceIP): return
         self.destinationMAC = pkt[Ether].src
         self.destinationIP = pkt[IPv6].src
-        # print("INFO (EVSE): Sending Neighor Advertisement")
+        # logger.info("Sending Neighor Advertisement")
         sendp(self.buildNeighborAdvertisement(), iface=self.iface, verbose=0)
 
     def buildLeaveReq(self):
@@ -784,9 +788,9 @@ if __name__ == "__main__":
     try:
         pev.start()
     except KeyboardInterrupt:
-        print("INFO (PEV) : Shutting down emulator")
+        logger.info("Shutting down emulator")
     except Exception as e:
-        print(e)
+        logger.error(e)
     finally:
         pev.setState(PEVState.A)
         del pev

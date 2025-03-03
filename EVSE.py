@@ -6,25 +6,32 @@
 """
 
 # need to do this to import the custom SECC and V2G scapy layer
-import sys, os
+import os, sys, time
+import binascii, argparse, logging
 
 sys.path.append("./external_libs/HomePlugPWN")
 sys.path.append("./external_libs/V2GInjector/core")
 
-from threading import Thread
-
 from layers.SECC import *
 from layers.V2G import *
 from layerscapy.HomePlugGP import *
+
+from datetime import datetime
+from threading import Thread
 from XMLBuilder import XMLBuilder
 from EXIProcessor import EXIProcessor
 from EmulatorEnum import *
 from NMAPScanner import NMAPScanner
 import xml.etree.ElementTree as ET
-import binascii
 from smbus import SMBus
-import argparse
 
+if not os.path.isdir("logs"):
+    os.makedirs("logs")
+
+logger = logging.getLogger("SECC")
+logging.basicConfig(filename="logs/SECC_"+datetime.now().strftime("%d-%m-%Y_%H-%M-%S")+".log",
+                    format="%(asctime)s (%(name)s) %(levelname)s: %(message)s",
+                    level=logging.DEBUG)
 
 class EVSE:
 
@@ -55,7 +62,7 @@ class EVSE:
         self.destinationMAC = None
         self.destinationIP = None
         self.destinationPort = None
-
+        
         self.exi = EXIProcessor(self.protocol)
 
         self.slac = _SLACHandler(self)
@@ -81,21 +88,21 @@ class EVSE:
         self.doTCP()
         # If NMAP is not done, restart connection
         if not self.tcp.finishedNMAP:
-            print("INFO (EVSE): Attempting to restart connection...")
+            logger.info("Attempting to restart connection...")
             self.start()
 
     # Close the circuit for the proximity pins
     def closeProximity(self):
         if self.modified_cordset:
-            print("INFO (EVSE): Closing CP/PP relay connections")
+            logger.info("Closing CP/PP relay connections")
             self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.EVSE_PP | self.EVSE_CP)
         else:
-            print("INFO (EVSE): Closing CP relay connection")
+            logger.info("Closing CP relay connection")
             self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.EVSE_CP)
 
     # Close the circuit for the proximity pins
     def openProximity(self):
-        print("INFO (EVSE): Opening CP/PP relay connections")
+        logger.info("Opening CP/PP relay connections")
         self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.ALL_OFF)
 
     # Opens and closes proximity circuit with a delay
@@ -107,13 +114,13 @@ class EVSE:
     # Starts TCP/IPv6 thread that handles layer 3 comms
     def doTCP(self):
         self.tcp.start()
-        print("INFO (EVSE): Done TCP")
+        logger.info("Done TCP")
 
     # Starts SLAC thread that handles layer 2 comms
     def doSLAC(self):
         self.slac.start()
         self.slac.sniffThread.join()
-        print("INFO (EVSE): Done SLAC")
+        logger.info("Done SLAC")
 
 
 # Handles all SLAC communications
@@ -133,7 +140,7 @@ class _SLACHandler:
     # Starts SLAC process
     def start(self):
         self.stop = False
-        print("INFO (EVSE): Sending SET_KEY_REQ")
+        logger.info("Sending SET_KEY_REQ")
         sendp(self.buildSetKey(), iface=self.iface, verbose=0)
         self.sniffThread = Thread(target=self.startSniff)
         self.sniffThread.start()
@@ -147,7 +154,7 @@ class _SLACHandler:
             if self.stop:
                 break
             if time.time() - self.lastMessageTime > self.timeout:
-                print("INFO (EVSE): SLAC timed out, resetting connection...")
+                logger.info("SLAC timed out, resetting connection...")
                 self.evse.toggleProximity()
                 self.lastMessageTime = time.time()
 
@@ -156,7 +163,7 @@ class _SLACHandler:
 
     def stopSniff(self, pkt):
         if pkt.haslayer("SECC_RequestMessage"):
-            print("INDO (EVSE): Recieved SECC_RequestMessage")
+            logger.info("Recieved SECC_RequestMessage")
             # self.evse.destinationMAC = pkt[Ether].src
             # use this to send 3 secc responses incase car doesnt see one
             self.destinationIP = pkt[IPv6].src
@@ -168,7 +175,7 @@ class _SLACHandler:
     def sendSECCResponse(self):
         time.sleep(0.2)
         for i in range(3):
-            print("INFO (EVSE): Sending SECC_ResponseMessage")
+            logger.info("Sending SECC_ResponseMessage")
             sendp(self.buildSECCResponse(), iface=self.iface, verbose=0)
 
     def handlePacket(self, pkt):
@@ -178,20 +185,20 @@ class _SLACHandler:
         self.lastMessageTime = time.time()
 
         if pkt.haslayer("CM_SLAC_PARM_REQ"):
-            print("INFO (EVSE): Recieved SLAC_PARM_REQ")
+            logger.info("Recieved SLAC_PARM_REQ")
             self.destinationMAC = pkt[Ether].src
             self.runID = pkt[CM_SLAC_PARM_REQ].RunID
-            print("INFO (EVSE): Sending CM_SLAC_PARM_CNF")
+            logger.info("Sending CM_SLAC_PARM_CNF")
             sendp(self.buildSlacParmCnf(), iface=self.iface, verbose=0)
 
         if pkt.haslayer("CM_MNBC_SOUND_IND") and pkt[CM_MNBC_SOUND_IND].Countdown == 0:
-            print("INFO (EVSE): Recieved last MNBC_SOUND_IND")
-            print("INFO (EVSE): Sending ATTEN_CHAR_IND")
+            logger.info("Recieved last MNBC_SOUND_IND")
+            logger.info("Sending ATTEN_CHAR_IND")
             sendp(self.buildAttenCharInd(), iface=self.iface, verbose=0)
 
         if pkt.haslayer("CM_SLAC_MATCH_REQ"):
-            print("INFO (EVSE): Recieved SLAC_MATCH_REQ")
-            print("INFO (EVSE): Sending SLAC_MATCH_CNF")
+            logger.info("Recieved SLAC_MATCH_REQ")
+            logger.info("Sending SLAC_MATCH_CNF")
             sendp(self.buildSlacMatchCnf(), iface=self.iface, verbose=0)
 
     def buildSlacParmCnf(self):
@@ -402,7 +409,7 @@ class _TCPHandler:
     def start(self):
         self.msgList = {}
         self.running = True
-        print("INFO (EVSE): Starting TCP")
+        logger.info("Starting TCP")
         self.startSniff = False
 
         self.recvThread = AsyncSniffer(
@@ -433,12 +440,12 @@ class _TCPHandler:
             time.sleep(1)
 
     def checkForTimeout(self):
-        print("INFO (EVSE): Starting timeout thread")
+        logger.info("Starting timeout thread")
         self.lastMessageTime = time.time()
         while True:
             # if self.stop: break
             if time.time() - self.lastMessageTime > self.timeout or self.running == False:
-                print("INFO (EVSE): TCP timed out, resetting connection...")
+                logger.info("TCP timed out, resetting connection...")
                 self.killThreads()
                 break
             time.sleep(1)
@@ -446,10 +453,10 @@ class _TCPHandler:
     # Need this so the sniff thread is actually running when the handshake is sent
     def setStartSniff(self):
         self.startSniff = True
-        # print("INFO (EVSE): Starting recv sniff")
+        # logger.info("Starting recv sniff")
 
     def recv(self):
-        print("EVSE (INFO): Starting recv thread")
+        logger.info("Starting recv thread")
         sniff(
             iface=self.iface,
             lfilter=lambda x: x.haslayer("TCP") and x[TCP].sport == self.destinationPort and x[TCP].dport == self.sourcePort,
@@ -458,7 +465,7 @@ class _TCPHandler:
         )
 
     def fin(self):
-        print("INFO (EVSE): Recieved FIN")
+        logger.info("Recieved FIN")
         self.running = False
         self.ack = self.ack + 1
 
@@ -485,12 +492,12 @@ class _TCPHandler:
 
         finAck = ethLayer / ipLayer / tcpLayer
 
-        print("INFO (EVSE): Sending FINACK")
+        logger.info("Sending FINACK")
 
         sendp(finAck, iface=self.iface, verbose=0)
 
     def killThreads(self):
-        print("INFO (EVSE): Killing sniffing threads")
+        logger.info("Killing sniffing threads")
         self.running = False
         if self.scanner:
             self.scanner.stop()
@@ -553,7 +560,7 @@ class _TCPHandler:
     def getEXIFromPayload(self, data):
         data = binascii.hexlify(data)
         xmlString = self.exi.decode(data)
-        # print(f"XML String: {xmlString}")
+        # logger.info(f"XML String: {xmlString}")
         root = ET.fromstring(xmlString)
 
         if root.text is None:
@@ -562,7 +569,7 @@ class _TCPHandler:
                 return self.xml.getEXI()
 
             name = root[1][0].tag
-            print(f"Request: {name}")
+            logger.info(f"V2G message received: {name}")
             if "SessionSetupReq" in name:
                 self.xml.SessionSetupResponse()
             elif "ServiceDiscoveryReq" in name:
@@ -615,7 +622,7 @@ class _TCPHandler:
         # if not (pkt.haslayer("ICMPv6ND_NS") and pkt[ICMPv6ND_NS].tgt == self.sourceIP): return
         self.destinationMAC = pkt[Ether].src
         self.destinationIP = pkt[IPv6].src
-        # print("INFO (EVSE): Sending Neighor Advertisement")
+        # logger.info("Sending Neighor Advertisement")
         sendp(self.buildNeighborAdvertisement(), iface=self.iface, verbose=0)
 
     def handshake(self, syn):
@@ -640,7 +647,7 @@ class _TCPHandler:
         tcpLayer.ack = self.ack
 
         synAck = ethLayer / ipLayer / tcpLayer
-        print("INFO (EVSE): Sending SYNACK")
+        logger.info("Sending SYNACK")
         sendp(synAck, iface=self.iface, verbose=0)
 
     def buildNeighborAdvertisement(self):
@@ -700,9 +707,9 @@ if __name__ == "__main__":
     try:
         evse.start()
     except KeyboardInterrupt:
-        print("INFO (EVSE): Shutting down emulator")
+        logger.info("Shutting down emulator")
     except Exception as e:
-        print(e)
+        logger.error(e)
     finally:
         evse.openProximity()
         del evse

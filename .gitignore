@@ -1,5 +1,8 @@
 # Ignore all zip files (probably a backup)
 __pycache__/
+external_libs/
+logs/
+
 *.zip
 *test.py
 *.pyc

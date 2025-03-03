@@ -7,15 +7,14 @@
     This attempt was made in vain.
 """
 
-import requests
+import os, socket, time, logging
+import requests, subprocess
+
 from requests.exceptions import Timeout
-import subprocess
-import os
 from threading import Thread
-import socket
-import time
 from EmulatorEnum import *
 
+logger = logging.getLogger(__name__)
 
 class EXIProcessor:
     def __init__(self, protocol: Protocol):
@@ -28,11 +27,11 @@ class EXIProcessor:
                 return
             else:
                 time.sleep(1)
-        raise Exception("ERROR: Java webserver never started")
+        raise Exception("Python webserver never started")
 
     # Kills the subprocess so proccesses arent flooded with random Java webservers
     def __del__(self):
-        print(f"INFO: Killing Java webserver with PID: {self.cmd.pid} on port: {self.port}")
+        logger.info(f"Killing Python webserver with PID: {self.cmd.pid} on port: {self.port}")
         self.cmd.kill()
         self.serverThread.join()
 
@@ -55,7 +54,7 @@ class EXIProcessor:
         self.port = self._findOpenPort()
         # self.cmd = subprocess.Popen(["java", "-jar", "V2GdecoderMOD.jar", "-w", str(self.port), "-c", self.protocol.value], cwd=my_path + "/java_decoder/")
         self.cmd = subprocess.Popen(["python", "./external_libs/CH4ESE/main.py", "-w", "-p", f"{self.port}", "-profile", self.protocol.value.lower()])
-        print(f"INFO: Started Python webserver with PID: {self.cmd.pid} on port: {self.port}")
+        logger.info(f"Starting Python webserver with PID: {self.cmd.pid} on port: {self.port}")
 
     def _findOpenPort(self):
         sock = socket.socket()
@@ -70,13 +69,13 @@ class EXIProcessor:
         try:
             req = requests.post(url=f"http://localhost:{self.port}/", headers={"Format": "XML"}, data=xmlString, timeout=2)
         except Timeout:
-            print("ERROR: Connection to the python webserver timed out.")
+            logger.error("Connection to the python webserver timed out.")
         except Exception as e:
-            print(f"ERROR: XML string\n{xmlString}\ncaused exception\n{e}")
+            logger.error(f"XML string\n{xmlString}\ncaused exception\n{e}")
 
         # This occurs sometimes, specifically if the html body of the request is greater than 4096 bytes
         if req.text == "null":
-            print("ERROR: Python webserver returned null")
+            logger.error("Python webserver returned null")
             return None
 
         # java webserver returns hex string
@@ -87,13 +86,13 @@ class EXIProcessor:
         try:
             req = requests.post(url=f"http://localhost:{self.port}/", headers={"Format": "EXI"}, data=exiString, timeout=2)
         except Timeout:
-            print(f"ERROR: Connection to the python webserver timed out when trying to decode {exiString}")
+            logger.error(f"Connection to the python webserver timed out when trying to decode {exiString}")
         except Exception as e:
-            print(f"ERROR: EXI string\n{exiString}\ncaused exception\n{e}")
+            logger.error(f"EXI string\n{exiString}\ncaused exception\n{e}")
 
         # This occurs sometimes, specifically if the html body of the request is greater than 4096 bytes
         if req.text == "null":
-            print("ERROR: Python webserver returned null")
+            logger.error("Python webserver returned null")
             return None
 
         # java webserver returns hex string
