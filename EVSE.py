@@ -29,8 +29,10 @@ if not os.path.isdir("logs"):
     os.makedirs("logs")
 
 logger = logging.getLogger("SECC")
-logging.basicConfig(filename="logs/SECC_"+datetime.now().strftime("%d-%m-%Y_%H-%M-%S")+".log",
-                    format="%(asctime)s (%(name)s) %(levelname)s: %(message)s",
+fileHandler = logging.FileHandler("logs/SECC_"+datetime.now().strftime("%d-%m-%Y_%H-%M-%S")+".log")
+consoleHandler = logging.StreamHandler()
+logging.basicConfig(format="%(asctime)s (%(name)s) %(levelname)s: %(message)s",
+                    handlers=[fileHandler, consoleHandler],
                     level=logging.DEBUG)
 
 class EVSE:

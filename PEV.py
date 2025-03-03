@@ -28,8 +28,10 @@ if not os.path.isdir("logs"):
     os.makedirs("logs")
 
 logger = logging.getLogger("EVCC")
-logging.basicConfig(filename="logs/EVCC_"+datetime.now().strftime("%d-%m-%Y_%H-%M-%S")+".log",
-                    format="%(asctime)s (%(name)s) %(levelname)s: %(message)s",
+fileHandler = logging.FileHandler("logs/EVCC_"+datetime.now().strftime("%d-%m-%Y_%H-%M-%S")+".log")
+consoleHandler = logging.StreamHandler()
+logging.basicConfig(format="%(asctime)s (%(name)s) %(levelname)s: %(message)s",
+                    handlers=[fileHandler, consoleHandler],
                     level=logging.DEBUG)
 
 class PEV:
