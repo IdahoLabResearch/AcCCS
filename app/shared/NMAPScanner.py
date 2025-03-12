@@ -1,10 +1,12 @@
+import time, random
+
 from glob import glob
-from EmulatorEnum import *
-import time
-from tqdm import *
-import random
-from scapy.all import *
+from threading import Thread
+from tqdm import trange
+from scapy.all import Ether, IPv6, TCP, IP, srp, srp1
 from ipaddress import ip_address, IPv4Address
+
+from .EmulatorEnum import EmulatorType
 
 SCAN_RESULTS_DIR = "scan_results/"
 

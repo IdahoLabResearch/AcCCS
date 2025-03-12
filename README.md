@@ -5,7 +5,7 @@ This project is the result of our efforts to find COTS hardware and existing ope
 
 To enable some testing of the IPv6 endpoints, the emulator scripts provide the ability to perform some basic port scans of the target.  This functionality is available using command-line options of the emulator.  The emulators can be further enhanced for additional port scanning activities or even fuzz testing of the selected CCS protocol.
 
-The emulators utilize a Java program ([java_decoder](/java_decoder/)) to encode and decode the XML messages exchanged between an EV and EVSE.  This decoder is from the [V2Gdecoder](https://github.com/FlUxIuS/V2Gdecoder) project and has been patched to fix a couple of bugs identified during our testing.  The Java server is started automatically when executing one of the emulators.
+The emulators utilize a Java program ```EXIficient.jar``` to encode and decode the XML messages exchanged between an EV and EVSE.  This program is from the [EXIficient](https://github.com/EXIficient/exificient) project and is utilized by the [CH4ESE](https://github.com/IdahoLabResearch/CH4ESE.git) submodule to set up the Java webserver. The Java server is started automatically when executing one of the emulators.
 
 > **Note:** This code was primarily developed and tested using the old DIN 70121 specification and schema. The newer ISO 15118-2:2010 standard is included but has not been tested.
 
@@ -88,7 +88,7 @@ Below is a brief description of the scripts in this project. These scripts are p
 
 **MIM.py:** **NOT IMPLEMENTED** | Forms two separate connections to a PEV and EVSE simultaneously. Will forward packets from one conversation to the other, changing the contents if specified by the user. Cannot form a simple bridge between the two because of high amounts of cross-talk between CP lines. This protocol is very susceptible to RF interference.
 
-**EXIProcessor.py:** Python wrapper for using the java webserver EXI processor found in the java_decoder folder. This project uses a modified version of the jar file provided by the [V2Gdecoder](https://github.com/FlUxIuS/V2Gdecoder) project which itself is based on the [RISE-V2G](https://github.com/SwitchEV/RISE-V2G) project. This modified jar file is named V2GdecoderMOD.jar and adds functionality to specify which port the webserver will listen on as well as an argument to specify with which schema to encode and decode (DIN vs ISO-2 vs ISO-20).
+**EXIProcessor.py:** Python wrapper for using the java webserver EXI processor found in the [CH4ESE](https://github.com/IdahoLabResearch/CH4ESE.git) submodule. This project uses a modified version of the jar file provided by the [EXIficient](https://github.com/EXIficient/exificient) project. This program has the functionality to specify which port the webserver will listen on as well as an argument to specify with which schema to encode and decode (DIN vs ISO-2 vs ISO-20).
 
 **XMLBuilder.py:** Python script used to create and manipulate XML payloads that follow the DIN and ISO specs. The default values for each of these packet types are taken from real values that were used by EVSEs and PEVs captured during a normal charging session.
 

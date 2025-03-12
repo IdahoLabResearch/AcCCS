@@ -140,12 +140,12 @@ On the research laptop, configure Wireshark to connect to the Raspberry Pi in th
 The emulator scripts [EVSE.py](/emulator/EVSE.py) and [PEV.py](/emulator/PEV.py) include some basic functionality for port scanning the EVSE SECC or the EV EVCC. This option can be selected as a command-line argument.  Results of the port scan are displayed along with the progress of the scan.
 
 ## Java Decoder
-Unfortunately the only method we have readily available to encode/decode the XML communications between the EV and EVSE is by reusing the Java webserver from the [V2Gdecoder](https://github.com/FlUxIuS/V2Gdecoder) project. We patched the ```jar``` file to fix a few bugs we found in the latest release, and it is included in the [java_decoder](/emulator/java_decoder) folder along with a couple of schema folders.
+To encode/decode the XML communications between the EV and EVSE, we are reusing the Java webserver from the [CH4ESE](https://github.com/IdahoLabResearch/CH4ESE.git) project. CH4ESE, in the background, utilizes the ```EXIficient.jar``` file fom the [EXIficient](https://github.com/EXIficient/exificient) project to actually perform the EXI to/from XML conversions, and it is included in the ```connection``` folder. The XSD schema files are organized inside the schema folders for each protocol.
 
-A future release of the AcCCS project will replace the V2Gdecoder with a full python implementation for EXI encoding and decoding.
+Older release of the AcCCS project used the [V2Gdecoder](https://github.com/FlUxIuS/V2Gdecoder) project for EXI encoding and decoding.
 
 ## Schemas
-The primary CCS schema we are using is DIN Spec 70121.  This has been the most stable schema, and it is also accepted by most every EV and EVSE.  We also included a copy of ISO 15118-2:2010 in the [schemas](/emulator/java_decoder/schemas_15118/) folder if you chose to use it instead. We are not currently trying to exercise all of the latest protocol features, but rather using the old DIN spec to simply establish a network connection so that we can perform other cyber activities (e.g. port scanning).  
+Currently is DIN Spec 70121 is fully supported and we are working to add support for ISO 15118-2. The XSD schema files for various protocols such as DIN SPEC 70121, ISO 15118-2 (ed 1 and 2) and ISO 15118-20 are included in the [CH4ESE](https://github.com/IdahoLabResearch/CH4ESE.git) submodule.
 
 # References and Credits
 - V2GInjector
@@ -161,7 +161,5 @@ The primary CCS schema we are using is DIN Spec 70121.  This has been the most s
   - https://github.com/OpenEVSE/OpenEVSE_PLUS
 - V2Gdecoder
   - https://github.com/FlUxIuS/V2Gdecoder
-- RISE-V2G
-  - https://github.com/SwitchEV/RISE-V2G
 - HomePlugPWN
   - https://github.com/FlUxIuS/HomePlugPWN

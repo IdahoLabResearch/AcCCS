@@ -1,20 +1,20 @@
 """ 
     Copyright 2023, Battelle Energy Alliance, LLC, ALL RIGHTS RESERVED
 
-    This class is used to make python requests to the V2Gdecoder hosted on a localhost java webserver
+    This class is used to make python requests to the java webserver (CH4ESE) for EXI encoding/decoding
 
     This script was written in a feeble attempt to tame the creature known as the "Java Webserver".
     This attempt was made in vain.
 """
 
-import os, socket, time, logging
+import socket, time, logging
 import requests, subprocess
 
 from requests.exceptions import Timeout
 from threading import Thread
-from EmulatorEnum import *
+from .EmulatorEnum import Protocol
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("EXIProcessor")
 
 class EXIProcessor:
     def __init__(self, protocol: Protocol):
@@ -49,11 +49,8 @@ class EXIProcessor:
 
     # Starts the Java webserver on an open port
     def startWebserver(self):
-        # os.chdir(os.path.abspath(__file__ + "/../java_decoder"))
-        my_path = os.path.abspath(os.path.dirname(__file__))
         self.port = self._findOpenPort()
-        # self.cmd = subprocess.Popen(["java", "-jar", "V2GdecoderMOD.jar", "-w", str(self.port), "-c", self.protocol.value], cwd=my_path + "/java_decoder/")
-        self.cmd = subprocess.Popen(["python", "./external_libs/CH4ESE/main.py", "-w", "-p", f"{self.port}", "-profile", self.protocol.value.lower()])
+        self.cmd = subprocess.Popen(["python3", "./external_libs/CH4ESE/main.py", "-w", "-p", f"{self.port}", "-profile", self.protocol.value.lower()])
         logger.info(f"Starting Python webserver with PID: {self.cmd.pid} on port: {self.port}")
 
     def _findOpenPort(self):

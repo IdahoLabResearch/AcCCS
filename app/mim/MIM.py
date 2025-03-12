@@ -4,22 +4,19 @@
 
 # Have a list of packet types to modify
 # Pass them to PEV and EVSE emulators
-import sys, os
+from app.evcc.controller.PEV import PEV
+from app.secc.controller.EVSE import EVSE
 
-sys.path.append("./external_libs/HomePlugPWN")
-sys.path.append("./external_libs/V2GInjector/core")
+from app.shared.EmulatorEnum import PEVState
 
-from PEV import PEV
-from EVSE import EVSE
-from EmulatorEnum import *
-from EXIProcessor import EXIProcessor
+from scapy.all import Ether, IPv6, TCP
 
-from layers.SECC import *
-from layers.V2G import *
-from layerscapy.HomePlugGP import *
+from external_libs.V2GInjector.core.layers.V2G import V2GTP
+from external_libs.HomePlugPWN.layerscapy.HomePlugGP import (
+    AsyncSniffer, Raw, sendp
+)
 
 import xml.etree.ElementTree as ET
-import binascii
 
 
 class MIM:
