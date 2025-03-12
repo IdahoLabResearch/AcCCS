@@ -1,13 +1,13 @@
 [submodule "external_libs/HomePlugPWN"]
 	path = external_libs/HomePlugPWN
-	url = https://github.com/JakeMG-INL/HomePlugPWN.git
+	url = git@github.com:JakeMG-INL/HomePlugPWN.git
 	branch = minimal-libs
 
 [submodule "external_libs/V2GInjector"]
 	path = external_libs/V2GInjector
-	url = https://github.com/JakeMG-INL/V2GInjector.git
+	url = git@github.com:JakeMG-INL/V2GInjector.git
 	branch = minimal-libs
 	
 [submodule "external_libs/CH4ESE"]
 	path = external_libs/CH4ESE
-	url = https://github.com/IdahoLabResearch/CH4ESE.git
+	url = git@github.com:IdahoLabResearch/CH4ESE.git
