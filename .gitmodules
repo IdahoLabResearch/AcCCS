@@ -2,5 +2,3 @@
 	path = external_libs/HomePlugPWN
 	url = git@github.com:JakeMG-INL/HomePlugPWN.git
 	branch = minimal-libs
-
-

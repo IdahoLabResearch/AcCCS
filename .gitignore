@@ -1,6 +1,9 @@
 # Ignore all zip files (probably a backup)
+.vscode/
 __pycache__/
 logs/
+app/shared/pki/iso15118_2
+app/shared/pki/iso15118_20
 
 *.zip
 *test.py
@@ -10,3 +13,5 @@ logs/
 test_*
 
 PWM_PCB.kicad_prl
+server_keylog.log
+client_keylog.log
