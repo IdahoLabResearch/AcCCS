@@ -6,6 +6,8 @@ This module contains the code to retrieve (hardware-related) data from the EVSE
 import base64
 import logging
 import time
+import os
+import environs
 from typing import Dict, List, Optional, Union
 
 from app.secc.controller.common import UnknownEnergyService
@@ -267,18 +269,25 @@ class SimEVSEController(EVSEControllerInterface):
         logger.debug(f"New Status: {status}")
 
     async def get_evse_id(self, protocol: Protocol) -> str:
-        if protocol == Protocol.DIN_SPEC_70121:
-            #  To transform a string-based DIN SPEC 91286 EVSE ID to hexBinary
-            #  representation and vice versa, the following conversion rules shall
-            #  be used for each character and hex digit: '0' <--> 0x0, '1' <--> 0x1,
-            #  '2' <--> 0x2, '3' <--> 0x3, '4' <--> 0x4, '5' <--> 0x5, '6' <--> 0x6,
-            #  '7' <--> 0x7, '8' <--> 0x8, '9' <--> 0x9, '*' <--> 0xA,
-            #  Unused <--> 0xB .. 0xF.
-            # Example: The DIN SPEC 91286 EVSE ID “49*89*6360” is represented
-            # as “0x49 0xA8 0x9A 0x63 0x60”.
-            return "49A89A6360"
-        """Overrides EVSEControllerInterface.get_evse_id()."""
-        return "UK123E1234"
+        #  To transform a string-based DIN SPEC 91286 EVSE ID to hexBinary
+        #  representation and vice versa, the following conversion rules shall
+        #  be used for each character and hex digit: '0' <--> 0x0, '1' <--> 0x1,
+        #  '2' <--> 0x2, '3' <--> 0x3, '4' <--> 0x4, '5' <--> 0x5, '6' <--> 0x6,
+        #  '7' <--> 0x7, '8' <--> 0x8, '9' <--> 0x9, '*' <--> 0xA,
+        #  Unused <--> 0xB .. 0xF.
+        # Example: The DIN SPEC 91286 EVSE ID “49*89*6360” is represented
+        # as “0x49 0xA8 0x9A 0x63 0x60”.
+        
+        WORK_DIR = os.getcwd()
+        ENV_PATH = WORK_DIR + "/.env.secc"
+        env = environs.Env(eager=False)
+        env.read_env(path=ENV_PATH)  # read .env file, if it exists
+        if protocol != Protocol.DIN_SPEC_70121:
+            evse_id = env.str("EVSEID", default="ZZ00000")
+        else:
+            evse_id = env.str("EVSEID", default="49A89A6360")
+        env.seal()  # raise all errors at once, if any
+        return evse_id
 
     async def get_supported_energy_transfer_modes(
         self, protocol: Protocol
