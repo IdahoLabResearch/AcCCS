@@ -8,32 +8,33 @@
 # need to do this to import the custom SECC and V2G scapy layer
 import os, time, argparse, logging
 
-from datetime import datetime
-
-from app.shared.EXIProcessor import EXIProcessor
 from app.shared.EmulatorEnum import Protocol, RunMode
 
 from app.secc.transport.slac import SLACHandler
-from app.secc.transport.udp import UDPHandler
-from app.secc.transport.tcp import TCPHandler
+
+from app.secc import SECCHandler
+from app.secc.controller.interface import ServiceStatus
+from app.secc.controller.simulator import SimEVSEController
+from app.secc.secc_settings import Config
+from app.shared.exificient_exi_codec import ExificientEXICodec
 
 if not os.path.isdir("logs"):
     os.makedirs("logs")
 
 logger = logging.getLogger("SECC")
-fileHandler = logging.FileHandler("logs/SECC_"+datetime.now().strftime("%d-%m-%Y_%H-%M-%S")+".log")
-consoleHandler = logging.StreamHandler()
-logging.basicConfig(format="%(asctime)s (%(name)s) %(levelname)s: %(message)s",
-                    handlers=[fileHandler, consoleHandler],
-                    level=logging.INFO)
+# fileHandler = logging.FileHandler("logs/SECC_"+datetime.now().strftime("%d-%m-%Y_%H-%M-%S")+".log")
+# consoleHandler = logging.StreamHandler()
+# logging.basicConfig(format="%(asctime)s (%(name)s) %(levelname)s: %(message)s",
+#                     handlers=[fileHandler, consoleHandler],
+#                     level=logging.INFO)
 
 class EVSE:
 
     def __init__(self, args):
         self.mode = RunMode(args.mode[0]) if args.mode else RunMode.FULL
-        self.iface = args.interface[0] if args.interface else "lo"
-        self.sourceMAC = args.source_mac[0] if args.source_mac else "00:00:00:00:00:00"
-        self.sourceIP = args.source_ip[0] if args.source_ip else "::1"
+        self.iface = args.interface[0] if args.interface else "eth0"
+        self.sourceMAC = args.source_mac[0] if args.source_mac else "00:15:5d:d0:d0:ee"
+        self.sourceIP = args.source_ip[0] if args.source_ip else "fe80::215:5dff:fed0:d0ee"
         self.sourcePort = args.source_port[0] if args.source_port else 25565
         self.NID = args.NID[0] if args.NID else b"\x9c\xb0\xb2\xbb\xf5\x6c\x0e"
         self.NMK = args.NMK[0] if args.NMK else b"\x48\xfe\x56\x02\xdb\xac\xcd\xe5\x1e\xda\xdc\x3e\x08\x1a\x52\xd1"
@@ -56,12 +57,10 @@ class EVSE:
         self.destinationMAC = None
         self.destinationIP = None
         self.destinationPort = None
-        
-        self.exi = EXIProcessor(self.protocol)
 
         self.slac = SLACHandler(self)
-        self.udp = UDPHandler(self)
-        self.tcp = TCPHandler(self)
+        # self.udp = UDPHandler(self)
+        # self.tcp = TCPHandler(self)
 
         # Constants for i2c controlled relays
         self.I2C_ADDR = 0x20
@@ -71,10 +70,23 @@ class EVSE:
         self.ALL_OFF = 0b0
 
     # Start the emulator
-    def start(self):
+    async def start(self):
         self.toggleProximity()
-        self.doUDP()
-        self.doTCP()
+        
+        config = Config()
+        config.load_envs()
+        config.print_settings()
+
+        sim_evse_controller = SimEVSEController()
+        await sim_evse_controller.set_status(ServiceStatus.STARTING)
+        await SECCHandler(
+            exi_codec=ExificientEXICodec(),
+            evse_controller=sim_evse_controller,
+            config=config,
+        ).start(config.iface)
+        
+        # self.doUDP()
+        # self.doTCP()
 
     # Close the circuit for the proximity pins
     def closeProximity(self):

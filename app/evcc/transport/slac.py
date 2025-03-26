@@ -17,7 +17,7 @@ class SLACHandler:
         self.sourceIP = self.pev.sourceIP
         self.runID = b"\xf4\x00\x37\xd0\x00\x5c\x00\x7f"
 
-        self.timeSinceLastPkt = time.time()
+        self.timeSinceLastPkt = int(time.time())
         self.timeout = 8  # How long to wait for a message to timeout
         self.stop = False
 
@@ -44,10 +44,10 @@ class SLACHandler:
     # The EVSE sometimes fails the SLAC process, so this automatically restarts it from the beginning
     def checkForTimeout(self):
         while self.stop == False:
-            if time.time() - self.timeSinceLastPkt > self.timeout:
+            if int(time.time()) - self.timeSinceLastPkt > self.timeout:
                 logger.info("Timed out... Sending SLAC_PARM_REQ")
                 sendp(self.buildSlacParmReq(), iface=self.iface, verbose=0)
-                self.timeSinceLastPkt = time.time()
+                self.timeSinceLastPkt = int(time.time())
 
     def startSniff(self):
         sniff(iface=self.iface, prn=self.handlePacket, stop_filter=self.stopSniff)
@@ -88,10 +88,10 @@ class SLACHandler:
             logger.info("Recieved ATTEN_CHAR_IND")
             logger.info("Sending ATTEN_CHAR_RES")
             sendp(self.buildAttenCharRes(), iface=self.iface, verbose=0)
-            self.timeSinceLastPkt = time.time()
+            self.timeSinceLastPkt = int(time.time())
             logger.info("Sending SLAC_MATCH_REQ")
             sendp(self.buildSlacMatchReq(), iface=self.iface, verbose=0)
-            self.timeSinceLastPkt = time.time()
+            self.timeSinceLastPkt = int(time.time())
             return
 
         if pkt.haslayer("CM_SLAC_MATCH_CNF"):
@@ -110,15 +110,15 @@ class SLACHandler:
             if self.stopSounds:
                 return
             sendp(self.buildStartAttenCharInd(), iface=self.iface, verbose=0)
-            self.timeSinceLastPkt = time.time()
+            self.timeSinceLastPkt = int(time.time())
         logger.info(f"Sending {self.numSounds} MNBC_SOUND_IND")
         soundPkts = [self.buildMNBCSoundInd() for i in range(self.numSounds)]
         sendp(soundPkts, iface=self.iface, verbose=0, inter=0.05)
-        self.timeSinceLastPkt = time.time()
+        self.timeSinceLastPkt = int(time.time())
         # for i in range(self.numSounds):
         #     if self.stopSounds: return
         #     sendp(self.buildMNBCSoundInd(), iface=self.iface, verbose=0)
-        #     self.timeSinceLastPkt = time.time()
+        #     self.timeSinceLastPkt = int(time.time())
         logger.info("Done sending sounds")
 
     def buildSlacParmReq(self):

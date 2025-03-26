@@ -34,14 +34,14 @@ class SLACHandler:
         self.timeoutThread.start()
 
     def checkForTimeout(self):
-        self.lastMessageTime = time.time()
+        self.lastMessageTime = int(time.time())
         while True:
             if self.stop:
                 break
-            if time.time() - self.lastMessageTime > self.timeout:
+            if int(time.time()) - self.lastMessageTime > self.timeout:
                 logger.info("SLAC timed out, resetting connection...")
                 self.evse.toggleProximity()
-                self.lastMessageTime = time.time()
+                self.lastMessageTime = int(time.time())
 
     def startSniff(self):
         sniff(iface=self.iface, prn=self.handlePacket, stop_filter=self.stopSniff)
@@ -53,7 +53,7 @@ class SLACHandler:
         if pkt[Ether].type != 0x88E1 or pkt[Ether].src == self.sourceMAC:
             return
 
-        self.lastMessageTime = time.time()
+        self.lastMessageTime = int(time.time())
 
         if pkt.haslayer("CM_SLAC_PARM_REQ"):
             logger.info("Recieved SLAC_PARM_REQ")

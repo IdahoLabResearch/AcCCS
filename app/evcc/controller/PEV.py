@@ -9,32 +9,32 @@
 import os, random, time
 import argparse, logging
 
-from datetime import datetime
-
-from app.shared.EXIProcessor import EXIProcessor
 from app.shared.EmulatorEnum import RunMode, PEVState, Protocol
 
 from app.evcc.transport.slac import SLACHandler
-from app.evcc.transport.udp import UDPHandler
-from app.evcc.transport.tcp import TCPHandler
+
+from app.evcc import Config, EVCCHandler
+from app.evcc.controller.simulator import SimEVController
+from app.evcc.evcc_config import load_from_file
+from app.shared.exificient_exi_codec import ExificientEXICodec
 
 if not os.path.isdir("logs"):
     os.makedirs("logs")
 
 logger = logging.getLogger("EVCC")
-fileHandler = logging.FileHandler("logs/EVCC_"+datetime.now().strftime("%d-%m-%Y_%H-%M-%S")+".log")
-consoleHandler = logging.StreamHandler()
-logging.basicConfig(format="%(asctime)s (%(name)s) %(levelname)s: %(message)s",
-                    handlers=[fileHandler, consoleHandler],
-                    level=logging.INFO)
+# fileHandler = logging.FileHandler("logs/EVCC_"+datetime.now().strftime("%d-%m-%Y_%H-%M-%S")+".log")
+# consoleHandler = logging.StreamHandler()
+# logging.basicConfig(format="%(asctime)s (%(name)s) %(levelname)s: %(message)s",
+#                     handlers=[fileHandler, consoleHandler],
+#                     level=logging.INFO)
 
 class PEV:
 
     def __init__(self, args):
         self.mode = RunMode(args.mode[0]) if args.mode else RunMode.FULL
-        self.iface = args.interface[0] if args.interface else "lo"
-        self.sourceMAC = args.source_mac[0] if args.source_mac else "00:00:00:00:00:00"
-        self.sourceIP = args.source_ip[0] if args.source_ip else "::1"
+        self.iface = args.interface[0] if args.interface else "eth0"
+        self.sourceMAC = args.source_mac[0] if args.source_mac else "00:15:5d:d0:d0:ee"
+        self.sourceIP = args.source_ip[0] if args.source_ip else "fe80::215:5dff:fed0:d0ee"
         self.sourcePort = args.source_port[0] if args.source_port else random.randint(1025, 65534)
         self.protocol = Protocol(args.protocol[0]) if args.protocol else Protocol.DIN
         self.nmapMAC = args.nmap_mac[0] if args.nmap_mac else ""
@@ -56,12 +56,10 @@ class PEV:
         self.pnc = False
         self.tls = False
         self.complete =False
-        
-        self.exi = EXIProcessor(self.protocol)
 
         self.slac = SLACHandler(self)
-        self.udp = UDPHandler(self)
-        self.tcp = TCPHandler(self)
+        # self.udp = UDPHandler(self)
+        # self.tcp = TCPHandler(self)
 
         # Constants for i2c controlled relays
         self.I2C_ADDR = 0x20
@@ -71,12 +69,23 @@ class PEV:
         self.PEV_PP = 0b10000
         self.ALL_OFF = 0b0
 
-    def start(self):
+    async def start(self):
         self.toggleProximity()
-        time.sleep(1)
-        self.doUDP()
-        time.sleep(1)
-        self.doTCP()
+        
+        config = Config()
+        config.load_envs()
+        evcc_config = await load_from_file(config.ev_config_file_path)
+        await EVCCHandler(
+            evcc_config=evcc_config,
+            iface=config.iface,
+            exi_codec=ExificientEXICodec(),
+            ev_controller=SimEVController(evcc_config),
+        ).start()
+        
+        # time.sleep(1)
+        # self.doUDP()
+        # time.sleep(1)
+        # self.doTCP()
 
     def doTCP(self):
         self.tcp.start()

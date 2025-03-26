@@ -1,0 +1,39 @@
+import asyncio
+import logging
+
+from app.secc import SECCHandler
+from app.secc.controller.interface import ServiceStatus
+from app.secc.controller.simulator import SimEVSEController
+from app.secc.secc_settings import Config
+from app.shared.exificient_exi_codec import ExificientEXICodec
+
+logger = logging.getLogger(__name__)
+
+
+async def main():
+    """
+    Entrypoint function that starts the ISO 15118 code running on
+    the SECC (Supply Equipment Communication Controller)
+    """
+    config = Config()
+    config.load_envs()
+    config.print_settings()
+
+    sim_evse_controller = SimEVSEController()
+    await sim_evse_controller.set_status(ServiceStatus.STARTING)
+    await SECCHandler(
+        exi_codec=ExificientEXICodec(),
+        evse_controller=sim_evse_controller,
+        config=config,
+    ).start(config.iface)
+
+
+def run():
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.debug("SECC program terminated manually")
+
+
+if __name__ == "__main__":
+    run()

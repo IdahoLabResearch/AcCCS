@@ -3,11 +3,4 @@
 	url = git@github.com:JakeMG-INL/HomePlugPWN.git
 	branch = minimal-libs
 
-[submodule "external_libs/V2GInjector"]
-	path = external_libs/V2GInjector
-	url = git@github.com:JakeMG-INL/V2GInjector.git
-	branch = minimal-libs
-	
-[submodule "external_libs/CH4ESE"]
-	path = external_libs/CH4ESE
-	url = git@github.com:IdahoLabResearch/CH4ESE.git
+
