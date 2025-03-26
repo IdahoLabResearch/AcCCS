@@ -3,7 +3,7 @@ import logging
 from typing import List, Optional
 
 from aiofile import async_open
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 from app.shared.messages.enums import (
     UINT_16_MAX,
@@ -83,7 +83,8 @@ class EVCCConfig(BaseModel):
             self.raw_supported_protocols
         )
 
-    @validator("max_supporting_points", pre=True, always=True)
+    @field_validator("max_supporting_points", mode="before")
+    @classmethod
     def check_max_supporting_points(cls, value):
         if not 0 <= value <= 1024:
             raise ValueError(
@@ -92,7 +93,8 @@ class EVCCConfig(BaseModel):
             )
         return value
 
-    @validator("sdp_retry_cycles", pre=True, always=True)
+    @field_validator("sdp_retry_cycles", mode="before")
+    @classmethod
     def check_sdp_retry_cycle(cls, value):
         if value < 0:
             raise ValueError(
@@ -100,7 +102,8 @@ class EVCCConfig(BaseModel):
             )
         return value
 
-    @validator("max_contract_certs", pre=True, always=True)
+    @field_validator("max_contract_certs", mode="before")
+    @classmethod
     def check_max_contract_certs(cls, value):
         if not 1 < value < UINT_16_MAX:
             raise ValueError(

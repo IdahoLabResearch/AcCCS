@@ -16,7 +16,8 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Config:
     iface: Optional[str] = None
-    log_level: Optional[str] = None
+    console_log_level: Optional[str] = None
+    file_log_level: Optional[str] = None
     evse_controller: Type[EVSEControllerInterface] = None
     enforce_tls: bool = False
     free_charging_service: bool = False
@@ -49,12 +50,13 @@ class Config:
         """
         env = environs.Env(eager=False)
         if not env_path:
-            env_path = os.getcwd() + "/.env"
+            env_path = os.getcwd() + "/.env.secc"
         env.read_env(path=env_path)  # read .env file, if it exists
 
         self.iface = env.str("NETWORK_INTERFACE", default="eth0")
 
-        self.log_level = env.str("LOG_LEVEL", default="INFO")
+        self.console_log_level = env.str("CONSOLE_LOG_LEVEL", default="INFO")
+        self.file_log_level = env.str("FILE_LOG_LEVEL", default="DEBUG")
 
         # Indicates whether or not the SECC should always enforce a TLS-secured
         # communication session. If True, the SECC will only fire up a TCP server

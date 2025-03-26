@@ -17,11 +17,10 @@ from app.evcc import Config, EVCCHandler
 from app.evcc.controller.simulator import SimEVController
 from app.evcc.evcc_config import load_from_file
 from app.shared.exificient_exi_codec import ExificientEXICodec
+from app.shared.logging import _init_logger
 
-if not os.path.isdir("logs"):
-    os.makedirs("logs")
-
-logger = logging.getLogger("EVCC")
+_init_logger(source="EVCC")
+logger = logging.getLogger(__name__)
 # fileHandler = logging.FileHandler("logs/EVCC_"+datetime.now().strftime("%d-%m-%Y_%H-%M-%S")+".log")
 # consoleHandler = logging.StreamHandler()
 # logging.basicConfig(format="%(asctime)s (%(name)s) %(levelname)s: %(message)s",
@@ -36,7 +35,6 @@ class PEV:
         self.sourceMAC = args.source_mac[0] if args.source_mac else "00:15:5d:d0:d0:ee"
         self.sourceIP = args.source_ip[0] if args.source_ip else "fe80::215:5dff:fed0:d0ee"
         self.sourcePort = args.source_port[0] if args.source_port else random.randint(1025, 65534)
-        self.protocol = Protocol(args.protocol[0]) if args.protocol else Protocol.DIN
         self.nmapMAC = args.nmap_mac[0] if args.nmap_mac else ""
         self.nmapIP = args.nmap_ip[0] if args.nmap_ip else ""
         self.nmapPorts = []

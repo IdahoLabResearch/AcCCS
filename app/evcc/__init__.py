@@ -9,9 +9,7 @@ from app.evcc.evcc_settings import Config
 from app.shared.iexi_codec import IEXICodec
 from app.shared.logging import _init_logger
 
-_init_logger()
 logger = logging.getLogger(__name__)
-
 
 class EVCCHandler(CommunicationSessionHandler):
     def __init__(
