@@ -130,16 +130,6 @@ def get_ssl_context(server_side: bool) -> Optional[SSLContext]:
          Need to figure out a way to securely store those certs and keys
          as well as read the password.
     """
-    # if shared_settings[SettingKey.ENABLE_TLS_1_3]:
-    #     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS)
-    # else:
-    #     # Specifying protocol as `PROTOCOL_TLS` does best effort.
-    #     # TLSv1.3 will be attempted and would fallback to 1.2 if not possible.
-    #     # However, there may be TLS clients that can't perform
-    #     # 1.2 fallback, here we explicitly set the TLS version
-    #     # to 1.2, to be sure we won't fall into connection issues
-    #     ssl_context = SSLContext(protocol=ssl.PROTOCOL_TLSv1_2)
-    
     if server_side:
         ssl_context = ssl.create_default_context(purpose=ssl.Purpose.CLIENT_AUTH)
         ssl_context.keylog_filename = 'server_keylog.log'

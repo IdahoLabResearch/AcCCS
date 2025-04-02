@@ -6,10 +6,10 @@
 """
 
 # need to do this to import the custom SECC and V2G scapy layer
-import os, random, time
-import argparse, logging
+import random, time
+import logging
 
-from app.shared.EmulatorEnum import RunMode, PEVState, Protocol
+from app.shared.EmulatorEnum import RunMode, PEVState
 
 from app.evcc.transport.slac import SLACHandler
 
@@ -21,11 +21,6 @@ from app.shared.logging import _init_logger
 
 _init_logger(source="EVCC")
 logger = logging.getLogger(__name__)
-# fileHandler = logging.FileHandler("logs/EVCC_"+datetime.now().strftime("%d-%m-%Y_%H-%M-%S")+".log")
-# consoleHandler = logging.StreamHandler()
-# logging.basicConfig(format="%(asctime)s (%(name)s) %(levelname)s: %(message)s",
-#                     handlers=[fileHandler, consoleHandler],
-#                     level=logging.INFO)
 
 class PEV:
 
@@ -56,8 +51,6 @@ class PEV:
         self.complete =False
 
         self.slac = SLACHandler(self)
-        # self.udp = UDPHandler(self)
-        # self.tcp = TCPHandler(self)
 
         # Constants for i2c controlled relays
         self.I2C_ADDR = 0x20
@@ -79,27 +72,12 @@ class PEV:
             exi_codec=ExificientEXICodec(),
             ev_controller=SimEVController(evcc_config),
         ).start()
-        
-        # time.sleep(1)
-        # self.doUDP()
-        # time.sleep(1)
-        # self.doTCP()
-
-    def doTCP(self):
-        self.tcp.start()
-        logger.info("Done TCP")
 
     def doSLAC(self):
         logger.info("Starting SLAC")
         self.slac.start()
         self.slac.sniffThread.join()
         logger.info("Done SLAC")
-
-    # Starts UDP thread that handles layer 3 for SDP
-    def doUDP(self):
-        self.udp.start()
-        self.udp.timeoutThread.join()
-        logger.info("Done UDP")
 
     def closeProximity(self):
         self.setState(PEVState.B)
@@ -119,35 +97,3 @@ class PEV:
         self.openProximity()
         time.sleep(t)
         self.closeProximity()
-
-if __name__ == "__main__":
-    # Parse arguements from command line
-    parser = argparse.ArgumentParser(description="PEV emulator for AcCCS")
-    parser.add_argument(
-        "-M",
-        "--mode",
-        nargs=1,
-        type=int,
-        help="Mode for emulator to run in: 0 for full conversation, 1 for stalling the conversation, 2 for portscanning (default: 0)",
-    )
-    parser.add_argument("-I", "--interface", nargs=1, help="Ethernet interface to send/recieve packets on (default: eth1)")
-    parser.add_argument("--source-mac", nargs=1, help="Source MAC address of packets (default: 00:1e:c0:f2:6c:a0)")
-    parser.add_argument("--source-ip", nargs=1, help="Source IP address of packets (default: fe80::21e:c0ff:fef2:72f3)")
-    parser.add_argument("--source-port", nargs=1, type=int, help="Source port of packets (default: 25565)")
-    parser.add_argument("-p", "--protocol", nargs=1, help="Protocol for EXI encoding/decoding: DIN, ISO-2, ISO-20 (default: DIN)")
-    parser.add_argument("--nmap-mac", nargs=1, help="The MAC address of the target device to NMAP scan (default: SECC MAC address)")
-    parser.add_argument("--nmap-ip", nargs=1, help="The IP address of the target device to NMAP scan (default: SECC IP address)")
-    parser.add_argument("--nmap-ports", nargs=1, help="List of ports to scan seperated by commas (ex. 1,2,5-10,19,...) (default: Top 8000 common ports)")
-    args = parser.parse_args()
-
-    pev = PEV(args)
-    try:
-        pev.start()
-    except KeyboardInterrupt:
-        logger.info("Shutting down emulator")
-    except Exception as e:
-        raise e
-        logger.error(e)
-    finally:
-        pev.setState(PEVState.A)
-        del pev

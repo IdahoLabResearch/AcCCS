@@ -6,7 +6,7 @@ from typing import List, Optional, Type
 import environs
 
 from app.secc.controller.interface import EVSEControllerInterface
-from app.shared.messages.enums import AuthEnum, Protocol
+from app.shared.messages.enums import AuthEnum, Protocol, Namespace
 from app.shared.settings import load_shared_settings, shared_settings
 from app.shared.utils import load_requested_auth_modes, load_requested_protocols
 
@@ -109,6 +109,14 @@ class Config:
         env.seal()  # raise all errors at once, if any
         self.env_dump = dict(env.dump())
         self.env_dump.update(shared_settings)
+        self.print_settings()
+        
+        if not self.env_dump["ENABLE_TLS_1_3"]:
+            for protocol in self.supported_protocols:
+                if protocol.ns.startswith(Namespace.ISO_V20_BASE):
+                    raise Exception("ISO 15118-20 does not allow TLS version lower than 1.3. "
+                                    "Either set ENABLE_TLS_1_3 to True or remove ISO 15118-20 "
+                                    "protocols from the environment file.")
 
     def print_settings(self):
         logger.info("SECC settings:")

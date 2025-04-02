@@ -521,7 +521,7 @@ class EVSEControllerInterface(ABC):
             if (evse_session_limits.max_charge_power or 0) > 0 and (
                 evse_session_limits.max_discharge_power or 0
             ) > 0:
-                logger.error(
+                logger.warning(
                     "Both Max Charge and Discharge power are set, "
                     "Just one is allowed at a time. Ignoring Discharge setpoint."
                 )
@@ -538,7 +538,7 @@ class EVSEControllerInterface(ABC):
             if (evse_session_limits.max_charge_reactive_power or 0) > 0 and (
                 evse_session_limits.max_discharge_reactive_power or 0
             ) > 0:
-                logger.error(
+                logger.warning(
                     "Both Max Reactive Charge and Discharge power are set, "
                     "Just one is allowed at a time. "
                     "Ignoring Reactive Discharge setpoint."

@@ -1,5 +1,7 @@
-from app.evcc.controller.pev import PEV
 import argparse, asyncio
+
+from app.evcc.controller.pev import PEV
+from app.shared.EmulatorEnum import PEVState
 
 parser = argparse.ArgumentParser(description="Emulator for EVCC/PEV")
 parser.add_argument(
@@ -27,3 +29,5 @@ args = parser.parse_args()
 
 pev = PEV(args)
 asyncio.run(pev.start())
+pev.setState(PEVState.A)
+del pev

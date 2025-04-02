@@ -1,5 +1,6 @@
-from app.secc.controller.evse import EVSE
 import argparse, asyncio
+
+from app.secc.controller.evse import EVSE
 
 parser = argparse.ArgumentParser(description="Emulator for SECC/EVSE")
 parser.add_argument(
@@ -27,3 +28,5 @@ args = parser.parse_args()
 
 evse = EVSE(args)
 asyncio.run(evse.start())
+evse.openProximity()
+del evse

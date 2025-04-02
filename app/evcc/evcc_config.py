@@ -128,6 +128,7 @@ async def load_from_file(file_name: str) -> EVCCConfig:
                     logger.info(f"{key:30}: {value.name}")
                 elif not key.startswith("raw"):
                     logger.info(f"{key:30}: {value}")
+                    
         return ev_config
     except Exception as err:
         logger.debug(f"Error on loading evcc config file:{err}")

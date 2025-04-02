@@ -15,7 +15,7 @@ from abc import ABC
 from enum import Enum
 from typing import List, Optional, Union
 
-from pydantic import Field, conbytes, conint, constr, validator
+from pydantic import Field, conbytes, conint, constr, field_validator
 from typing_extensions import TypeAlias
 
 from app.shared.messages import BaseModel
@@ -51,7 +51,8 @@ class MessageHeader(BaseModel):
     timestamp: int = Field(..., alias="TimeStamp")
     signature: Optional[Signature] = Field(None, alias="Signature")
 
-    @validator("session_id")
+    @field_validator("session_id")
+    @classmethod
     def check_sessionid_is_hexbinary(cls, value):
         """
         Checks whether the session_id field is a hexadecimal representation of
