@@ -2,14 +2,18 @@ import time, logging
 
 from threading import Thread
 from scapy.all import Ether
+from typing import TYPE_CHECKING
 
 from external_libs.HomePlugPWN.layerscapy.HomePlugGP import *
+
+if TYPE_CHECKING:
+    from app.secc.controller.evse import EVSE
 
 logger = logging.getLogger("SLAC")
 
 # Handles all SLAC communications
 class SLACHandler:
-    def __init__(self, evse):
+    def __init__(self, evse: "EVSE"):
         self.evse = evse
         self.iface = self.evse.iface
         self.sourceMAC = self.evse.sourceMAC
@@ -210,7 +214,7 @@ class SLACHandler:
     def buildSetKey(self):
         ethLayer = Ether()
         ethLayer.src = self.sourceMAC
-        ethLayer.dst = "00:00:00:00:00:00"  # Some AtherosC MAC for some reason
+        ethLayer.dst = "00:b0:52:00:00:01"  # Some AtherosC MAC for some reason
 
         homePlugAVLayer = HomePlugAV()
         homePlugAVLayer.version = 0x01

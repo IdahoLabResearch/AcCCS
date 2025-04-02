@@ -8,6 +8,8 @@
 # need to do this to import the custom SECC and V2G scapy layer
 import time, logging
 
+from smbus import SMBus
+
 from app.shared.EmulatorEnum import RunMode
 
 from app.secc.transport.slac import SLACHandler
@@ -26,9 +28,9 @@ class EVSE:
 
     def __init__(self, args):
         self.mode = RunMode(args.mode[0]) if args.mode else RunMode.FULL
-        self.iface = args.interface[0] if args.interface else "eth0"
-        self.sourceMAC = args.source_mac[0] if args.source_mac else "00:15:5d:d0:d0:ee"
-        self.sourceIP = args.source_ip[0] if args.source_ip else "fe80::215:5dff:fed0:d0ee"
+        self.iface = args.interface[0] if args.interface else "eth2"
+        self.sourceMAC = args.source_mac[0] if args.source_mac else "c8:a3:62:08:ce:38"
+        self.sourceIP = args.source_ip[0] if args.source_ip else "fe80::5bc3:ec13:24fb:69da"
         self.sourcePort = args.source_port[0] if args.source_port else 25565
         self.NID = args.NID[0] if args.NID else b"\x9c\xb0\xb2\xbb\xf5\x6c\x0e"
         self.NMK = args.NMK[0] if args.NMK else b"\x48\xfe\x56\x02\xdb\xac\xcd\xe5\x1e\xda\xdc\x3e\x08\x1a\x52\xd1"
@@ -52,6 +54,9 @@ class EVSE:
         self.destinationPort = None
 
         self.slac = SLACHandler(self)
+        
+        # I2C bus for relays
+        self.bus = SMBus(1)
 
         # Constants for i2c controlled relays
         self.I2C_ADDR = 0x20
@@ -62,6 +67,8 @@ class EVSE:
 
     # Start the emulator
     async def start(self):
+        # Initialize the I2C bus for wwrite
+        self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00)
         self.toggleProximity()
         
         config = Config()
@@ -79,12 +86,15 @@ class EVSE:
     def closeProximity(self):
         if self.modified_cordset:
             logger.info("Closing CP/PP relay connections")
+            self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.EVSE_PP | self.EVSE_CP)
         else:
             logger.info("Closing CP relay connection")
+            self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.EVSE_CP)
 
     # Close the circuit for the proximity pins
     def openProximity(self):
         logger.info("Opening CP/PP relay connections")
+        self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.ALL_OFF)
 
     # Opens and closes proximity circuit with a delay
     def toggleProximity(self, t: int = 5):

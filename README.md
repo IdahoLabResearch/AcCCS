@@ -1,7 +1,7 @@
 # AcCCS
 Access Capabilities for CCS (AcCCS - pronounced "access" /ˈakˌses/) provides a flexible and inexpensive solution to enable communications testing of various Electric Vehicle (EV) technologies that use the CCS charging standard(s).  This codebase is an example of tools and scripts capable of communicating with and emulating an Electric Vehicle Communications Controller (EVCC) and/or a Supply Equipment Communications Controller (SECC).
 
-This project is the result of our efforts to find COTS hardware and existing open source software capable of communicating via HomePlug GreenPHY (HPGP) with CCS enabled vehicles and charging stations.  We are providing some basic scripts to emulate an EV (see [PEV.py](PEV.py)) or an EVSE (see [EVSE.py](EVSE.py)).  These two scripts utilize third-party open source projects that provide Scapy packet definitions for Layer 2 (HPGP - [layerscapy](/layerscapy/)) and Layer 3 (DIN/ISO - [layers](/layers/)). Our goal was to establish a persistent network connection with a target device so that we can test the device for network vulnerabilities.
+This project is the result of our efforts to find COTS hardware and existing open source software capable of communicating via HomePlug GreenPHY (HPGP) with CCS enabled vehicles and charging stations.  We are providing some basic scripts to emulate an EV (see [PEV.py](PEV.py)) or an EVSE (see [EVSE.py](EVSE.py)).  These two scripts utilize third-party open source projects that provide Scapy packet definitions for Layer 2 (HPGP - [layerscapy](https://github.com/FlUxIuS/HomePlugPWN/tree/master/layerscapy)) and Layer 3 (DIN/ISO - [layers](https://github.com/JakeMG-INL/V2GInjector/tree/master/core/layers)). Our goal was to establish a persistent network connection with a target device so that we can test the device for network vulnerabilities.
 
 To enable some testing of the IPv6 endpoints, the emulator scripts provide the ability to perform some basic port scans of the target.  This functionality is available using command-line options of the emulator.  The emulators can be further enhanced for additional port scanning activities or even fuzz testing of the selected CCS protocol.
 
@@ -75,7 +75,7 @@ The DIN and ISO standards define that the TCP/IP communication between EVCC and 
 
 **Scapy** is used for all of the packet activities such as crafting, manipulation, sending, and receiving packets. 
 
-**TQDM** is used for neat progress bars in scripts involving the custom NMAP functionality for scanning SECC and EVCC devices. Custom scapy packets provided by the [HomePlugPWN](https://github.com/FlUxIuS/HomePlugPWN) project are included in the [layerscapy](/layerscapy/) folder. 
+**TQDM** is used for neat progress bars in scripts involving the custom NMAP functionality for scanning SECC and EVCC devices. Custom scapy packets provided by the [HomePlugPWN](https://github.com/FlUxIuS/HomePlugPWN) project are included in the [layerscapy](https://github.com/FlUxIuS/HomePlugPWN/tree/master/layerscapy) folder. 
 
 **Smbus** is used for I2C communications with the PCB to operate the relays found on the PWM PCB.
 
@@ -97,8 +97,20 @@ Below is a brief description of the scripts in this project. These scripts are p
 * Integrate a Python based EXI processor that doesn't require a full JVM :)
 * Complete and test a full MITM script
 
-## Notes
+## Notes from Ford
 
-Only two scripts are expected to be run from command line: EVSE.py and PEV.py. The other scripts and files serve as tools and utilities for these scripts to run. 
+Only two scripts are expected to be run from command line: ```run_evcc.py``` and ```run_secc.py```. The other scripts and files serve as tools and utilities for these scripts to run. 
 
-The ```EVSE.py``` and ```PEV.py``` scripts include some basic functionality to port scan (similar to NMAP) while the emulator is running. In our limited testing, the EVSEs stay connected to the emulator indefinitely, but the PEVs terminate the connection after a couple of minutes without any power transfer. For this reason a simple TCP syn scan is included in the script to pick up where the scan left off when the connection is reestablished.
+These scripts run the ```EVSE.py``` and ```PEV.py``` scripts, respectively, in the background, which include some basic functionality to port scan (similar to NMAP) while the emulator is running. In our limited testing, the EVSEs stay connected to the emulator indefinitely, but the PEVs terminate the connection after a couple of minutes without any power transfer. For this reason a simple TCP syn scan is included in the script to pick up where the scan left off when the connection is reestablished.
+
+## Modifications for external libraries from Ford
+Some changes are needed to be done to the external libraries. Some of these are needed due to the addition of ISO 15118-2 features and some are enhancements. Do the following: 
+### HomePlugPWN
+In [HomePlugGP.py](https://github.com/JakeMG-INL/HomePlugPWN/blob/eae353cb5146933e6f4e69587074733e813d05f6/layerscapy/HomePlugGP.py), in the very first line, change
+```python
+from layerscapy.HomePlugAV import *
+```
+to
+```python
+from .HomePlugAV import *
+```

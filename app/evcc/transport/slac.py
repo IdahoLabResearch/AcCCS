@@ -1,16 +1,20 @@
 import os, time, logging
 
 from threading import Thread
+from typing import TYPE_CHECKING
 
 from scapy.all import Ether, IPv6, ICMPv6ND_NS, ICMPv6ND_NA, ICMPv6NDOptDstLLAddr
 
 from external_libs.HomePlugPWN.layerscapy.HomePlugGP import *
 
+if TYPE_CHECKING:
+    from app.evcc.controller.pev import PEV
+
 logger = logging.getLogger("SLAC")
 
 # This class handles the level 2 SLAC protocol communications
 class SLACHandler:
-    def __init__(self, pev):
+    def __init__(self, pev: "PEV"):
         self.pev = pev
         self.iface = self.pev.iface
         self.sourceMAC = self.pev.sourceMAC
@@ -212,7 +216,7 @@ class SLACHandler:
     def buildSetKeyReq(self):
         ethLayer = Ether()
         ethLayer.src = self.sourceMAC
-        ethLayer.dst = "00:00:00:00:00:00"  # Some AtherosC MAC for whatever reason
+        ethLayer.dst = "00:b0:52:00:00:01"  # Some AtherosC MAC for whatever reason
 
         homePlugAVLayer = HomePlugAV()
         homePlugAVLayer.version = 0x01

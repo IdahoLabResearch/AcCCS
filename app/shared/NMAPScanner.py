@@ -77,7 +77,6 @@ class NMAPScanner():
             self.scanThread.start()
         
     def stop(self):
-        self.saveResults()
         self.running = False
         self.scanThread.join()
         
@@ -138,3 +137,4 @@ class NMAPScanner():
             self.finished = True
         print(f"INFO (EVSE): NMAP Stopped on port {self.portList[self.lastPort]} | {self.lastPort+1}/{maxPorts}")
         self.saveResults()
+        self.stop()
