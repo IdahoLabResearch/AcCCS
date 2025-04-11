@@ -17,8 +17,6 @@ class SLACHandler:
         self.evse = evse
         self.iface = self.evse.iface
         self.sourceMAC = self.evse.sourceMAC
-        self.sourceIP = self.evse.sourceIP
-        self.sourcePort = self.evse.sourcePort
         self.NID = self.evse.NID
         self.NMK = self.evse.NMK
 

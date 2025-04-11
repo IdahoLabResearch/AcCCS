@@ -1,5 +1,12 @@
-py4j==0.10.9.7
-Requests==2.32.3
+aiofile==3.9.0
+cryptography==44.0.2
+environs==14.1.1
+psutil==7.0.0
+py4j==0.10.9.9
+pydantic==2.11.3
 scapy==2.6.1
 smbus==1.1.post2
+sslkeylog==0.5.1
 tqdm==4.67.1
+typing_extensions==4.13.2
+Requests==2.32.3

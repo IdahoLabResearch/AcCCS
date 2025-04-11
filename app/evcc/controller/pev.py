@@ -28,10 +28,9 @@ class PEV:
 
     def __init__(self, args):
         self.mode = RunMode(args.mode[0]) if args.mode else RunMode.FULL
-        self.iface = args.interface[0] if args.interface else "eth1"
         self.sourceMAC = args.source_mac[0] if args.source_mac else "20:7b:d2:a6:8b:36"
         self.sourceIP = args.source_ip[0] if args.source_ip else "fe80::8280:f77f:d5be:8fbe"
-        self.sourcePort = args.source_port[0] if args.source_port else random.randint(1025, 65534)
+        self.sourcePort = args.source_port[0] if args.source_port else random.randint(49152, 65534)
         self.nmapMAC = args.nmap_mac[0] if args.nmap_mac else ""
         self.nmapIP = args.nmap_ip[0] if args.nmap_ip else ""
         self.nmapPorts = []
@@ -44,15 +43,11 @@ class PEV:
                 else:
                     self.nmapPorts.append(int(arg))
 
+        self.iface = "eth1"
         self.destinationMAC = None
         self.destinationIP = None
         self.destinationPort = None
-        
-        self.pnc = False
-        self.tls = False
-        self.complete =False
-
-        self.slac = SLACHandler(self)
+        self.slac = None
         
         # I2C bus for relays
         self.bus = SMBus(1)
@@ -70,11 +65,14 @@ class PEV:
         self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00)
         self.toggleProximity()
         
-        self.doSLAC()
-        
         config = Config()
         config.load_envs()
         evcc_config = await load_from_file(config.ev_config_file_path)
+        self.iface = config.iface
+        self.slac = SLACHandler(self)
+        
+        self.doSLAC()
+        
         await EVCCHandler(
             evcc_config=evcc_config,
             iface=config.iface,

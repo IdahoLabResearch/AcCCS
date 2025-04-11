@@ -11,10 +11,9 @@ parser.add_argument(
     type=int,
     help="Mode for emulator to run in: 0 for full conversation, 1 for stalling the conversation, 2 for portscanning (default: 0)",
 )
-parser.add_argument("-I", "--interface", nargs=1, help="Ethernet interface to send/recieve packets on (default: eth1)")
-parser.add_argument("--source-mac", nargs=1, help="Source MAC address of packets (default: 00:1e:c0:f2:6c:a0)")
-parser.add_argument("--source-ip", nargs=1, help="Source IP address of packets (default: fe80::21e:c0ff:fef2:72f3)")
-parser.add_argument("--source-port", nargs=1, type=int, help="Source port of packets (default: 25565)")
+parser.add_argument("--source-mac", nargs=1, help="Source MAC address of packets (default: 20:7b:d2:a6:8b:36)")
+parser.add_argument("--source-ip", nargs=1, help="Source IP address of packets (default: fe80::8280:f77f:d5be:8fbe)")
+parser.add_argument("--source-port", nargs=1, type=int, help="Source port of packets (default: random port between 49152 and 65534)")
 parser.add_argument("--NID", nargs=1, help="Network ID of the HomePlug GreenPHY AVLN (default: \\x9c\\xb0\\xb2\\xbb\\xf5\\x6c\\x0e)")
 parser.add_argument(
     "--NMK",

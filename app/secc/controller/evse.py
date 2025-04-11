@@ -28,7 +28,6 @@ class EVSE:
 
     def __init__(self, args):
         self.mode = RunMode(args.mode[0]) if args.mode else RunMode.FULL
-        self.iface = args.interface[0] if args.interface else "eth2"
         self.sourceMAC = args.source_mac[0] if args.source_mac else "c8:a3:62:08:ce:38"
         self.sourceIP = args.source_ip[0] if args.source_ip else "fe80::5bc3:ec13:24fb:69da"
         self.sourcePort = args.source_port[0] if args.source_port else 25565
@@ -49,11 +48,12 @@ class EVSE:
             self.modified_cordset = True
         else:
             self.modified_cordset = False
+            
+        self.iface = "eth2"
         self.destinationMAC = None
         self.destinationIP = None
         self.destinationPort = None
-
-        self.slac = SLACHandler(self)
+        self.slac = None
         
         # I2C bus for relays
         self.bus = SMBus(1)
@@ -73,6 +73,10 @@ class EVSE:
         
         config = Config()
         config.load_envs()
+        self.iface = config.iface
+        self.slac = SLACHandler(self)
+        
+        self.doSLAC()
 
         sim_evse_controller = SimEVSEController()
         await sim_evse_controller.set_status(ServiceStatus.STARTING)

@@ -1,0 +1,12 @@
+Changelog: 0.32.0
+-----------------
+1.  .env.evcc and .env.secc now contain correct network interfaces for the AcCCS box.
+2.  As these network interfaces will be read from the above mentioned files, they have been removed from the run_evcc.py and run_secc.py script arguments.
+3.  For the EVCC, the initial source port have been modified to be in the range of 49152-65534 instead of 1025-65534 to avoid potential conflict with open registered ports.
+4.  SLAC initialization has been moved to ensure the interface name is read before the initialization.
+5.  SECC was missing call to doSLAC() which started the SLAC process. It is fixed.
+6.  Some unused properties such as sourece IP, port has been removed from some files.
+7.  Config file for ISO 15118-2 DC with PnC (evcc_config_pnc_dc.json) had "useTls" set to false which caused it to use EIM instead of PnC as the file name suggest. It is fixed.
+8.  The requirements.txt file now contains all the required packages.
+9.  run_secc.py and run_evcc.py now contain correct IP and MAC addresses for the test AcCCS box (Box 3).
+10. First addition of changelog (this file).

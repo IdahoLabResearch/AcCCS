@@ -1,13 +1,11 @@
 # AcCCS
 Access Capabilities for CCS (AcCCS - pronounced "access" /ˈakˌses/) provides a flexible and inexpensive solution to enable communications testing of various Electric Vehicle (EV) technologies that use the CCS charging standard(s).  This codebase is an example of tools and scripts capable of communicating with and emulating an Electric Vehicle Communications Controller (EVCC) and/or a Supply Equipment Communications Controller (SECC).
 
-This project is the result of our efforts to find COTS hardware and existing open source software capable of communicating via HomePlug GreenPHY (HPGP) with CCS enabled vehicles and charging stations.  We are providing some basic scripts to emulate an EV (see [PEV.py](PEV.py)) or an EVSE (see [EVSE.py](EVSE.py)).  These two scripts utilize third-party open source projects that provide Scapy packet definitions for Layer 2 (HPGP - [layerscapy](https://github.com/FlUxIuS/HomePlugPWN/tree/master/layerscapy)) and Layer 3 (DIN/ISO - [layers](https://github.com/JakeMG-INL/V2GInjector/tree/master/core/layers)). Our goal was to establish a persistent network connection with a target device so that we can test the device for network vulnerabilities.
+This project is the result of our efforts to find COTS hardware and existing open source software capable of communicating via HomePlug GreenPHY (HPGP) with CCS enabled vehicles and charging stations.  We are providing some basic scripts to emulate an EV (see [PEV.py](PEV.py)) or an EVSE (see [EVSE.py](EVSE.py)).  These two scripts utilize a third-party open source project that provide Scapy packet definitions for Layer 2 (HPGP - [layerscapy](https://github.com/FlUxIuS/HomePlugPWN/tree/master/layerscapy)). Our goal was to establish a persistent network connection with a target device so that we can test the device for network vulnerabilities.
 
 To enable some testing of the IPv6 endpoints, the emulator scripts provide the ability to perform some basic port scans of the target.  This functionality is available using command-line options of the emulator.  The emulators can be further enhanced for additional port scanning activities or even fuzz testing of the selected CCS protocol.
 
-The emulators utilize a Java program ```EXIficient.jar``` to encode and decode the XML messages exchanged between an EV and EVSE.  This program is from the [EXIficient](https://github.com/EXIficient/exificient) project and is utilized by the [CH4ESE](https://github.com/IdahoLabResearch/CH4ESE.git) submodule to set up the Java webserver. The Java server is started automatically when executing one of the emulators.
-
-> **Note:** This code was primarily developed and tested using the old DIN 70121 specification and schema. The newer ISO 15118-2:2010 standard is included but has not been tested.
+> **Note:** This code was primarily developed and tested using the old DIN 70121 specification and schema.
 
 A description of the [CurrentImplementation](/docs/CurrentImplementation.md) of our AcCCS box, as well as some supporting presentations, are found in the [docs](/docs/) folder.
 
@@ -88,13 +86,7 @@ Below is a brief description of the scripts in this project. These scripts are p
 
 **MIM.py:** **NOT IMPLEMENTED** | Forms two separate connections to a PEV and EVSE simultaneously. Will forward packets from one conversation to the other, changing the contents if specified by the user. Cannot form a simple bridge between the two because of high amounts of cross-talk between CP lines. This protocol is very susceptible to RF interference.
 
-**EXIProcessor.py:** Python wrapper for using the java webserver EXI processor found in the [CH4ESE](https://github.com/IdahoLabResearch/CH4ESE.git) submodule. This project uses a modified version of the jar file provided by the [EXIficient](https://github.com/EXIficient/exificient) project. This program has the functionality to specify which port the webserver will listen on as well as an argument to specify with which schema to encode and decode (DIN vs ISO-2 vs ISO-20).
-
-**XMLBuilder.py:** Python script used to create and manipulate XML payloads that follow the DIN and ISO specs. The default values for each of these packet types are taken from real values that were used by EVSEs and PEVs captured during a normal charging session.
-
 ### Current TODOs:
-* Implement ISO 15118-2:2010, ISO 15118-2:2015 and ISO 15118-20 spec into XML builder script and emulator scripts
-* Integrate a Python based EXI processor that doesn't require a full JVM :)
 * Complete and test a full MITM script
 
 ## Notes from Ford
@@ -113,4 +105,21 @@ from layerscapy.HomePlugAV import *
 to
 ```python
 from .HomePlugAV import *
+```
+
+## Guide from Ford
+Files ```.env.evcc``` and ```.env.secc``` are the config files for the EVCC and the SECC, respectively. For EVCC, however, there is another set of config files which control the parameters for the individual protocols. These files are located in the [examples](/app/shared/examples/evcc) folder. One of these files has to be specified in the ```.env.evcc``` file by setting the EVCC_CONFIG_PATH property. This is what determines what protocol the EV will use for charging.
+
+### Plug and Charge (ISO 15118-2 and ISO 15118-20)
+For Plug and Charge, certificates and private keys have to be created at the beginning. Go to the [pki](/app/shared/pki) directory and run the ```create_certs.sh``` script like this:
+```bash
+./create_certs.sh -v iso-2
+```
+or
+```bash
+./create_certs.sh -v iso-20
+```
+If you are running it for the first time, you may have to change the permission to be able to exceute it. In this case, do this:
+```bash
+chmod 755 create_certs.sh
 ```
