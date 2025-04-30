@@ -550,8 +550,5 @@ class XMLBuilder:
 
 if __name__ == "__main__":
     x = XMLBuilder(EXIProcessor(protocol=Protocol.DIN))
-    x.CurrentDemandRequest()
-    x.show()
+    x.CableCheckResponse()
     print(x.getString() + "\n")
-    # exi = x.getEXI()
-    # print(binascii.unhexlify(exi))

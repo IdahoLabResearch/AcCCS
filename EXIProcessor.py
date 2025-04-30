@@ -15,10 +15,15 @@ from threading import Thread
 import socket
 import time
 from EmulatorEnum import *
+import logging
+
+import xml.etree.ElementTree as ET
+
+logger = logging.getLogger(__name__)
 
 
 class EXIProcessor:
-    def __init__(self, protocol: Protocol):
+    def __init__(self, protocol: EXIProtocol):
         self.protocol = protocol
         self.serverThread = Thread(target=self.startWebserver)
         self.serverThread.start()
@@ -31,10 +36,10 @@ class EXIProcessor:
         raise Exception("ERROR: Java webserver never started")
 
     # Kills the subprocess so proccesses arent flooded with random Java webservers
-    def __del__(self):
-        print(f"INFO: Killing Java webserver with PID: {self.cmd.pid} on port: {self.port}")
-        self.cmd.kill()
-        self.serverThread.join()
+    # def __del__(self):
+    #     print(f"INFO: Killing Java webserver with PID: {self.cmd.pid} on port: {self.port}")
+    #     self.cmd.kill()
+    #     self.serverThread.join()
 
     def _isServerStarted(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -55,7 +60,7 @@ class EXIProcessor:
         self.port = self._findOpenPort()
         # self.cmd = subprocess.Popen(["java", "-jar", "V2GdecoderMOD.jar", "-w", str(self.port), "-c", self.protocol.value], cwd=my_path + "/java_decoder/")
         self.cmd = subprocess.Popen(["python", "./external_libs/CH4ESE/main.py", "-w", "-p", f"{self.port}", "-profile", self.protocol.value.lower()])
-        print(f"INFO: Started Python webserver with PID: {self.cmd.pid} on port: {self.port}")
+        logger.info(f"Started Python webserver with PID: {self.cmd.pid} on port: {self.port}")
 
     def _findOpenPort(self):
         sock = socket.socket()
@@ -66,17 +71,20 @@ class EXIProcessor:
 
     # Takes and XML string and encodes it into an EXI string
     def encode(self, xmlString):
+        if type(xmlString) == ET.Element:
+            xmlString = ET.tostring(xmlString, encoding="unicode")
+
         # Make post request to java webserver
         try:
             req = requests.post(url=f"http://localhost:{self.port}/", headers={"Format": "XML"}, data=xmlString, timeout=2)
         except Timeout:
-            print("ERROR: Connection to the python webserver timed out.")
+            logger.error(f"Connection to the python webserver timed out when trying to encode:{xmlString}")
         except Exception as e:
-            print(f"ERROR: XML string\n{xmlString}\ncaused exception\n{e}")
+            logger.error(f"XML string:\n{xmlString}\ncaused exception:\n{e}")
 
         # This occurs sometimes, specifically if the html body of the request is greater than 4096 bytes
         if req.text == "null":
-            print("ERROR: Python webserver returned null")
+            logger.error("Python webserver returned null")
             return None
 
         # java webserver returns hex string
@@ -87,13 +95,13 @@ class EXIProcessor:
         try:
             req = requests.post(url=f"http://localhost:{self.port}/", headers={"Format": "EXI"}, data=exiString, timeout=2)
         except Timeout:
-            print(f"ERROR: Connection to the python webserver timed out when trying to decode {exiString}")
+            logger.error(f"Connection to the python webserver timed out when trying to decode {exiString}")
         except Exception as e:
-            print(f"ERROR: EXI string\n{exiString}\ncaused exception\n{e}")
+            logger.error(f"EXI string:\n{exiString}\ncaused exception:\n{e}")
 
         # This occurs sometimes, specifically if the html body of the request is greater than 4096 bytes
         if req.text == "null":
-            print("ERROR: Python webserver returned null")
+            logger.error("Python webserver returned null")
             return None
 
         # java webserver returns hex string
@@ -101,10 +109,19 @@ class EXIProcessor:
 
 
 if __name__ == "__main__":
-    x = EXIProcessor(Protocol.DIN)
-    for i in range(10):
-        xmlString = f'<ns7:V2G_Message xmlns:ns7="urn:din:70121:2012:MsgDef" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ns3="http://www.w3.org/2001/XMLSchema" xmlns:ns4="http://www.w3.org/2000/09/xmldsig#" xmlns:ns5="urn:din:70121:2012:MsgBody" xmlns:ns6="urn:din:70121:2012:MsgDataTypes" xmlns:ns8="urn:din:70121:2012:MsgHeader"><ns7:Header><ns8:SessionID>4142423030303031</ns8:SessionID></ns7:Header><ns7:Body><ns5:ServiceDiscoveryRes><ns5:ResponseCode>OK</ns5:ResponseCode><ns5:PaymentOptions><ns6:PaymentOption>ExternalPayment</ns6:PaymentOption></ns5:PaymentOptions><ns5:ChargeService><ns6:ServiceTag><ns6:ServiceID>{i}</ns6:ServiceID><ns6:ServiceCategory>EVCharging</ns6:ServiceCategory></ns6:ServiceTag><ns6:FreeService>false</ns6:FreeService><ns6:EnergyTransferType>DC_extended</ns6:EnergyTransferType></ns5:ChargeService></ns5:ServiceDiscoveryRes></ns7:Body></ns7:V2G_Message>'
-        res = x.encode(xmlString)
-        print(res)
+    # x = EXIProcessor(EXIProtocol.DIN)
+    # xmlString = '<ns4:supportedAppProtocolRes xmlns:ns4="urn:iso:15118:2:2010:AppProtocol" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ns3="http://www.w3.org/2001/XMLSchema"><ResponseCode>OK_SuccessfulNegotiation</ResponseCode><SchemaID>1</SchemaID></ns4:supportedAppProtocolRes>'
+    # print(x.encode(xmlString))
+    # exiString = b'8000dbab9371d3234b71d1b981899189d191818991d26b9b3a232b30020000040040'
+    # print(x.decode(exiString))
+
+    x = EXIProcessor(EXIProtocol.ISO_2)
+    exiString = b'80d0022df0018360dc5e648b00242a54548a60606268626c68708870646a7070606240'
+    print(x.decode(exiString))
+
+    # for i in range(10):
+    #     xmlString = f'<ns7:V2G_Message xmlns:ns7="urn:din:70121:2012:MsgDef" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ns3="http://www.w3.org/2001/XMLSchema" xmlns:ns4="http://www.w3.org/2000/09/xmldsig#" xmlns:ns5="urn:din:70121:2012:MsgBody" xmlns:ns6="urn:din:70121:2012:MsgDataTypes" xmlns:ns8="urn:din:70121:2012:MsgHeader"><ns7:Header><ns8:SessionID>4142423030303031</ns8:SessionID></ns7:Header><ns7:Body><ns5:ServiceDiscoveryRes><ns5:ResponseCode>OK</ns5:ResponseCode><ns5:PaymentOptions><ns6:PaymentOption>ExternalPayment</ns6:PaymentOption></ns5:PaymentOptions><ns5:ChargeService><ns6:ServiceTag><ns6:ServiceID>{i}</ns6:ServiceID><ns6:ServiceCategory>EVCharging</ns6:ServiceCategory></ns6:ServiceTag><ns6:FreeService>false</ns6:FreeService><ns6:EnergyTransferType>DC_extended</ns6:EnergyTransferType></ns5:ChargeService></ns5:ServiceDiscoveryRes></ns7:Body></ns7:V2G_Message>'
+    #     res = x.encode(xmlString)
+    #     print(res)
     # exiString = b'8000dbab9371d3234b71d1b981899189d191818991d26b9b3a232b30020000040040'
     # print(x.decode(exiString))
