@@ -24,6 +24,8 @@ class SLACHandler:
         self.timeSinceLastPkt = int(time.time())
         self.timeout = 8  # How long to wait for a message to timeout
         self.stop = False
+        
+        self.CM_ATTEN_CHAR_IND_recved = False
 
     # This method starts the slac process and will stop
     def start(self):
@@ -80,9 +82,9 @@ class SLACHandler:
             startSoundsPkts = [self.buildStartAttenCharInd() for i in range(3)]
             soundPkts = [self.buildMNBCSoundInd() for i in range(self.numSounds)]
             logger.info("Sending 3 START_ATTEN_CHAR_IND")
-            sendp(startSoundsPkts, iface=self.iface, verbose=0, inter=0.05)
+            sendp(startSoundsPkts, iface=self.iface, verbose=0, inter=0.02)
             logger.info(f"Sending {self.numSounds} MNBC_SOUND_IND")
-            sendp(soundPkts, iface=self.iface, verbose=0, inter=0.05)
+            sendp(soundPkts, iface=self.iface, verbose=0, inter=0.02)
             # self.stopSounds = False
             # Thread(target=self.sendSounds).start()
             return
@@ -90,11 +92,12 @@ class SLACHandler:
         if pkt.haslayer("CM_ATTEN_CHAR_IND"):
             self.stopSounds = True
             logger.info("Recieved ATTEN_CHAR_IND")
-            logger.info("Sending ATTEN_CHAR_RES")
-            sendp(self.buildAttenCharRes(), iface=self.iface, verbose=0)
-            self.timeSinceLastPkt = int(time.time())
-            logger.info("Sending SLAC_MATCH_REQ")
-            sendp(self.buildSlacMatchReq(), iface=self.iface, verbose=0)
+            if self.CM_ATTEN_CHAR_IND_recved == False:
+                self.CM_ATTEN_CHAR_IND_recved = True
+                logger.info("Sending ATTEN_CHAR_RES")
+                sendp(self.buildAttenCharRes(), iface=self.iface, verbose=0)
+                logger.info("Sending SLAC_MATCH_REQ")
+                sendp(self.buildSlacMatchReq(), iface=self.iface, verbose=0)
             self.timeSinceLastPkt = int(time.time())
             return
 
@@ -117,7 +120,7 @@ class SLACHandler:
             self.timeSinceLastPkt = int(time.time())
         logger.info(f"Sending {self.numSounds} MNBC_SOUND_IND")
         soundPkts = [self.buildMNBCSoundInd() for i in range(self.numSounds)]
-        sendp(soundPkts, iface=self.iface, verbose=0, inter=0.05)
+        sendp(soundPkts, iface=self.iface, verbose=0, inter=0.02)
         self.timeSinceLastPkt = int(time.time())
         # for i in range(self.numSounds):
         #     if self.stopSounds: return
