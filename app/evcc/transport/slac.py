@@ -26,6 +26,7 @@ class SLACHandler:
         self.stop = False
         
         self.CM_ATTEN_CHAR_IND_recved = False
+        self.state = None
 
     # This method starts the slac process and will stop
     def start(self):
@@ -51,8 +52,13 @@ class SLACHandler:
     def checkForTimeout(self):
         while self.stop == False:
             if int(time.time()) - self.timeSinceLastPkt > self.timeout:
-                logger.info("Timed out... Sending SLAC_PARM_REQ")
-                sendp(self.buildSlacParmReq(), iface=self.iface, verbose=0)
+                if self.state == None:
+                    self.CM_ATTEN_CHAR_IND_recved = False
+                    logger.info("Timed out... Sending SLAC_PARM_REQ")
+                    sendp(self.buildSlacParmReq(), iface=self.iface, verbose=0)
+                elif self.state == "SLAC_MATCH_REQ_sent":
+                    logger.info("Sending SLAC_MATCH_REQ")
+                    sendp(self.buildSlacMatchReq(), iface=self.iface, verbose=0)
                 self.timeSinceLastPkt = int(time.time())
 
     def startSniff(self):
@@ -98,6 +104,8 @@ class SLACHandler:
                 sendp(self.buildAttenCharRes(), iface=self.iface, verbose=0)
                 logger.info("Sending SLAC_MATCH_REQ")
                 sendp(self.buildSlacMatchReq(), iface=self.iface, verbose=0)
+                self.state = "SLAC_MATCH_REQ_sent"
+                self.timeout = 1
             self.timeSinceLastPkt = int(time.time())
             return
 
