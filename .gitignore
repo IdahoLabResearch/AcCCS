@@ -1,7 +1,16 @@
 # Ignore all zip files (probably a backup)
-__pycache__/
 *.zip
+
+# Test scripts
 *test.py
+
+# Compile Python files
+__pycache__/
 *.pyc
 *.lck
-PWM_PCB.kicad_prl
+
+# KiCad config and fab files
+*.kicad_prl
+*.gbr
+*.drl
+*.gbrjob
