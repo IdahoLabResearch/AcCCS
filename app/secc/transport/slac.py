@@ -64,10 +64,11 @@ class SLACHandler:
             logger.info("Sending CM_SLAC_PARM_CNF")
             sendp(self.buildSlacParmCnf(), iface=self.iface, verbose=0)
 
-        if pkt.haslayer("CM_MNBC_SOUND_IND") and pkt[CM_MNBC_SOUND_IND].Countdown == 0:
-            logger.info("Recieved last MNBC_SOUND_IND")
-            logger.info("Sending ATTEN_CHAR_IND")
-            sendp(self.buildAttenCharInd(), iface=self.iface, verbose=0)
+        if pkt.haslayer("CM_MNBC_SOUND_IND"):
+            logger.info(f"Recieved MNBC_SOUND_IND, Countdown {pkt[CM_MNBC_SOUND_IND].Countdown}")
+            if pkt[CM_MNBC_SOUND_IND].Countdown == 0:
+                logger.info("Sending ATTEN_CHAR_IND")
+                sendp(self.buildAttenCharInd(), iface=self.iface, verbose=0)
 
         if pkt.haslayer("CM_SLAC_MATCH_REQ"):
             logger.info("Recieved SLAC_MATCH_REQ")

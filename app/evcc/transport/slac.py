@@ -106,7 +106,7 @@ class SLACHandler:
         
         logger.info(f"Sending {self.numSounds} CM_MNBC_SOUND_IND")
         self.sock.send(bytes(self.buildMNBCSoundInd()))
-        for i in range(2):
+        for i in range(self.numSounds - 1):
             time.sleep(0.02)
             self.sock.send(bytes(self.buildMNBCSoundInd()))
         return
