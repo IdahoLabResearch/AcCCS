@@ -1,9 +1,9 @@
-import os, time, logging
+import os, time, logging, socket
 
 from threading import Thread
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
-from scapy.all import Ether, IPv6, ICMPv6ND_NS, ICMPv6ND_NA, ICMPv6NDOptDstLLAddr
+from scapy.all import Packet, Ether, IPv6, ICMPv6ND_NS, ICMPv6ND_NA, ICMPv6NDOptDstLLAddr
 
 from external_libs.HomePlugPWN.layerscapy.HomePlugGP import *
 
@@ -20,24 +20,38 @@ class SLACHandler:
         self.sourceMAC = self.pev.sourceMAC
         self.sourceIP = self.pev.sourceIP
         self.runID = b"\xf4\x00\x37\xd0\x00\x5c\x00\x7f"
+        
+        self.sock = None
 
         self.timeSinceLastPkt = int(time.time())
         self.timeout = 8  # How long to wait for a message to timeout
         self.stop = False
         
         self.CM_ATTEN_CHAR_IND_recved = False
-        self.state = None
+        
+    def create_socket(self):
+        # Create a raw socket
+        self.sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))
+        # Bind to a specific network interface (e.g., "eth0")
+        self.sock.bind((self.iface, 0))
+    
+    def receive(self) -> Optional[Packet]:
+        raw_packet = self.sock.recv(65535)
+        
+        try:
+            packet = Ether(raw_packet)
+            if packet[Ether].type != 0x88E1 or packet[Ether].src == self.sourceMAC:
+                return None
+            if hasattr(packet[1][2], "RunID") and packet[1][2].RunID != self.runID:
+                return None
+            return packet
+        except Exception as err:
+            logger.error(err)
 
     # This method starts the slac process and will stop
     def start(self):
         self.runID = os.urandom(8)
         self.stop = False
-        # Thread for sniffing packets and handling responses
-        # self.sniffThread = Thread(target=self.startSniff)
-        # self.sniffThread.start()
-
-        self.sniffThread = AsyncSniffer(iface=self.iface, prn=self.handlePacket, stop_filter=self.stopSniff)
-        self.sniffThread.start()
 
         # Thread to determine if PEV timed out or SLAC error occured and restart SLAC process
         self.timeoutThread = Thread(target=self.checkForTimeout)
@@ -47,94 +61,76 @@ class SLACHandler:
             iface=self.iface, lfilter=lambda x: x.haslayer("ICMPv6ND_NS") and x[ICMPv6ND_NS].tgt == self.sourceIP, prn=self.sendNeighborSoliciation
         )
         self.neighborSolicitationThread.start()
+        
+        self.create_socket()
+        self.handleSLAC()
+        
+        if self.neighborSolicitationThread.running:
+            self.neighborSolicitationThread.stop()
 
     # The EVSE sometimes fails the SLAC process, so this automatically restarts it from the beginning
     def checkForTimeout(self):
         while self.stop == False:
             if int(time.time()) - self.timeSinceLastPkt > self.timeout:
-                if self.state == None:
-                    self.CM_ATTEN_CHAR_IND_recved = False
-                    logger.info("Timed out... Sending SLAC_PARM_REQ")
-                    sendp(self.buildSlacParmReq(), iface=self.iface, verbose=0)
-                elif self.state == "SLAC_MATCH_REQ_sent":
-                    logger.info("Sending SLAC_MATCH_REQ")
-                    sendp(self.buildSlacMatchReq(), iface=self.iface, verbose=0)
-                self.timeSinceLastPkt = int(time.time())
-
-    def startSniff(self):
-        sniff(iface=self.iface, prn=self.handlePacket, stop_filter=self.stopSniff)
-
-    # Stop the thread when the slac match is done
-    def stopSniff(self, pkt):
-        if self.stop:
-            if self.neighborSolicitationThread.running:
-                self.neighborSolicitationThread.stop()
-            return True
-        return False
-
-    def handlePacket(self, pkt):
-        if pkt[Ether].type != 0x88E1 or pkt[Ether].src == self.sourceMAC:
-            return
-
-        if hasattr(pkt[1][2], "RunID") and pkt[1][2].RunID != self.runID:
-            return
-
-        if pkt.haslayer("CM_SLAC_PARM_CNF"):
-            logger.info("Recieved SLAC_PARM_CNF")
-            self.destinationMAC = pkt[Ether].src
-            self.pev.destinationMAC = pkt[Ether].src
-            self.numSounds = pkt[CM_SLAC_PARM_CNF].NumberMSounds
-            self.numRemainingSounds = self.numSounds
-            startSoundsPkts = [self.buildStartAttenCharInd() for i in range(3)]
-            soundPkts = [self.buildMNBCSoundInd() for i in range(self.numSounds)]
-            logger.info("Sending 3 START_ATTEN_CHAR_IND")
-            sendp(startSoundsPkts, iface=self.iface, verbose=0, inter=0.02)
-            logger.info(f"Sending {self.numSounds} MNBC_SOUND_IND")
-            sendp(soundPkts, iface=self.iface, verbose=0, inter=0.02)
-            # self.stopSounds = False
-            # Thread(target=self.sendSounds).start()
-            return
-
-        if pkt.haslayer("CM_ATTEN_CHAR_IND"):
-            self.stopSounds = True
-            logger.info("Recieved ATTEN_CHAR_IND")
-            if self.CM_ATTEN_CHAR_IND_recved == False:
-                self.CM_ATTEN_CHAR_IND_recved = True
-                logger.info("Sending ATTEN_CHAR_RES")
-                sendp(self.buildAttenCharRes(), iface=self.iface, verbose=0)
-                logger.info("Sending SLAC_MATCH_REQ")
-                sendp(self.buildSlacMatchReq(), iface=self.iface, verbose=0)
-                self.state = "SLAC_MATCH_REQ_sent"
-                self.timeout = 1
-            self.timeSinceLastPkt = int(time.time())
-            return
-
-        if pkt.haslayer("CM_SLAC_MATCH_CNF"):
-            logger.info("Recieved SLAC_MATCH_CNF")
-            self.NID = pkt[CM_SLAC_MATCH_CNF].VariableField.NetworkID
-            self.NMK = pkt[CM_SLAC_MATCH_CNF].VariableField.NMK
-            logger.info("Sending SET_KEY_REQ")
-            sendp(self.buildSetKeyReq(), iface=self.iface, verbose=0)
-            self.stop = True
-            return
-
-    def sendSounds(self):
+                self.CM_ATTEN_CHAR_IND_recved = False
+                logger.info("Timed out... Sending SLAC_PARM_REQ")
+                self.sock.send(bytes(self.buildSlacParmReq()))
+                self.timeSinceLastPkt = int(time.time()) 
+                
+    def handleSLAC(self):
+        logger.info("Sending CM_SLAC_PARM_REQ")
+        self.sock.send(bytes(self.buildSlacParmReq()))
+        while not self.stop:
+            packet = self.receive()
+            if not packet:
+                continue
+            if packet.haslayer("CM_SLAC_PARM_CNF"):
+                self.handle_CM_SLAC_PARM_CNF(packet)
+            elif packet.haslayer("CM_ATTEN_CHAR_IND"):
+                self.handle_CM_ATTEN_CHAR_IND()
+            elif packet.haslayer("CM_SLAC_MATCH_CNF"):
+                self.handle_CM_SLAC_MATCH_CNF(packet)
+        
+    def handle_CM_SLAC_PARM_CNF(self, packet: Packet):
+        logger.info("Recieved CM_SLAC_PARM_CNF")
+        self.destinationMAC = packet[Ether].src
+        self.pev.destinationMAC = packet[Ether].src
+        self.numSounds = packet[CM_SLAC_PARM_CNF].NumberMSounds
         self.numRemainingSounds = self.numSounds
-        logger.info("Sending 3 START_ATTEN_CHAR_IND")
-        for i in range(3):
-            if self.stopSounds:
-                return
-            sendp(self.buildStartAttenCharInd(), iface=self.iface, verbose=0)
-            self.timeSinceLastPkt = int(time.time())
-        logger.info(f"Sending {self.numSounds} MNBC_SOUND_IND")
-        soundPkts = [self.buildMNBCSoundInd() for i in range(self.numSounds)]
-        sendp(soundPkts, iface=self.iface, verbose=0, inter=0.02)
+        
+        logger.info("Sending 3 CM_START_ATTEN_CHAR_IND")
+        self.sock.send(bytes(self.buildStartAttenCharInd()))
+        for i in range(2):
+            time.sleep(0.02)
+            self.sock.send(bytes(self.buildStartAttenCharInd()))
+        
+        logger.info(f"Sending {self.numSounds} CM_MNBC_SOUND_IND")
+        self.sock.send(bytes(self.buildMNBCSoundInd()))
+        for i in range(2):
+            time.sleep(0.02)
+            self.sock.send(bytes(self.buildMNBCSoundInd()))
+        return
+
+    def handle_CM_ATTEN_CHAR_IND(self):
+        self.stopSounds = True
+        logger.info("Recieved CM_ATTEN_CHAR_IND")
+        if self.CM_ATTEN_CHAR_IND_recved == False:
+            self.CM_ATTEN_CHAR_IND_recved = True
+            logger.info("Sending ATTEN_CHAR_RES")
+            sendp(self.buildAttenCharRes(), iface=self.iface, verbose=0)
+            logger.info("Sending SLAC_MATCH_REQ")
+            sendp(self.buildSlacMatchReq(), iface=self.iface, verbose=0)
         self.timeSinceLastPkt = int(time.time())
-        # for i in range(self.numSounds):
-        #     if self.stopSounds: return
-        #     sendp(self.buildMNBCSoundInd(), iface=self.iface, verbose=0)
-        #     self.timeSinceLastPkt = int(time.time())
-        logger.info("Done sending sounds")
+        return
+
+    def handle_CM_SLAC_MATCH_CNF(self, packet: Packet):
+        logger.info("Recieved SLAC_MATCH_CNF")
+        self.NID = packet[CM_SLAC_MATCH_CNF].VariableField.NetworkID
+        self.NMK = packet[CM_SLAC_MATCH_CNF].VariableField.NMK
+        logger.info("Sending SET_KEY_REQ")
+        sendp(self.buildSetKeyReq(), iface=self.iface, verbose=0)
+        self.stop = True
+        return
 
     def buildSlacParmReq(self):
         ethLayer = Ether()
