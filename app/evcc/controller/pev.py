@@ -83,7 +83,6 @@ class PEV:
     def doSLAC(self):
         logger.info("Starting SLAC")
         self.slac.start()
-        self.slac.sniffThread.join()
         logger.info("Done SLAC")
 
     def closeProximity(self):
