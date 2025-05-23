@@ -9,8 +9,10 @@ __pycache__/
 *.pyc
 *.lck
 
-# KiCad config and fab files
-*.kicad_prl
-*.gbr
-*.drl
-*.gbrjob
+# Ignore all KiCad files besides the project files
+PCB/
+!*.kicad_mod
+!*.kicad_sym
+!*.kicad_pcb
+!*.kicad_sch
+!*.kicad_pro
