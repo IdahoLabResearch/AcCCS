@@ -1,0 +1,48 @@
+/* Title */
+.header {
+    height: 15%;
+    width: 100%;
+    position: fixed;
+    z-index: 1;
+    top: 0;
+    overflow: auto;
+    padding-top: 20px;
+    text-align: center;
+    left: 0;
+    background-color: #121212;
+    border: 2px solid green;
+
+
+    color: white;
+    font-size: 24px;
+}
+
+/* Control the left side */
+.splitleft {
+    height: 85%;
+    width:25%;
+    position: fixed;
+    z-index: 1;
+    bottom: 0;
+    overflow: auto;
+    padding-top: 20px;
+    left: 0;
+    background-color: #121212;
+    border: 2px solid green;
+}
+
+/* Control the right side */
+.splitright {
+    height: 85%;
+    width:75%;
+    position: fixed;
+    z-index: 1;
+    bottom: 0;
+    overflow: auto;
+    padding-top: 20px;
+    right: 0;
+    background-color: #121212;
+    border: 2px solid green;
+}
+
+

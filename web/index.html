@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AcCCS Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles/base.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles/title.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles/packetlist.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles/session-info.css') }}">
+</head>
+<body>
+
+<div class="header">
+    <h1>AcCCS Dashboard</h1>
+</div>
+
+<div class="sessiondata">
+    <div class="splitleft">
+        <div class="packetlist">
+            <h2>Jane Flex</h2>
+            <p>Some text.</p>
+        </div>
+    </div>
+
+    <div class="splitright">
+        <div class="session-info">
+            <h2>John Doe</h2>
+            <p>Some text here too.</p>
+        </div>
+    </div> 
+</div>
+
+</body>
+</html>
