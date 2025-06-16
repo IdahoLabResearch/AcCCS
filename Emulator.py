@@ -38,7 +38,7 @@ class Emulator:
         self.running = True
 
         if self.emulatorType == EmulatorType.EVSE:
-            self.iface = args.interface[0] if args.interface else "eth1"
+            self.iface = args.interface[0] if args.interface else "ethevse"
             self.sourceMAC = args.source_mac[0] if args.source_mac else "00:1e:c0:f2:6c:a0"
             self.sourceIP = args.source_ip[0] if args.source_ip else "fe80::21e:c0ff:fef2:6ca0"
             self.sourcePort = args.source_port[0] if args.source_port else 25565
@@ -472,7 +472,7 @@ if __name__ == "__main__":
     parser.add_argument("-M", "--mode", type=int, nargs=1, choices=[0, 1, 2], help="Emulator mode: [0=Full], 1=Stall, 2=Scan")
     parser.add_argument("-T", "--type", type=str, nargs=1, choices=["pev", "evse"], help="Emulator type: [EVSE] or PEV")
     parser.add_argument("-P", "--protocol", type=str, nargs=1, choices=["DIN", "ISO-2", "ISO-20"], help="Protocol to use for EXI encoding: [DIN], ISO-2, ISO-20")
-    parser.add_argument("-I", "--interface", type=str, nargs=1, help="Interface to listen on: [eth0], eth1, etc.")
+    parser.add_argument("-I", "--interface", type=str, nargs=1, help="Interface to listen on: [ethevse], ethpev, etc.")
     parser.add_argument("--modified-cordset", action="store_true", help="Enable modified cordset: [false]")
     parser.add_argument("-V", "--virtual", action="store_true", help="Enable virtual mode: [false]")
     parser.add_argument("--source-mac", type=str, nargs=1, help="Specify source MAC address (optional)")
