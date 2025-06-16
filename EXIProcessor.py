@@ -72,7 +72,7 @@ class EXIProcessor:
     # Takes and XML string and encodes it into an EXI string
     def encode(self, xmlString):
         if type(xmlString) == ET.Element:
-            xmlString = ET.tostring(xmlString, encoding="unicode")
+            xmlString = ET.tostring(xmlString, encoding="UTF-8", method="xml").decode().replace("\n", "").replace("'", '"')
 
         # Make post request to java webserver
         try:

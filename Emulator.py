@@ -107,8 +107,8 @@ class Emulator:
 |   / /\ \ / __/ __/ _ \/ __/ __|    | |  | '_ \| '__/ _ \| | | |/ _` | '_ \  | |   | |     \___ \  |
 |  / ____ \ (_| (_|  __/\__ \__ \    | |  | | | | | | (_) | |_| | (_| | | | | | |___| |____ ____) | |
 | /_/    \_\___\___\___||___/___/    |_|  |_| |_|_|  \___/ \__,_|\__, |_| |_|  \_____\_____|_____/  |
-|                                                             __/ |                                 |
-|                                                            |___/                                  |
+|                                                                 __/ |                             |
+|                                                                |___/                              |
 |                                                                                                   |
 +===================================================================================================+
 """)
@@ -222,17 +222,20 @@ class Emulator:
                     self.destinationPort = pkt[UDP].sport
                     responsePkts = [SECCResponse(self) for i in range(3)]
                     self.sendPacket(responsePkts)
+                    logging.debug(f"SECC Destination IP: {self.destinationIP}")
+                    logging.debug(f"SECC Destination Port: {self.destinationPort}")
                     logging.info("Sent 3 SECC_ResponseMessage")
                 case "SECC_ResponseMessage":
                     logging.info("Recieved SECC_ResponseMessage")
                     self.destinationIP = pkt[SECC_ResponseMessage].TargetAddress
                     self.destinationPort = pkt[SECC_ResponseMessage].TargetPort
                     self.sendPacket(SYN(self))
+                    logging.debug(f"SECC Destination IP: {self.destinationIP}")
+                    logging.debug(f"SECC Destination Port: {self.destinationPort}")
                     logging.info("Sent TCP SYN")
         
         # Handle IPv6/TCP packets
-        elif pkt.haslayer("IPv6") and pkt.haslayer("TCP") and pkt[TCP].sport == self.destinationPort and pkt[TCP].dport == self.sourcePort:
-            logging.debug(f"Recieved IPv6/TCP Packet")
+        elif pkt.haslayer("IPv6") and pkt.haslayer("TCP") and pkt[TCP].dport == self.sourcePort and pkt[IPv6].dst == self.sourceIP:
             self.seq = pkt[TCP].ack
             self.ack = pkt[TCP].seq + len(pkt[TCP].payload)
 
@@ -241,6 +244,7 @@ class Emulator:
                 self.destinationMAC = pkt[Ether].src
                 self.destinationIP = pkt[IPv6].src
                 self.destinationPort = pkt[TCP].sport
+                self.ack = self.ack + 1
                 self.sendPacket(SYNACK(self))
                 logging.info("Sent TCP SYN-ACK")
             if pkt.flags and pkt.flags == "SA":
@@ -255,24 +259,24 @@ class Emulator:
                 logging.info("Sent TCP FIN-ACK")
                 self.killall()
             if pkt.flags and "P" in pkt.flags:
-                # print(V2GTP(pkt[Raw].load).Payload)
                 exiString = V2GTP(pkt[Raw].load).Payload
-                xmlString = self.exi.decode(exiString)
+                xmlString = self.exi.decode(binascii.hexlify(exiString))
                 root = ET.fromstring(xmlString)
 
                 if "supportedAppProtocolReq" in root.tag:
                     logging.info("Recieved SupportedAppProtocolReq")
-                    self.sendPacket(V2G(self, self.exi.encode(SupportedAppProtocolResponse())))
+                    self.sendPacket(V2G(self, binascii.unhexlify(self.exi.encode(SupportedAppProtocolResponse()))))
                     logging.info("Sent SupportedAppProtocolRes")
                 elif "supportedAppProtocolRes" in root.tag:
                     logging.info("Recieved SupportedAppProtocolRes")
-                    self.sendPacket(V2G(self, self.exi.encode(SessionSetupRequest())))
+                    self.sendPacket(V2G(self, binascii.unhexlify(self.exi.encode(SessionSetupRequest()))))
                     logging.info("Sent SessionSetupReq")
                 else:
                     Header = root.find("{urn:din:70121:2012:MsgDef}Header")
-                    SessionID = Header.find("{urn:din:70121:2012:MsgHeader}SessionID").text
+                    sessionID = Header.find("{urn:din:70121:2012:MsgHeader}SessionID").text
 
-                    if self.sessionActive and not self.sessionID == SessionID:
+                    if self.sessionActive and not self.sessionID.upper() == sessionID.upper():
+                        logging.warning(f"Recieved V2G Message with SessionID: {sessionID} vs current SessionID: {self.sessionID}")
                         return
 
                     Body = root.find("{urn:din:70121:2012:MsgDef}Body")
@@ -281,34 +285,38 @@ class Emulator:
                         logging.warning(f"XML: {xmlString}")
                         return
                     pktName = Body[0].tag.split("}")[1]
+                    logging.debug(f"Recieved V2G Packet: {pktName}")
 
                     match pktName:
                         case "SessionSetupReq":
                             logging.info("Recieved SessionSetupReq")
+                            self.sessionID = str(binascii.hexlify(random.randbytes(8))).replace("b'", "").replace("'", "").upper()
                             self.sessionActive = True
-                            self.sendPacket(V2G(self, self.exi.encode(SessionSetupResponse())))
+                            logging.debug(f"Setting SessionID: {self.sessionID}")
+                            self.sendPacket(V2G(self, binascii.unhexlify(self.exi.encode(SessionSetupResponse(sessionID=self.sessionID)))))
                             logging.info("Sent SessionSetupRes")
                         case "SessionSetupRes":
                             logging.info("Recieved SessionSetupRes")
-                            self.SessionID = SessionID
+                            self.sessionID = sessionID
                             self.sessionActive = True
-                            self.sendPacket(V2G(self, self.exi.encode(ServiceDiscoveryRequest(sessionID=self.sessionID))))
+                            logging.debug(f"Setting SessionID: {self.sessionID}")
+                            self.sendPacket(V2G(self, binascii.unhexlify(self.exi.encode(ServiceDiscoveryRequest(sessionID=self.sessionID)))))
                             logging.info("Sent ServiceDiscoveryReq")
                         case "ServiceDiscoveryReq":
                             logging.info("Recieved ServiceDiscoveryReq")
-                            self.sendPacket(V2G(self, self.exi.encode(ServiceDiscoveryResponse(sessionID=self.sessionID))))
+                            self.sendPacket(V2G(self, binascii.unhexlify(self.exi.encode(ServiceDiscoveryResponse(sessionID=self.sessionID)))))
                             logging.info("Sent ServiceDiscoveryRes")
                         case "ServiceDiscoveryRes":
                             logging.info("Recieved ServiceDiscoveryRes")
-                            self.sendPacket(V2G(self, self.exi.encode(ServicePaymentSelectionRequest(sessionID=self.sessionID))))
+                            self.sendPacket(V2G(self, binascii.unhexlify(self.exi.encode(ServicePaymentSelectionRequest(sessionID=self.sessionID)))))
                             logging.info("Sent ServicePaymentSelectionReq")
                         case "ServicePaymentSelectionReq":
                             logging.info("Recieved ServicePaymentSelectionReq")
-                            self.sendPacket(V2G(self, self.exi.encode(ServicePaymentSelectionResponse(sessionID=self.sessionID))))
+                            self.sendPacket(V2G(self, binascii.unhexlify(self.exi.encode(ServicePaymentSelectionResponse(sessionID=self.sessionID)))))
                             logging.info("Sent ServicePaymentSelectionRes")
                         case "ServicePaymentSelectionRes":
                             logging.info("Recieved ServicePaymentSelectionRes")
-                            self.sendPacket(V2G(self, self.exi.encode(ContractAuthenticationRequest(sessionID=self.sessionID))))
+                            self.sendPacket(V2G(self, binascii.unhexlify(self.exi.encode(ContractAuthenticationRequest(sessionID=self.sessionID)))))
                             logging.info("Sent ContractAuthenticationReq")
                         case "ContractAuthenticationReq":
                             logging.info("Recieved ContractAuthenticationReq")
@@ -319,25 +327,25 @@ class Emulator:
                                 evseProcessing = "Finished"
                             else:
                                 logging.warning(f"RunMode not supported: {self.mode}")
-                            self.sendPacket(V2G(self, self.exi.encode(ContractAuthenticationResponse(sessionID=self.sessionID, evseProcessing=evseProcessing))))
+                            self.sendPacket(V2G(self, binascii.unhexlify(self.exi.encode(ContractAuthenticationResponse(sessionID=self.sessionID, evseProcessing=evseProcessing)))))
                             logging.info("Sent ContractAuthenticationRes")
                         case "ContractAuthenticationRes":
                             logging.info("Recieved ContractAuthenticationRes")
-                            self.sendPacket(V2G(self, self.exi.encode(ChargeParameterDiscoveryRequest(sessionID=self.sessionID))))
+                            self.sendPacket(V2G(self, binascii.unhexlify(self.exi.encode(ChargeParameterDiscoveryRequest(sessionID=self.sessionID)))))
                             logging.info("Sent ChargeParameterDiscoveryReq")
                         case "ChargeParameterDiscoveryReq":
                             logging.info("Recieved ChargeParameterDiscoveryReq")
-                            self.sendPacket(V2G(self, self.exi.encode(ChargeParameterDiscoveryResponse(sessionID=self.sessionID))))
+                            self.sendPacket(V2G(self, binascii.unhexlify(self.exi.encode(ChargeParameterDiscoveryResponse(sessionID=self.sessionID)))))
                             logging.info("Sent ChargeParameterDiscoveryRes")
                         case "ChargeParameterDiscoveryRes":
                             logging.info("Recieved ChargeParameterDiscoveryRes")
                             evseProcessing = Body.find("{urn:din:70121:2012:MsgBody}ChargeParameterDiscoveryRes/{urn:din:70121:2012:MsgBody}EVSEProcessing").text
                             if evseProcessing == "Ongoing":
-                                self.sendPacket(V2G(self, self.exi.encode(ContractAuthenticationRequest(sessionID=self.sessionID))))
+                                self.sendPacket(V2G(self, binascii.unhexlify(self.exi.encode(ContractAuthenticationRequest(sessionID=self.sessionID)))))
                                 logging.info("Sent ContractAuthenticationReq")
                             elif evseProcessing == "Finished":
                                 self.setState(EmulatorState.C)
-                                self.sendPacket(V2G(self, self.exi.encode(CableCheckRequest(sessionID=self.sessionID))))
+                                self.sendPacket(V2G(self, binascii.unhexlify(self.exi.encode(CableCheckRequest(sessionID=self.sessionID)))))
                                 logging.info("Sent CableCheckReq")
                             else:
                                 logging.warning("Unexpected EVSEProcessing status")
@@ -345,15 +353,15 @@ class Emulator:
                                 logging.warning(f"XML: {xmlString}")
                         case "CableCheckReq":
                             logging.info("Recieved CableCheckReq")
-                            self.sendPacket(V2G(self, self.exi.encode(CableCheckResponse(sessionID=self.sessionID))))
+                            self.sendPacket(V2G(self, binascii.unhexlify(self.exi.encode(CableCheckResponse(sessionID=self.sessionID)))))
                             logging.info("Sent CableCheckRes")
                         case "CableCheckRes":
                             evseProcessing = Body.find("{urn:din:70121:2012:MsgBody}CableCheckRes/{urn:din:70121:2012:MsgBody}EVSEProcessing").text
                             if evseProcessing == "Ongoing":
-                                self.sendPacket(V2G(self, self.exi.encode(CableCheckRequest(sessionID=self.sessionID))))
+                                self.sendPacket(V2G(self, binascii.unhexlify(self.exi.encode(CableCheckRequest(sessionID=self.sessionID)))))
                                 logging.info("Sent CableCheckReq")
                             elif evseProcessing == "Finished":
-                                self.sendPacket(V2G(self, self.exi.encode(PreChargeRequest(sessionID=self.sessionID))))
+                                self.sendPacket(V2G(self, binascii.unhexlify(self.exi.encode(PreChargeRequest(sessionID=self.sessionID)))))
                                 logging.info("Sent PreChargeReq")
                             else:
                                 logging.warning("Unexpected EVSEProcessing status")
@@ -361,32 +369,32 @@ class Emulator:
                                 logging.warning(f"XML: {xmlString}")
                         case "PreChargeReq":
                             logging.info("Recieved PreChargeReq")
-                            self.sendPacket(V2G(self, self.exi.encode(PreChargeResponse(sessionID=self.sessionID))))
+                            self.sendPacket(V2G(self, binascii.unhexlify(self.exi.encode(PreChargeResponse(sessionID=self.sessionID)))))
                             logging.info("Sent PreChargeRes")
                         case "PreChargeRes":
                             # TODO: do the precharge mumbo jumbo with serial controllers
                             logging.info("Recieved PreChargeRes")
-                            self.sendPacket(V2G(self, self.exi.encode(PowerDeliveryRequest(sessionID=self.sessionID))))
+                            self.sendPacket(V2G(self, binascii.unhexlify(self.exi.encode(PowerDeliveryRequest(sessionID=self.sessionID)))))
                             logging.info("Sent PowerDeliveryReq")
                         case "PowerDeliveryReq":
                             logging.info("Recieved PowerDeliveryReq")
-                            self.sendPacket(V2G(self, self.exi.encode(PowerDeliveryResponse(sessionID=self.sessionID))))
+                            self.sendPacket(V2G(self, binascii.unhexlify(self.exi.encode(PowerDeliveryResponse(sessionID=self.sessionID)))))
                             logging.info("Sent PowerDeliveryRes")
                         case "PowerDeliveryRes":
                             logging.info("Recieved PowerDeliveryRes")
-                            self.sendPacket(V2G(self, self.exi.encode(CurrentDemandRequest(sessionID=self.sessionID))))
+                            self.sendPacket(V2G(self, binascii.unhexlify(self.exi.encode(CurrentDemandRequest(sessionID=self.sessionID)))))
                             logging.info("Sent CurrentDemandReq")
                         case "CurrentDemandReq":
                             logging.info("Recieved CurrentDemandReq")
-                            self.sendPacket(V2G(self, self.exi.encode(CurrentDemandResponse(sessionID=self.sessionID))))
+                            self.sendPacket(V2G(self, binascii.unhexlify(self.exi.encode(CurrentDemandResponse(sessionID=self.sessionID)))))
                             logging.info("Sent CurrentDemandRes")
                         case "CurrentDemandRes":
                             logging.info("Recieved CurrentDemandRes")
-                            self.sendPacket(V2G(self, self.exi.encode(CurrentDemandRequest(sessionID=self.sessionID))))
+                            self.sendPacket(V2G(self, binascii.unhexlify(self.exi.encode(CurrentDemandRequest(sessionID=self.sessionID)))))
                             logging.info("Sent CurrentDemandReq")
                         case "SessionStopReq":
                             logging.info("Recieved SessionStopReq")
-                            self.sendPacket(V2G(self, self.exi.encode(SessionStopResponse(sessionID=self.sessionID))))
+                            self.sendPacket(V2G(self, binascii.unhexlify(self.exi.encode(SessionStopResponse(sessionID=self.sessionID)))))
                             logging.info("Sent SessionStopRes")
                             self.killall()
                         case _:
