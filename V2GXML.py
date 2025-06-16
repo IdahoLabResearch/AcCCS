@@ -345,7 +345,7 @@ def ChargeParameterDiscoveryResponse(
     PMaxScheduleID = ET.SubElement(PMaxSchedule, "ns6:PMaxScheduleID")
     PMaxScheduleEntry = ET.SubElement(PMaxSchedule, "ns6:PMaxScheduleEntry")
     RelativeTimeInterval = ET.SubElement(PMaxScheduleEntry, "ns6:RelativeTimeInterval")
-    start = ET.SubElement(RelativeTimeInterval, "ns6:start")
+    Start = ET.SubElement(RelativeTimeInterval, "ns6:start")
     PMax = ET.SubElement(PMaxScheduleEntry, "ns6:PMax")
     DC_EVSEChargeParameter = ET.SubElement(ChargeParameterDiscoveryRes, "ns6:DC_EVSEChargeParameter")
     DC_EVSEStatus = ET.SubElement(DC_EVSEChargeParameter, "ns6:DC_EVSEStatus")
@@ -382,7 +382,7 @@ def ChargeParameterDiscoveryResponse(
     EVSEProcessing.text = evseProcessing
     SAScheduleTupleID.text = saScheduleTupleID
     PMaxScheduleID.text = pMaxScheduleID
-    start.text = start
+    Start.text = start
     PMax.text = pMax
     EVSEIsolationStatus.text = evseIsolationStatus
     EVSEStatusCode.text = evseStatusCode
