@@ -33,6 +33,7 @@ class Emulator:
         self.protocol = EXIProtocol(args.protocol[0].upper()) if args.protocol else EXIProtocol.DIN
         self.modified_cordset = True if args.modified_cordset else False
         self.virtual = True if args.virtual else False
+        self.debug = True if args.debug else False
         # TODO: add timeout cmd arg
         self.timeout = 10
         self.running = True
@@ -79,7 +80,7 @@ class Emulator:
 
         # Logging
         logging.basicConfig(
-            level=logging.INFO,
+            level=logging.DEBUG if self.debug else logging.INFO,
             format=f"%(asctime)s.%(msecs)03d | %(levelname)-7s | {self.emulatorType.value.upper():<4} -- %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
@@ -231,6 +232,7 @@ class Emulator:
         
         # Handle IPv6/TCP packets
         elif pkt.haslayer("IPv6") and pkt.haslayer("TCP") and pkt[TCP].sport == self.destinationPort and pkt[TCP].dport == self.sourcePort:
+            logging.debug(f"Recieved IPv6/TCP Packet")
             self.seq = pkt[TCP].ack
             self.ack = pkt[TCP].seq + len(pkt[TCP].payload)
 
@@ -480,6 +482,7 @@ if __name__ == "__main__":
     parser.add_argument("--source-port", type=int, nargs=1, help="Specify source port (optional)")
     parser.add_argument("--NID", type=str, nargs=1, help="Specify Network ID (optional)")
     parser.add_argument("--NMK", type=str, nargs=1, help="Specify Network Membership Key (optional)")
+    parser.add_argument("-d", "--debug", action="store_true", help="Enable debug mode: [false]")
 
     args = parser.parse_args()
 
