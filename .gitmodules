@@ -19,3 +19,6 @@
 [submodule "external_libs/CH4ESE"]
 	path = external_libs/CH4ESE
 	url = https://github.com/IdahoLabResearch/CH4ESE.git
+[submodule "external_libs/EXPy"]
+	path = external_libs/EXPy
+	url = https://github.com/IdahoLabResearch/EXPy.git
