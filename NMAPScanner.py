@@ -10,7 +10,7 @@ SCAN_RESULTS_DIR = "scan_results/"
 
 class NMAPScanner():
     
-    def __init__(self, emulatorType: EmulatorType, portList: list, iface, sourceMAC, sourceIP, destinationMAC, destinationIP):
+    def __init__(self, portList: list, iface, sourceMAC, sourceIP, destinationMAC, destinationIP):
         self.finished = False
         self.running = True
         self.portResults = []
@@ -27,9 +27,9 @@ class NMAPScanner():
         sourceType = self.getType(sourceIP)
         self.destinationType = self.getType(destinationIP)
         if not sourceType:
-            raise ValueError("source IP for NMAP scan is not valid")
+            raise ValueError("Source IP for NMAP scan is not valid")
         if not self.destinationType:
-            raise ValueError("destination IP for NMAP scan is not valid")
+            raise ValueError("Destination IP for NMAP scan is not valid")
         if self.destinationType == "ipv4" and sourceType == "ipv6":
             self.sourceIP = "10.42.0.{}".format(random.randint(1,255))
         if self.destinationType == "ipv6" and sourceType == "ipv4":
@@ -37,14 +37,14 @@ class NMAPScanner():
             self.sourceIP = "fe80::9656:d028:8652:66b6"
             
         # Get list of current scan results
-        fileList = glob(SCAN_RESULTS_DIR + "scan_res_{}_[0-9][0-9][0-9].txt".format(emulatorType.value))
+        fileList = glob(SCAN_RESULTS_DIR + "scan_res_[0-9][0-9][0-9].txt")
         maxFileNum = 0
         # Find the largest number to properly name next scan file
         for fileName in fileList:
             num = int(fileName[-7:-4])
             maxFileNum = max(num, maxFileNum)    
         # Make new result file name   
-        self.resultFileName = SCAN_RESULTS_DIR + "scan_res_{}_{:0>3}.txt".format(emulatorType.value, maxFileNum + 1)
+        self.resultFileName = SCAN_RESULTS_DIR + "scan_res_{:0>3}.txt".format(maxFileNum + 1)
         
         # Use provided portlist if not empty, use most common ports if not
         self.portList = portList if portList else self.getPortList()

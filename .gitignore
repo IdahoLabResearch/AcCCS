@@ -1,10 +1,13 @@
+# VsCode files
+.vscode/
+
 # Ignore all zip files (probably a backup)
 *.zip
 
 # Test scripts
-*test.py
+*test*
 
-# Compile Python files
+# Compiled Python files
 __pycache__/
 *.pyc
 *.lck
