@@ -63,7 +63,6 @@ class NMAPScanner():
         return res
     
     def saveResults(self):
-        print("INFO (NMAP): Saving results")
         cutoff = -11 if not self.finished else len(self.portResults)
         with open(self.resultFileName, 'a') as file:
             for result in self.portResults[:cutoff]:
