@@ -8,6 +8,7 @@
 # need to do this to import the custom SECC and V2G scapy layer
 import random, time
 import logging
+import netifaces
 
 from smbus import SMBus
 
@@ -28,8 +29,20 @@ class PEV:
 
     def __init__(self, args):
         self.mode = RunMode(args.mode[0]) if args.mode else RunMode.FULL
-        self.sourceMAC = args.source_mac[0] if args.source_mac else "20:7b:d2:a6:8b:36"
-        self.sourceIP = args.source_ip[0] if args.source_ip else "fe80::8280:f77f:d5be:8fbe"
+        self.iface = "eth1"
+
+        # Scan eth1 for MAC and link-local IPv6 if not provided
+        if args.source_mac:
+            self.sourceMAC = args.source_mac[0]
+        else:
+            self.sourceMAC = netifaces.ifaddresses(self.iface)[netifaces.AF_LINK][0]['addr']
+
+        if args.source_ip:
+            self.sourceIP = args.source_ip[0]
+        else:
+            ipv6_addrs = netifaces.ifaddresses(self.iface).get(netifaces.AF_INET6, [])
+            self.sourceIP = next((a['addr'] for a in ipv6_addrs if a['addr'].startswith('fe80')), None)
+
         self.sourcePort = args.source_port[0] if args.source_port else random.randint(49152, 65534)
         self.nmapMAC = args.nmap_mac[0] if args.nmap_mac else ""
         self.nmapIP = args.nmap_ip[0] if args.nmap_ip else ""
@@ -43,7 +56,6 @@ class PEV:
                 else:
                     self.nmapPorts.append(int(arg))
 
-        self.iface = "eth1"
         self.destinationMAC = None
         self.destinationIP = None
         self.destinationPort = None

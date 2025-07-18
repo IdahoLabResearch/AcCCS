@@ -10,3 +10,4 @@ sslkeylog==0.5.1
 tqdm==4.67.1
 typing_extensions==4.13.2
 Requests==2.32.3
+netifaces

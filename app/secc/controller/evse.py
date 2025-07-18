@@ -7,6 +7,7 @@
 
 # need to do this to import the custom SECC and V2G scapy layer
 import time, logging
+import netifaces
 
 from smbus import SMBus
 
@@ -28,8 +29,20 @@ class EVSE:
 
     def __init__(self, args):
         self.mode = RunMode(args.mode[0]) if args.mode else RunMode.FULL
-        self.sourceMAC = args.source_mac[0] if args.source_mac else "c8:a3:62:08:ce:38"
-        self.sourceIP = args.source_ip[0] if args.source_ip else "fe80::5bc3:ec13:24fb:69da"
+        self.iface = "eth2"
+
+        # Scan eth2 for MAC and link-local IPv6 if not provided
+        if args.source_mac:
+            self.sourceMAC = args.source_mac[0]
+        else:
+            self.sourceMAC = netifaces.ifaddresses(self.iface)[netifaces.AF_LINK][0]['addr']
+
+        if args.source_ip:
+            self.sourceIP = args.source_ip[0]
+        else:
+            ipv6_addrs = netifaces.ifaddresses(self.iface).get(netifaces.AF_INET6, [])
+            self.sourceIP = next((a['addr'] for a in ipv6_addrs if a['addr'].startswith('fe80')), None)
+
         self.sourcePort = args.source_port[0] if args.source_port else 25565
         self.NID = args.NID[0] if args.NID else b"\x9c\xb0\xb2\xbb\xf5\x6c\x0e"
         self.NMK = args.NMK[0] if args.NMK else b"\x48\xfe\x56\x02\xdb\xac\xcd\xe5\x1e\xda\xdc\x3e\x08\x1a\x52\xd1"
@@ -49,7 +62,6 @@ class EVSE:
         else:
             self.modified_cordset = False
             
-        self.iface = "eth2"
         self.destinationMAC = None
         self.destinationIP = None
         self.destinationPort = None
