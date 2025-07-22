@@ -19,7 +19,7 @@ SDP_MULTICAST_GROUP = "FF02::1"
 SDP_SERVER_PORT = 15118
 
 
-def _get_link_local_addr(nic: str) -> Union[IPv6Address, None]:
+def get_link_local_addr(nic: str) -> Union[IPv6Address, None]:
     """
     Provides the IPv6 link-local address for the network interface card
     (NIC) address list provided.
@@ -117,7 +117,7 @@ def validate_nic(nic: str) -> None:
         or if no IPv6 link-local address could be found
     """
     try:
-        _get_link_local_addr(nic)
+        get_link_local_addr(nic)
     except KeyError as exc:
         raise InvalidInterfaceError(
             f"No interface {nic} with this name was found"
@@ -156,7 +156,7 @@ async def get_link_local_full_addr(port: int, nic: str) -> Tuple[str, int, int, 
         (IPv6 base address, port, flowinfo, scope_ip), where the tuple entries
         are of type Tuple[str, int, int, int])
     """
-    ip_address = _get_link_local_addr(nic)
+    ip_address = get_link_local_addr(nic)
 
     nic_address = str(ip_address) + f"%{nic}"
     socket_address = await _get_full_ipv6_address(nic_address, port)

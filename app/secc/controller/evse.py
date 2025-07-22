@@ -20,6 +20,11 @@ from app.secc.controller.interface import ServiceStatus
 from app.secc.controller.simulator import SimEVSEController
 from app.secc.secc_settings import Config
 from app.shared.exificient_exi_codec import ExificientEXICodec
+from app.shared.network import (
+    get_link_local_addr,
+    get_nic_mac_address,
+    get_tcp_port
+)
 from app.shared.logging import _init_logger
 
 _init_logger(source="SECC")
@@ -28,22 +33,14 @@ logger = logging.getLogger(__name__)
 class EVSE:
 
     def __init__(self, args):
+        self.config = Config()
+        self.config.load_envs()
+        
         self.mode = RunMode(args.mode[0]) if args.mode else RunMode.FULL
-        self.iface = "eth2"
-
-        # Scan eth2 for MAC and link-local IPv6 if not provided
-        if args.source_mac:
-            self.sourceMAC = args.source_mac[0]
-        else:
-            self.sourceMAC = netifaces.ifaddresses(self.iface)[netifaces.AF_LINK][0]['addr']
-
-        if args.source_ip:
-            self.sourceIP = args.source_ip[0]
-        else:
-            ipv6_addrs = netifaces.ifaddresses(self.iface).get(netifaces.AF_INET6, [])
-            self.sourceIP = next((a['addr'] for a in ipv6_addrs if a['addr'].startswith('fe80')), None)
-
-        self.sourcePort = args.source_port[0] if args.source_port else 25565
+        self.iface = self.config.iface
+        self.sourceMAC = args.source_mac[0] if args.source_mac else get_nic_mac_address(self.iface)
+        self.sourceIP = args.source_ip[0] if args.source_ip else str(get_link_local_addr(self.iface))
+        self.sourcePort = args.source_port[0] if args.source_port else get_tcp_port()
         self.NID = args.NID[0] if args.NID else b"\x9c\xb0\xb2\xbb\xf5\x6c\x0e"
         self.NMK = args.NMK[0] if args.NMK else b"\x48\xfe\x56\x02\xdb\xac\xcd\xe5\x1e\xda\xdc\x3e\x08\x1a\x52\xd1"
         self.nmapMAC = args.nmap_mac[0] if args.nmap_mac else ""
@@ -83,9 +80,7 @@ class EVSE:
         self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00)
         self.toggleProximity()
         
-        config = Config()
-        config.load_envs()
-        self.iface = config.iface
+        self.iface = self.config.iface
         self.slac = SLACHandler(self)
         
         self.doSLAC()
@@ -95,8 +90,8 @@ class EVSE:
         await SECCHandler(
             exi_codec=ExificientEXICodec(),
             evse_controller=sim_evse_controller,
-            config=config,
-        ).start(config.iface)
+            config=self.config,
+        ).start(self.config.iface)
 
     # Close the circuit for the proximity pins
     def closeProximity(self):

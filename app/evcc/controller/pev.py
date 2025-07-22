@@ -20,6 +20,11 @@ from app.evcc import Config, EVCCHandler
 from app.evcc.controller.simulator import SimEVController
 from app.evcc.evcc_config import load_from_file
 from app.shared.exificient_exi_codec import ExificientEXICodec
+from app.shared.network import (
+    get_link_local_addr,
+    get_nic_mac_address,
+    get_tcp_port
+)
 from app.shared.logging import _init_logger
 
 _init_logger(source="EVCC")
@@ -28,22 +33,14 @@ logger = logging.getLogger(__name__)
 class PEV:
 
     def __init__(self, args):
+        self.config = Config()
+        self.config.load_envs()
+        
         self.mode = RunMode(args.mode[0]) if args.mode else RunMode.FULL
-        self.iface = "eth1"
-
-        # Scan eth1 for MAC and link-local IPv6 if not provided
-        if args.source_mac:
-            self.sourceMAC = args.source_mac[0]
-        else:
-            self.sourceMAC = netifaces.ifaddresses(self.iface)[netifaces.AF_LINK][0]['addr']
-
-        if args.source_ip:
-            self.sourceIP = args.source_ip[0]
-        else:
-            ipv6_addrs = netifaces.ifaddresses(self.iface).get(netifaces.AF_INET6, [])
-            self.sourceIP = next((a['addr'] for a in ipv6_addrs if a['addr'].startswith('fe80')), None)
-
-        self.sourcePort = args.source_port[0] if args.source_port else random.randint(49152, 65534)
+        self.iface = self.config.iface
+        self.sourceMAC = args.source_mac[0] if args.source_mac else get_nic_mac_address(self.iface)
+        self.sourceIP = args.source_ip[0] if args.source_ip else str(get_link_local_addr(self.iface))
+        self.sourcePort = args.source_port[0] if args.source_port else get_tcp_port()
         self.nmapMAC = args.nmap_mac[0] if args.nmap_mac else ""
         self.nmapIP = args.nmap_ip[0] if args.nmap_ip else ""
         self.nmapPorts = []
@@ -77,17 +74,14 @@ class PEV:
         self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00)
         self.toggleProximity()
         
-        config = Config()
-        config.load_envs()
-        evcc_config = await load_from_file(config.ev_config_file_path)
-        self.iface = config.iface
+        evcc_config = await load_from_file(self.config.ev_config_file_path)
         self.slac = SLACHandler(self)
         
         self.doSLAC()
         
         await EVCCHandler(
             evcc_config=evcc_config,
-            iface=config.iface,
+            iface=self.config.iface,
             exi_codec=ExificientEXICodec(),
             ev_controller=SimEVController(evcc_config),
         ).start()
