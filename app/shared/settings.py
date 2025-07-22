@@ -9,6 +9,7 @@ class SettingKey:
     MESSAGE_LOG_JSON = "MESSAGE_LOG_JSON"
     MESSAGE_LOG_EXI = "MESSAGE_LOG_EXI"
     ENABLE_TLS_1_3 = "ENABLE_TLS_1_3"
+    ENABLE_NMAP = "ENABLE_NMAP"
 
 
 shared_settings = {}
@@ -27,6 +28,7 @@ def load_shared_settings(env_path: Optional[str] = None):
         SettingKey.MESSAGE_LOG_JSON: env.bool("MESSAGE_LOG_JSON", default=True),
         SettingKey.MESSAGE_LOG_EXI: env.bool("MESSAGE_LOG_EXI", default=False),
         SettingKey.ENABLE_TLS_1_3: env.bool("ENABLE_TLS_1_3", default=False),
+        SettingKey.ENABLE_NMAP: env.bool("ENABLE_NMAP", default=False),
     }
     shared_settings.update(settings)
     env.seal()  # raise all errors at once, if any

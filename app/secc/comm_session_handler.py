@@ -10,9 +10,8 @@ The CommunicationSessionHandler can manage several SECCCommunicationSessions
 at once, i.e. creating, storing, and deleting those sessions as needed.
 """
 
-import asyncio
-import logging
-import socket
+import os, asyncio, logging, socket, nmap, threading
+from datetime import datetime
 from asyncio.streams import StreamReader, StreamWriter
 from typing import Any, Coroutine, Dict, List, Optional, Tuple, Union
 
@@ -62,6 +61,8 @@ from app.shared.notifications import (
     UDPPacketNotification,
 )
 from app.shared.utils import cancel_task, wait_for_tasks
+
+from app.shared.settings import SettingKey, shared_settings
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +182,7 @@ class CommunicationSessionHandler:
         self.udp_server: Optional[UDPServer] = None
         self.tcp_server: Optional[TCPServer] = None
         self.tcp_server_handler: Optional[asyncio.Task[Any]] = None
+        self.nmap_scanner: threading.Thread = None
         self.config: Config = config
         self.evse_controller: EVSEControllerInterface = evse_controller
         self.udp_processor_lock: asyncio.Lock = asyncio.Lock()
@@ -285,6 +287,10 @@ class CommunicationSessionHandler:
                         "TCP client connected, client address is "
                         f"{notification.ip_address}."
                     )
+                    
+                    if shared_settings[SettingKey.ENABLE_NMAP]:
+                        self.nmap_scanner = threading.Thread(target=self.port_scan, args=(notification.ip_address[0],), name='nmap_scanner')
+                        self.nmap_scanner.start()
 
                     try:
                         comm_session, _ = self.comm_sessions[notification.ip_address[0]]
@@ -337,6 +343,22 @@ class CommunicationSessionHandler:
             # TODO: What about an except here?
             finally:
                 queue.task_done()
+                
+    
+    def port_scan(self, host):
+        
+        if not os.path.isdir("scan_results"):
+            os.makedirs("scan_results")
+            
+        scanner = nmap.PortScanner()
+        logger.info(f"Starting NMAP scan on {str(host)}")
+        try:
+            now = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
+            args = "-sS -sU -sV -p- -6 -oN scan_results/NMAP_SECC_"+now+".txt"
+            scanner.scan(str(host), arguments=args)
+            logger.info(f"NMAP scan finished")
+        except Exception as exp:
+            logger.error(f"{type(exp).__name__}: {str(exp)}")
 
     def close_session(self):
         """
@@ -356,6 +378,7 @@ class CommunicationSessionHandler:
     async def end_current_session(
         self, peer_ip_address: Any, session_stop_action: SessionStopAction
     ):
+        
         try:
             await cancel_task(self.tcp_server_handler)
             await cancel_task(self.comm_sessions[peer_ip_address[0]][1])
@@ -368,6 +391,9 @@ class CommunicationSessionHandler:
                 logger.info(
                     f"Preserved session state: {self.comm_sessions[peer_ip_address[0]][0].ev_session_context}"  # noqa
                 )
+                
+        if shared_settings[SettingKey.ENABLE_NMAP]:
+            self.nmap_scanner.join()
 
         self.tcp_server_handler = None
         self._current_peer_ip = None

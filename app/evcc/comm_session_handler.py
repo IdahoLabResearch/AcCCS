@@ -7,8 +7,8 @@ That EVCCCommunicationSession object is taking care of the TCP communication
 with the SECC to properly exchange all messages in a V2G communication session.
 """
 
-import asyncio
-import logging
+import os, asyncio, logging, nmap, threading
+from datetime import datetime
 from asyncio.streams import StreamReader, StreamWriter
 from ipaddress import IPv6Address
 from typing import Coroutine, List, Optional, Tuple, Union
@@ -62,6 +62,8 @@ from app.shared.notifications import (
     UDPPacketNotification,
 )
 from app.shared.utils import cancel_task, wait_for_tasks
+
+from app.shared.settings import SettingKey, shared_settings
 
 logger = logging.getLogger(__name__)
 
@@ -279,6 +281,7 @@ class CommunicationSessionHandler:
         self.udp_client: UDPClient = None
         self.tcp_client: TCPClient = None
         self.tls_client: bool = None
+        self.nmap_scanner: threading.Thread = None
         self.config: EVCCConfig = config
         self.iface: str = iface
         self.ev_controller: EVControllerInterface = ev_controller
@@ -427,6 +430,10 @@ class CommunicationSessionHandler:
                 f"to host {host} and port {port}"
             )
             return
+        
+        if shared_settings[SettingKey.ENABLE_NMAP]:
+            self.nmap_scanner = threading.Thread(target=self.port_scan, args=(host,), name='nmap_scanner')
+            self.nmap_scanner.start()
 
         comm_session = EVCCCommunicationSession(
             (self.tcp_client.reader, self.tcp_client.writer),
@@ -451,6 +458,21 @@ class CommunicationSessionHandler:
                 f"create create an SDPRequest"
             )
             return
+        
+    def port_scan(self, host):
+        
+        if not os.path.isdir("scan_results"):
+            os.makedirs("scan_results")
+            
+        scanner = nmap.PortScanner()
+        logger.info(f"Starting NMAP scan on {str(host)}")
+        try:
+            now = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
+            args = "-sS -sU -sV -p- -6 -oN scan_results/NMAP_EVCC_"+now+".txt"
+            scanner.scan(str(host), arguments=args)
+            logger.info(f"NMAP scan finished")
+        except Exception as exp:
+            logger.error(f"{type(exp).__name__}: {str(exp)}")
 
     async def process_incoming_udp_packet(self, message: UDPPacketNotification):
         """
@@ -559,6 +581,8 @@ class CommunicationSessionHandler:
                         # TODO not sure what else to do here
                 elif isinstance(notification, StopNotification):
                     await cancel_task(self.comm_session[1])
+                    if shared_settings[SettingKey.ENABLE_NMAP]:
+                        self.nmap_scanner.join()
                     del self.comm_session
                     if notification.successful:
                         break
