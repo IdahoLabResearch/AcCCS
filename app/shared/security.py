@@ -326,6 +326,12 @@ def load_priv_key(
                     "Serialized key is of a type not supported "
                     "by the crypto library."
                 ) from exc
+            except (FileNotFoundError, IOError) as exc:
+                raise PrivateKeyReadError(
+                    f"Password file not found at location {key_password_file_path}. "
+                    "If the private key is not encrypted, create an empty file "
+                    "at the path."
+                ) from exc
     except (FileNotFoundError, IOError) as exc:
         raise PrivateKeyReadError(f"Key file not found at location {key_path}") from exc
 
