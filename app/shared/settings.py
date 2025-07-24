@@ -10,6 +10,8 @@ class SettingKey:
     MESSAGE_LOG_EXI = "MESSAGE_LOG_EXI"
     ENABLE_TLS_1_3 = "ENABLE_TLS_1_3"
     ENABLE_NMAP = "ENABLE_NMAP"
+    NMAP_ARGS = "NMAP_ARGS"
+    NMAP_PORTS = "NMAP_PORTS"
 
 
 shared_settings = {}
@@ -29,6 +31,8 @@ def load_shared_settings(env_path: Optional[str] = None):
         SettingKey.MESSAGE_LOG_EXI: env.bool("MESSAGE_LOG_EXI", default=False),
         SettingKey.ENABLE_TLS_1_3: env.bool("ENABLE_TLS_1_3", default=False),
         SettingKey.ENABLE_NMAP: env.bool("ENABLE_NMAP", default=False),
+        SettingKey.NMAP_ARGS: env.str("NMAP_ARGS", default="-sS -6"),
+        SettingKey.NMAP_PORTS: env.str("NMAP_PORTS", default="-"),
     }
     shared_settings.update(settings)
     env.seal()  # raise all errors at once, if any

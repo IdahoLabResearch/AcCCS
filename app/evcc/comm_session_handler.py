@@ -466,10 +466,12 @@ class CommunicationSessionHandler:
             
         scanner = nmap.PortScanner()
         logger.info(f"Starting NMAP scan on {str(host)}")
+        args = shared_settings[SettingKey.NMAP_ARGS]
+        ports = shared_settings[SettingKey.NMAP_PORTS]
         try:
             now = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
-            args = "-sS -sU -sV -p- -6 -oN scan_results/NMAP_EVCC_"+now+".txt"
-            scanner.scan(str(host), arguments=args)
+            args = args + " -oN scan_results/NMAP_EVCC_"+now+".txt"
+            scanner.scan(str(host), ports=ports, arguments=args)
             logger.info(f"NMAP scan finished")
         except Exception as exp:
             logger.error(f"{type(exp).__name__}: {str(exp)}")
