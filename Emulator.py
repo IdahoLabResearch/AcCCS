@@ -128,9 +128,10 @@ class Emulator:
         logging.info("Emulator Initialized")
 
     def getRandomMAC(self):
-        mac = [random.randint(0x00, 0x7f) for _ in range(6)]
-        return ":".join(f"{x:02x}" for x in mac)
-    
+        mac_end = [random.randint(0x00, 0x7f) for _ in range(3)]
+        mac_end_joined = ":".join(f"{x:02x}" for x in mac_end)
+        return f"00:1e:c0:{mac_end_joined}"
+
     def getLinkLocalIP(self, mac_address=None):
             mac_int = int(mac_address.replace(":", ""), 16)
 
