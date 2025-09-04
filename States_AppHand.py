@@ -47,5 +47,5 @@ class supportedAppProtocolReqState(AbstractState):
         self.emulator.ack = receivedPacket[TCP].seq + len(receivedPacket[TCP].payload)
 
         # TODO: Implement other schemas besides DIN
-        rspPkt = V2G(self.emulator, self.emulator.din.encode(SessionSetupRequest()))
+        rspPkt = V2G(self.emulator, self.emulator.EXIProcessor.encode(SessionSetupRequest()))
         return (SessionSetupReqState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkt)

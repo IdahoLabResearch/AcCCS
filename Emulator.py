@@ -8,8 +8,6 @@
 # need to do this to import the custom SECC and V2G scapy layer
 import sys, os
 
-
-
 sys.path.append("./external_libs/HomePlugPWN")
 sys.path.append("./external_libs/V2GInjector/core")
 sys.path.append("./external_libs/EXPy/")
@@ -20,7 +18,7 @@ from EmulatorEnum import *
 from NMAPScanner import NMAPScanner
 from Packets import *
 from V2Gjson import *
-from PEVStateMachine import PEVStateMachine
+from EmulatorStateMachine import EmulatorStateMachine
 
 from threading import Thread
 import random
@@ -75,17 +73,13 @@ class Emulator:
         self.seq = random.randint(1000, 9999)
         self.ack = 0
         self.sessionID = "00"
-        self.sessionActive = False
-        self.appHandshakeComplete = False
 
         self.remainingSounds = 10
-
-        self.firstTime = False
 
         self.appHandshake = AppHandshakeProcessor()
 
         if self.protocol == EXIProtocol.DIN:
-            self.din = DINProcessor()
+            self.EXIProcessor = DINProcessor()
         elif self.protocol == EXIProtocol.ISO_2:
             raise NotImplementedError("ISO-2 EXI Protocol is not implemented yet")
         elif self.protocol == EXIProtocol.ISO_20:
@@ -97,7 +91,7 @@ class Emulator:
             # TODO: Implement EVSE state machine
             pass
         elif self.emulatorType == EmulatorType.PEV:
-            self.stateMachine = PEVStateMachine(self)
+            self.stateMachine = EmulatorStateMachine(self)
 
         if self.mode == RunMode.SCAN:
             if not self.portscanMAC :
@@ -235,6 +229,7 @@ class Emulator:
                 logging.debug(f"Sending packet: {p.summary()}")
         else:
             logging.debug(f"Sending packet: {pkt.summary()}")
+        self.lastMessageTime = time.time()
         sendp(pkt, iface=self.iface, verbose=False)
 
     # Check if any messages have been recieved within timeout period and resets connection if not

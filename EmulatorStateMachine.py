@@ -9,7 +9,7 @@ import threading
 import time
 logger = logging.getLogger(__name__)
 
-class PEVStateMachine:
+class EmulatorStateMachine:
     def __init__(self, emulator):
         # TODO: implement other schema than DIN
 
@@ -20,13 +20,17 @@ class PEVStateMachine:
         self.timeout = 0.5
         self.lastMessageTime = time.time()
 
-        # Initialize with CM_SLAC_PARM_REQState
-        self.goToState(CM_SLAC_PARM_REQState(emulator))
+        if self.emulator.emulatorType == EmulatorType.PEV:
+            # Initialize with CM_SLAC_PARM_REQState
+            self.goToState(CM_SLAC_PARM_REQState(emulator))
 
         self.pktSendingThread = threading.Thread(target=self.sendPacket)
 
+    def getType(self):
+        return self.emulator.emulatorType
+
     def start(self):
-        logger.debug("Starting PEVStateMachine")
+        logger.debug(f"Starting {self.getType()} State Machine")
         self.running = True
         # Create a new thread if the previous one has already been started
         if hasattr(self.pktSendingThread, '_started') and self.pktSendingThread._started.is_set():
@@ -34,7 +38,7 @@ class PEVStateMachine:
         self.pktSendingThread.start()
 
     def stop(self):
-        logger.debug("Stopping PEVStateMachine")
+        logger.debug(f"Stopping {self.getType()} State Machine")
         self.running = False
         if self.pktSendingThread.is_alive():
             self.pktSendingThread.join()
