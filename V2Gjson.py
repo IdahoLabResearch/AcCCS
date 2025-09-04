@@ -132,6 +132,7 @@ def SupportedAppProtocolRequest(
             "AppProtocol": {
                 "array": [{
                     "ProtocolNamespace": {
+                        "charactersLen": len(protocolNamespace),
                         "characters": [ord(x) for x in protocolNamespace]
                     },
                     "VersionNumberMajor": versionNumberMajor,
@@ -186,7 +187,6 @@ def SessionSetupRequest(
     j = {
         "Body": {
             "SessionSetupReq": {
-                "isUsed": True,
                 "EVCCID": {
                     "bytes": evccIDbytes,
                     "bytesLen": len(evccIDbytes)
@@ -210,7 +210,6 @@ def SessionSetupResponse(
     j = {
         "Body": {
             "SessionSetupRes": {
-                "isUsed": True,
                 "ResponseCode": responseCode if type(responseCode) == int else responseCodeMap.get(responseCode, 0),
                 "EVSEID": {
                     "bytes": evseIDbytes,
@@ -232,7 +231,6 @@ def ServiceDiscoveryRequest(
     j = {
         "Body": {
             "ServiceDiscoveryReq": {
-                "isUsed": True,
                 "ServiceCategory": serviceCategory if type(serviceCategory) == int else serviceCategoryMap.get(serviceCategory, 0)
             }
         }
@@ -255,7 +253,6 @@ def ServiceDiscoveryResponse(
     j = {
         "Body": {
             "ServiceDiscoveryRes": {
-                "isUsed": True,
                 "ResponseCode": responseCode if type(responseCode) == int else responseCodeMap.get(responseCode, 0),
                 "PaymentOptions": {
                     "PaymentOption": {
@@ -291,7 +288,6 @@ def ServicePaymentSelectionRequest(
     j = {
         "Body": {
             "ServicePaymentSelectionReq": {
-                "isUsed": True,
                 "SelectedPaymentOption": paymentOption if type(paymentOption) == int else paymentOptionMap.get(paymentOption, 0),
                 "SelectedServiceList": {
                     "SelectedService": {
@@ -316,7 +312,6 @@ def ServicePaymentSelectionResponse(
     j = {
         "Body": {
             "ServicePaymentSelectionRes": {
-                "isUsed": True,
                 "ResponseCode": responseCode if type(responseCode) == int else responseCodeMap.get(responseCode, 0)
             }
         }
@@ -353,7 +348,6 @@ def ContractAuthenticationResponse(
     j = {
         "Body": {
             "ContractAuthenticationRes": {
-                "isUsed": True,
                 "ResponseCode": responseCode if type(responseCode) == int else responseCodeMap.get(responseCode, 0),
                 "EVSEProcessing": evseProcessing if type(evseProcessing) == int else EVSEProcessingMap.get(evseProcessing, 0)
             }
@@ -384,7 +378,6 @@ def ChargeParameterDiscoveryRequest(
     j = {
         "Body": {
             "ChargeParameterDiscoveryReq": {
-                "isUsed": True,
                 "EVRequestedEnergyTransferType": evRequestedEnergyTransferType if type(evRequestedEnergyTransferType) == int else energyTransferTypeMap.get(evRequestedEnergyTransferType, 0),
                 # TODO: implement AC_EVChargeParameter
                 # TODO: actually check if DC_EVChargeParameter is used
@@ -461,7 +454,6 @@ def ChargeParameterDiscoveryResponse(
     j = {
         "Body": {
             "ChargeParameterDiscoveryRes": {
-                "isUsed": True,
                 "ResponseCode": responseCode if type(responseCode) == int else responseCodeMap.get(responseCode, 0),
                 "EVSEProcessing": evseProcessing if type(evseProcessing) == int else EVSEProcessingMap.get(evseProcessing, 0),
                 # TODO: check ifSAScheduleList is used
@@ -550,7 +542,6 @@ def CableCheckRequest(
         "Body": {
             "CableCheckReq": {
                 "DC_EVStatus": {
-                    "isUsed": True,
                     "EVReady": evReady,
                     # TODO: implement EVCabinConditioning
                     # TODO: implement EVRESSConditioning
@@ -578,7 +569,6 @@ def CableCheckResponse(
     j = {
         "Body": {
             "CableCheckRes": {
-                "isUsed": True,
                 "ResponseCode": responseCode if type(responseCode) == int else responseCodeMap.get(responseCode, 0),
                 "DC_EVSEStatus": {
                     "EVSEIsolationStatus": evseIsolationStatus if type(evseIsolationStatus) == int else IsolationLevelTypeMap.get(evseIsolationStatus, 0),
@@ -611,7 +601,6 @@ def PreChargeRequest(
     j = {
         "Body": {
             "PreChargeReq": {
-                "isUsed": True,
                 "DC_EVStatus": {
                     "EVReady": evReady,
                     # TODO: implement EVCabinConditioning
@@ -652,7 +641,6 @@ def PreChargeResponse(
     j = {
         "Body": {
             "PreChargeRes": {
-                "isUsed": True,
                 "ResponseCode": responseCode if type(responseCode) == int else responseCodeMap.get(responseCode, 0),
                 "DC_EVSEStatus": {
                     "EVSEIsolationStatus": evseIsolationStatus if type(evseIsolationStatus) == int else IsolationLevelTypeMap.get(evseIsolationStatus, 0),
@@ -687,7 +675,6 @@ def PowerDeliveryRequest(
     j = {
         "Body": {
             "PowerDeliveryReq": {
-                "isUsed": True,
                 "ReadyToChargeState": readyToChargeState,
                 # TODO: implement ChargingProfile
                 "DC_EVPowerDeliveryParameter": {
@@ -720,7 +707,6 @@ def PowerDeliveryResponse(
     j = {
         "Body": {
             "PowerDeliveryRes": {
-                "isUsed": True,
                 "ResponseCode": responseCode if type(responseCode) == int else responseCodeMap.get(responseCode, 0),
                 "DC_EVSEStatus": {
                     "EVSEIsolationStatus": evseIsolationStatus if type(evseIsolationStatus) == int else IsolationLevelTypeMap.get(evseIsolationStatus, 0),
@@ -768,7 +754,6 @@ def CurrentDemandRequest(
     j = {
         "Body": {
             "CurrentDemandReq": {
-                "isUsed": True,
                 "DC_EVStatus": {
                     "EVReady": evReady,
                     "EVCabinConditioning": evCabinConditioning,
@@ -849,7 +834,6 @@ def CurrentDemandResponse(
     j = {
         "Body": {
             "CurrentDemandRes": {
-                "isUsed": True,
                 "ResponseCode": responseCode if type(responseCode) == int else responseCodeMap.get(responseCode, 0),
                 "DC_EVSEStatus": {
                     "EVSEIsolationStatus": evseIsolationStatus if type(evseIsolationStatus) == int else IsolationLevelTypeMap.get(evseIsolationStatus, 0),
@@ -870,17 +854,17 @@ def CurrentDemandResponse(
                 "EVSECurrentLimitAchieved": evseCurrentLimitAchieved,
                 "EVSEVoltageLimitAchieved": evseVoltageLimitAchieved,
                 "EVSEPowerLimitAchieved": evsePowerLimitAchieved,
-                "EVSEVoltageLimit": {
+                "EVSEMaximumVoltageLimit": {
                     "Multiplier": voltageLimitMultiplier,
                     "Unit": voltageLimitUnit if type(voltageLimitUnit) == int else unitSymbolMap.get(voltageLimitUnit, 5),
                     "Value": voltageLimitValue
                 },
-                "EVSECurrentLimit": {
+                "EVSEMaximumCurrentLimit": {
                     "Multiplier": currentLimitMultiplier,
                     "Unit": currentLimitUnit if type(currentLimitUnit) == int else unitSymbolMap.get(currentLimitUnit, 3),
                     "Value": currentLimitValue
                 },
-                "EVSEPowerLimit": {
+                "EVSEMaximumPowerLimit": {
                     "Multiplier": powerLimitMultiplier,
                     "Unit": powerLimitUnit if type(powerLimitUnit) == int else unitSymbolMap.get(powerLimitUnit, 7),
                     "Value": powerLimitValue
@@ -900,7 +884,6 @@ def SessionStopRequest(
     j = {
         "Body": {
             "SessionStopReq": {
-                "isUsed": True,
                 "_unused": 0
             }
         }
@@ -918,7 +901,6 @@ def SessionStopResponse(
     j = {
         "Body": {
             "SessionStopRes": {
-                "isUsed": True,
                 "ResponseCode": responseCode if type(responseCode) == int else responseCodeMap.get(responseCode, 0)
             }
         }

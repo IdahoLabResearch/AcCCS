@@ -20,6 +20,7 @@ from EmulatorEnum import *
 from NMAPScanner import NMAPScanner
 from Packets import *
 from V2Gjson import *
+from PEVStateMachine import PEVStateMachine
 
 from threading import Thread
 import random
@@ -37,7 +38,7 @@ class Emulator:
         self.modified_cordset = True if args.modified_cordset else False
         self.virtual = True if args.virtual else False
         self.debug = True if args.debug else False
-        self.timeout = args.timeout if args.timeout else 5
+        self.timeout = args.timeout if args.timeout else 15
         self.running = True
 
         self.sourceMAC = args.source_mac[0] if args.source_mac else self.getRandomMAC()
@@ -77,6 +78,8 @@ class Emulator:
         self.sessionActive = False
         self.appHandshakeComplete = False
 
+        self.remainingSounds = 10
+
         self.firstTime = False
 
         self.appHandshake = AppHandshakeProcessor()
@@ -89,7 +92,13 @@ class Emulator:
             raise NotImplementedError("ISO-20 EXI Protocol is not implemented yet")
         else:
             raise ValueError(f"Unsupported EXI Protocol: {self.protocol.value}")
-        
+
+        if self.emulatorType == EmulatorType.EVSE:
+            # TODO: Implement EVSE state machine
+            pass
+        elif self.emulatorType == EmulatorType.PEV:
+            self.stateMachine = PEVStateMachine(self)
+
         if self.mode == RunMode.SCAN:
             if not self.portscanMAC :
                 raise ValueError("Port scan MAC address is required in scan mode")
@@ -109,54 +118,6 @@ class Emulator:
             self.I2C_EVSE_PP = 0b1000
             self.I2C_PEV_PP  = 0b10000
             self.I2C_ALL_OFF = 0b0
-        
-        self.messagesSentRecieved = {
-            "SET_KEY_REQ": {"sent": 0, "recieved": 0},
-
-            "CM_SLAC_PARM_REQ": {"sent": 0, "recieved": 0},
-            "CM_SLAC_PARM_CNF": {"sent": 0, "recieved": 0},
-            "START_ATTEN_CHAR_IND": {"sent": 0, "recieved": 0},
-            "CM_MNBC_SOUND_IND": {"sent": 0, "recieved": 0},
-            "CM_ATTEN_CHAR_IND": {"sent": 0, "recieved": 0},
-            "CM_ATTEN_CHAR_RES": {"sent": 0, "recieved": 0},
-            "CM_SLAC_MATCH_REQ": {"sent": 0, "recieved": 0},
-            "CM_SLAC_MATCH_CNF": {"sent": 0, "recieved": 0},
-
-            "SECC_RequestMessage": {"sent": 0, "recieved": 0},
-            "SECC_ResponseMessage": {"sent": 0, "recieved": 0},
-
-            "SYN": {"sent": 0, "recieved": 0},
-            "SYNACK": {"sent": 0, "recieved": 0},
-            "FIN": {"sent": 0, "recieved": 0},
-            "RST": {"sent": 0, "recieved": 0},
-
-            "supportedAppProtocolReq": {"sent": 0, "recieved": 0},
-            "supportedAppProtocolRes": {"sent": 0, "recieved": 0},
-
-            "SessionSetupReq": {"sent": 0, "recieved": 0},
-            "SessionSetupRes": {"sent": 0, "recieved": 0},
-            "ServiceDiscoveryReq": {"sent": 0, "recieved": 0},
-            "ServiceDiscoveryRes": {"sent": 0, "recieved": 0},
-            "ServicePaymentSelectionReq": {"sent": 0, "recieved": 0},
-            "ServicePaymentSelectionRes": {"sent": 0, "recieved": 0},
-            "ContractAuthenticationReq": {"sent": 0, "recieved": 0},
-            "ContractAuthenticationRes:Ongoing": {"sent": 0, "recieved": 0},
-            "ContractAuthenticationRes:Finished": {"sent": 0, "recieved": 0},
-            "ChargeParameterDiscoveryReq": {"sent": 0, "recieved": 0},
-            "ChargeParameterDiscoveryRes:Ongoing": {"sent": 0, "recieved": 0},
-            "ChargeParameterDiscoveryRes:Finished": {"sent": 0, "recieved": 0},
-            "CableCheckReq": {"sent": 0, "recieved": 0},
-            "CableCheckRes:Ongoing": {"sent": 0, "recieved": 0},
-            "CableCheckRes:Finished": {"sent": 0, "recieved": 0},
-            "PreChargeReq": {"sent": 0, "recieved": 0},
-            "PreChargeRes": {"sent": 0, "recieved": 0},
-            "PowerDeliveryReq": {"sent": 0, "recieved": 0},
-            "PowerDeliveryRes": {"sent": 0, "recieved": 0},
-            "CurrentDemandReq": {"sent": 0, "recieved": 0},
-            "CurrentDemandRes": {"sent": 0, "recieved": 0},
-            "SessionStopReq": {"sent": 0, "recieved": 0},
-            "SessionStopRes": {"sent": 0, "recieved": 0}
-        }
 
         # Logging
         logging.basicConfig(
@@ -165,12 +126,6 @@ class Emulator:
             datefmt="%Y-%m-%d %H:%M:%S",
         )
         logging.info("Emulator Initialized")
-    
-    def resetMessagesSentRecieved(self):
-        for key in self.messagesSentRecieved:
-            self.messagesSentRecieved[key]["sent"] = 0
-            self.messagesSentRecieved[key]["recieved"] = 0
-        logging.debug("Messages Sent/Recieved Counters Reset")
 
     def getRandomMAC(self):
         mac = [random.randint(0x00, 0x7f) for _ in range(6)]
@@ -231,12 +186,6 @@ class Emulator:
         logging.debug("GPIO Expander Initialized")
         self.setState(EmulatorState.A)
 
-        # Set NMK for PEV Emulator
-        if self.emulatorType == EmulatorType.EVSE:
-            self.sendPacket(SetKeyReq(self))
-            self.messagesSentRecieved["SET_KEY_REQ"]["sent"] += 1
-            logging.info("Sent SET_KEY_REQ")
-
         # Start threads
         # Sniffing thread
         logging.debug("Starting Sniffing Thread")
@@ -248,14 +197,8 @@ class Emulator:
         self.timeoutThread = Thread(target=self.checkForTimeout)
         self.timeoutThread.start()
 
-        # SLAC
-        logging.info("Starting SLAC")
-        self.setState(EmulatorState.B)
-
-        if self.emulatorType == EmulatorType.PEV:
-            self.sendPacket(SlacParmReq(self))
-            self.messagesSentRecieved["CM_SLAC_PARM_REQ"]["sent"] += 1
-            logging.info("Sent CM_SLAC_PARM_REQ")
+        # State Machine
+        self.stateMachine.start()
 
     def expandPacketLayers(self, pkt):
         res = []
@@ -271,362 +214,11 @@ class Emulator:
         
         self.lastPkt = pkt
 
-        # TODO: only check for packets with correct RunID
-        # Handle HPGP Packets
-        if pkt[Ether].type == 0x88e1:
-            self.lastMessageTime = time.time()
-            HPGPLayer = self.expandPacketLayers(pkt)[2]
-            match HPGPLayer:
-                case "CM_SLAC_PARM_REQ":
-                    self.messagesSentRecieved["CM_SLAC_PARM_REQ"]["recieved"] += 1
-                    logging.info("Recieved CM_SLAC_PARM_REQ")
-                    self.destinationMAC = pkt[Ether].src
-                    self.runID = pkt[CM_SLAC_PARM_REQ].RunID
-                    self.sendPacket(SlacParmCnf(self))
-                    self.messagesSentRecieved["CM_SLAC_PARM_CNF"]["sent"] += 1
-                    logging.info("Sent CM_SLAC_PARM_CNF")
-                case "CM_SLAC_PARM_CNF":
-                    self.messagesSentRecieved["CM_SLAC_PARM_CNF"]["recieved"] += 1
-                    logging.info("Recieved CM_SLAC_PARM_CNF")
-                    self.destinationMAC = pkt[Ether].src
-                    self.remainingSounds = 10
-                    startSoundPkts = [StartAttenCharInd(self) for i in range(3)]
-                    soundPkts = [MNBCSoundInd(self) for i in range(10)]
-                    self.sendPacket(startSoundPkts)
-                    self.messagesSentRecieved["START_ATTEN_CHAR_IND"]["sent"] += 3
-                    logging.info("Sent 3 START_ATTEN_CHAR_IND")
-                    self.sendPacket(soundPkts)
-                    self.messagesSentRecieved["CM_MNBC_SOUND_IND"]["sent"] += 10
-                    logging.info("Sent 10 MNBC_SOUND_IND")
-                case "CM_MNBC_SOUND_IND":
-                    self.messagesSentRecieved["CM_MNBC_SOUND_IND"]["recieved"] += 1
-                    if pkt[CM_MNBC_SOUND_IND].Countdown != 0:
-                        return
-                    logging.info("Recieved CM_MNBC_SOUND_IND")
-                    self.sendPacket(AttenCharInd(self))
-                    self.messagesSentRecieved["CM_ATTEN_CHAR_IND"]["sent"] += 1
-                    logging.info("Sent CM_ATTEN_CHAR_IND")
-                case "CM_ATTEN_CHAR_IND":
-                    self.messagesSentRecieved["CM_ATTEN_CHAR_IND"]["recieved"] += 1
-                    logging.info("Recieved CM_ATTEN_CHAR_IND")
-                    self.sendPacket(AttenCharRes(self))
-                    self.messagesSentRecieved["CM_ATTEN_CHAR_RES"]["sent"] += 1
-                    logging.info("Sent CM_ATTEN_CHAR_RES")
-                    self.sendPacket(SlacMatchReq(self))
-                    self.messagesSentRecieved["CM_SLAC_MATCH_REQ"]["sent"] += 1
-                    logging.info("Sent CM_SLAC_MATCH_REQ")
-                case "CM_SLAC_MATCH_REQ":
-                    self.messagesSentRecieved["CM_SLAC_MATCH_REQ"]["recieved"] += 1
-                    logging.info("Recieved CM_SLAC_MATCH_REQ")
-                    self.sendPacket(SlacMatchCnf(self))
-                    self.messagesSentRecieved["CM_SLAC_MATCH_CNF"]["sent"] += 1
-                    logging.info("Sent CM_SLAC_MATCH_CNF")
-                case "CM_SLAC_MATCH_CNF":
-                    self.messagesSentRecieved["CM_SLAC_MATCH_CNF"]["recieved"] += 1
-                    logging.info("Recieved CM_SLAC_MATCH_CNF")
-                    self.NID = pkt[CM_SLAC_MATCH_CNF].VariableField.NetworkID
-                    self.NMK = pkt[CM_SLAC_MATCH_CNF].VariableField.NMK
-                    self.sendPacket(SetKeyReq(self))
-                    self.messagesSentRecieved["SET_KEY_REQ"]["sent"] += 1
-                    logging.info("Sent SET_KEY_REQ")
-                    time.sleep(3)
-                    SECCpkts = [SECCRequest(self) for i in range(3)]
-                    self.sendPacket(SECCpkts)
-                    self.messagesSentRecieved["SECC_RequestMessage"]["sent"] += 3
-                    logging.info("Sent 3 SECC_RequestMessage")
-            
-        # Handle SECC Packets
-        elif pkt.haslayer("SECC"):
-            SECCtype = self.expandPacketLayers(pkt)[4]
-            match SECCtype:
-                case "SECC_RequestMessage":
-                    self.messagesSentRecieved["SECC_RequestMessage"]["recieved"] += 1
-                    logging.info("Recieved SECC_RequestMessage")
-                    self.destinationIP = pkt[IPv6].src
-                    self.destinationPort = pkt[UDP].sport
-                    responsePkts = [SECCResponse(self) for i in range(3)]
-                    self.sendPacket(responsePkts)
-                    self.messagesSentRecieved["SECC_ResponseMessage"]["sent"] += 3
-                    logging.debug(f"SECC Destination IP: {self.destinationIP}")
-                    logging.debug(f"SECC Destination Port: {self.destinationPort}")
-                    logging.info("Sent 3 SECC_ResponseMessage")
-                case "SECC_ResponseMessage":
-                    self.messagesSentRecieved["SECC_ResponseMessage"]["recieved"] += 1
-                    logging.info("Recieved SECC_ResponseMessage")
-                    self.destinationIP = pkt[SECC_ResponseMessage].TargetAddress
-                    self.destinationPort = pkt[SECC_ResponseMessage].TargetPort
-                    self.sendPacket(SYN(self))
-                    self.messagesSentRecieved["SYN"]["sent"] += 1
-                    logging.debug(f"SECC Destination IP: {self.destinationIP}")
-                    logging.debug(f"SECC Destination Port: {self.destinationPort}")
-                    logging.info("Sent TCP SYN")
-        
-        # Handle IPv6/TCP packets
-        elif pkt.haslayer("IPv6") and pkt.haslayer("TCP") and pkt[TCP].dport == self.sourcePort and pkt[IPv6].dst == self.sourceIP:
-            self.seq = pkt[TCP].ack
-            self.ack = pkt[TCP].seq + len(pkt[TCP].payload)
-
-            if pkt.flags and pkt.flags == "S":
-                logging.info("Recieved TCP SYN")
-                self.messagesSentRecieved["SYN"]["recieved"] += 1
-                self.destinationMAC = pkt[Ether].src
-                self.destinationIP = pkt[IPv6].src
-                self.destinationPort = pkt[TCP].sport
-                self.ack = self.ack + 1
-                self.sendPacket(SYNACK(self))
-                self.messagesSentRecieved["SYNACK"]["sent"] += 1
-                logging.info("Sent TCP SYN-ACK")
-            if pkt.flags and pkt.flags == "SA":
-                self.messagesSentRecieved["SYNACK"]["recieved"] += 1
-                logging.info("Recieved TCP SYN-ACK")
-                self.sendPacket(ACK(self))
-                logging.info("Sent TCP ACK")
-                self.sendPacket(V2G(self, self.appHandshake.encode(SupportedAppProtocolRequest())))
-                self.messagesSentRecieved["supportedAppProtocolReq"]["sent"] += 1
-                logging.info("Sent SupportedAppProtocolReq")
-            if pkt.flags and pkt.flags == "F":
-                self.messagesSentRecieved["FIN"]["recieved"] += 1
-                logging.info("Recieved TCP FIN")
-                self.sendPacket(FINACK(self))
-                logging.info("Sent TCP FIN-ACK")
-                self.killall()
-            if pkt.flags and "P" in pkt.flags:
-                exiString = V2GTP(pkt[Raw].load).Payload
-
-                # First check if the AppHandshake is complete
-                if not self.appHandshakeComplete:
-                    xmlJson = self.appHandshake.decode(exiString)
-                    pktName = list(xmlJson.keys())[0]
-                    
-                    if pktName == "supportedAppProtocolReq":
-                        self.messagesSentRecieved["supportedAppProtocolReq"]["recieved"] += 1
-                        logging.info("Recieved SupportedAppProtocolReq")
-                        self.appHandshakeComplete = True
-                        self.sendPacket(V2G(self, self.appHandshake.encode(SupportedAppProtocolResponse())))
-                        self.messagesSentRecieved["supportedAppProtocolRes"]["sent"] += 1
-                        logging.info("Sent SupportedAppProtocolRes")
-                    elif pktName == "supportedAppProtocolRes":
-                        self.messagesSentRecieved["supportedAppProtocolRes"]["recieved"] += 1
-                        logging.info("Recieved SupportedAppProtocolRes")
-                        self.appHandshakeComplete = True
-                        self.sendPacket(V2G(self, self.din.encode(SessionSetupRequest())))
-                        self.messagesSentRecieved["SessionSetupReq"]["sent"] += 1
-                        logging.info("Sent SessionSetupReq")
-                else:
-                    xmlJson = self.din.decode((exiString))
-                    pktName = list(xmlJson["Body"].keys())[0]
-                    Header = xmlJson["Header"]
-                    sessionID = bytearray(Header["SessionID"]["bytes"])
-
-                    if self.sessionActive and not self.sessionID == sessionID:
-                        logging.warning(f"Recieved V2G Message {pktName} with SessionID: {sessionID} vs current SessionID: {self.sessionID}")
-                        logging.debug(f"XML: {xmlJson}")
-                        return
-
-                    Body = xmlJson["Body"]
-                    if not len(Body) == 1:
-                        logging.warning("Recieved invalid V2G Message")
-                        logging.warning(f"XML Json: {xmlJson}")
-                        return
-
-                    match pktName:
-                        case "SessionSetupReq":
-                            self.messagesSentRecieved["SessionSetupReq"]["recieved"] += 1
-                            logging.info("Recieved SessionSetupReq")
-                            self.sessionID = bytearray(random.randbytes(8))
-                            self.sessionActive = True
-                            logging.debug(f"Setting SessionID: {self.sessionID}")
-                            self.sendPacket(V2G(self, self.din.encode(SessionSetupResponse(sessionID=self.sessionID))))
-                            self.messagesSentRecieved["SessionSetupRes"]["sent"] += 1
-                            logging.info("Sent SessionSetupRes")
-                        case "SessionSetupRes":
-                            self.messagesSentRecieved["SessionSetupRes"]["recieved"] += 1
-                            logging.info("Recieved SessionSetupRes")
-                            self.sessionID = sessionID
-                            self.sessionActive = True
-                            logging.debug(f"Setting SessionID: {sessionID}")
-                            self.sendPacket(V2G(self, self.din.encode(ServiceDiscoveryRequest(sessionID=self.sessionID))))
-                            self.messagesSentRecieved["ServiceDiscoveryReq"]["sent"] += 1
-                            logging.info("Sent ServiceDiscoveryReq")
-                        case "ServiceDiscoveryReq":
-                            self.messagesSentRecieved["ServiceDiscoveryReq"]["recieved"] += 1
-                            logging.info("Recieved ServiceDiscoveryReq")
-                            self.sendPacket(V2G(self, self.din.encode(ServiceDiscoveryResponse(sessionID=self.sessionID))))
-                            self.messagesSentRecieved["ServiceDiscoveryRes"]["sent"] += 1
-                            logging.info("Sent ServiceDiscoveryRes")
-                        case "ServiceDiscoveryRes":
-                            self.messagesSentRecieved["ServiceDiscoveryRes"]["recieved"] += 1
-                            logging.info("Recieved ServiceDiscoveryRes")
-                            self.sendPacket(V2G(self, self.din.encode(ServicePaymentSelectionRequest(sessionID=self.sessionID))))
-                            self.messagesSentRecieved["ServicePaymentSelectionReq"]["sent"] += 1
-                            logging.info("Sent ServicePaymentSelectionReq")
-                        case "ServicePaymentSelectionReq":
-                            self.messagesSentRecieved["ServicePaymentSelectionReq"]["recieved"] += 1
-                            logging.info("Recieved ServicePaymentSelectionReq")
-                            self.sendPacket(V2G(self, self.din.encode(ServicePaymentSelectionResponse(sessionID=self.sessionID))))
-                            self.messagesSentRecieved["ServicePaymentSelectionRes"]["sent"] += 1
-                            logging.info("Sent ServicePaymentSelectionRes")
-                        case "ServicePaymentSelectionRes":
-                            self.messagesSentRecieved["ServicePaymentSelectionRes"]["recieved"] += 1
-                            logging.info("Recieved ServicePaymentSelectionRes")
-                            self.sendPacket(V2G(self, self.din.encode(ContractAuthenticationRequest(sessionID=self.sessionID))))
-                            self.messagesSentRecieved["ContractAuthenticationReq"]["sent"] += 1
-                            logging.info("Sent ContractAuthenticationReq")
-                        case "ContractAuthenticationReq":
-                            self.messagesSentRecieved["ContractAuthenticationReq"]["recieved"] += 1
-                            logging.info("Recieved ContractAuthenticationReq")
-                            # TODO: implement scanning mode
-                            if self.mode == RunMode.STALL:
-                                evseProcessing = "Ongoing"
-                            elif self.mode == RunMode.FULL:
-                                evseProcessing = "Finished"
-                            elif self.mode == RunMode.SCAN:
-                                evseProcessing = "Ongoing"
-                                if not self.scanning:
-                                    logging.info("Starting Port Scanner")
-                                    self.scanning = True
-                                    self.scanner.start()
-                            else:
-                                logging.warning(f"RunMode not supported: {self.mode}")
-                            self.sendPacket(V2G(self, self.din.encode(ContractAuthenticationResponse(sessionID=self.sessionID, evseProcessing=evseProcessing))))
-                            if evseProcessing == "Ongoing":
-                                self.messagesSentRecieved["ContractAuthenticationRes:Ongoing"]["sent"] += 1
-                                if self.messagesSentRecieved["ContractAuthenticationRes:Ongoing"]["sent"] == 0:
-                                    logging.info("Sent ContractAuthenticationRes -- Ongoing")
-                            else:
-                                self.messagesSentRecieved["ContractAuthenticationRes:Finished"]["sent"] += 1
-                                logging.info("Sent ContractAuthenticationRes -- Finished")
-                        case "ContractAuthenticationRes":
-                            logging.info("Recieved ContractAuthenticationRes")
-                            evseProcessing = Body["ContractAuthenticationRes"]["EVSEProcessing"]
-                            if evseProcessing == EVSEProcessingMap.get("Ongoing", 1):
-                                self.messagesSentRecieved["ContractAuthenticationRes:Ongoing"]["recieved"] += 1
-                                if self.messagesSentRecieved["ContractAuthenticationRes:Ongoing"]["recieved"] == 0:
-                                    logging.info("Recieved ContractAuthenticationRes -- Ongoing")
-                                self.sendPacket(V2G(self, self.din.encode(ContractAuthenticationRequest(sessionID=self.sessionID))))
-                                self.messagesSentRecieved["ContractAuthenticationReq"]["sent"] += 1
-                                if self.messagesSentRecieved["ContractAuthenticationReq"]["sent"] == 0:
-                                    logging.info("Sent ContractAuthenticationReq -- Ongoing")
-                            elif evseProcessing == EVSEProcessingMap.get("Finished", 0):
-                                self.messagesSentRecieved["ContractAuthenticationRes:Finished"]["recieved"] += 1
-                                logging.info("Recieved ContractAuthenticationRes -- Finished")
-                                self.sendPacket(V2G(self, self.din.encode(ChargeParameterDiscoveryRequest(sessionID=self.sessionID))))
-                                self.messagesSentRecieved["ChargeParameterDiscoveryReq"]["sent"] += 1
-                                logging.info("Sent ChargeParameterDiscoveryReq")
-                        case "ChargeParameterDiscoveryReq":
-                            self.messagesSentRecieved["ChargeParameterDiscoveryReq"]["recieved"] += 1
-                            logging.info("Recieved ChargeParameterDiscoveryReq")
-                            self.sendPacket(V2G(self, self.din.encode(ChargeParameterDiscoveryResponse(sessionID=self.sessionID))))
-                            self.messagesSentRecieved["ChargeParameterDiscoveryRes:Finished"]["sent"] += 1
-                            logging.info("Sent ChargeParameterDiscoveryRes -- Finished")
-                        case "ChargeParameterDiscoveryRes":
-                            evseProcessing = Body["ChargeParameterDiscoveryRes"]["EVSEProcessing"]
-                            if evseProcessing == EVSEProcessingMap.get("Ongoing", 1):
-                                self.messagesSentRecieved["ChargeParameterDiscoveryRes:Ongoing"]["recieved"] += 1
-                                logging.info("Recieved ChargeParameterDiscoveryRes -- Ongoing")
-                                self.sendPacket(V2G(self, self.din.encode(ChargeParameterDiscoveryRequest(sessionID=self.sessionID))))
-                                self.messagesSentRecieved["ChargeParameterDiscoveryReq"]["sent"] += 1
-                                if self.messagesSentRecieved["ChargeParameterDiscoveryReq"]["sent"] == 0:
-                                    logging.info("Sent ChargeParameterDiscoveryReq")
-                            elif evseProcessing == EVSEProcessingMap.get("Finished", 0):
-                                self.messagesSentRecieved["ChargeParameterDiscoveryRes:Finished"]["recieved"] += 1
-                                logging.info("Recieved ChargeParameterDiscoveryRes -- Finished")
-                                self.setState(EmulatorState.C)
-                                self.sendPacket(V2G(self, self.din.encode(CableCheckRequest(sessionID=self.sessionID))))
-                                self.messagesSentRecieved["CableCheckReq"]["sent"] += 1
-                                logging.info("Sent CableCheckReq")
-                            else:
-                                logging.warning("Unexpected EVSEProcessing status")
-                                logging.warning(f"EVSEProcessing: {evseProcessing}")
-                                logging.warning(f"XML: {xmlJson}")
-                        case "CableCheckReq":
-                            self.messagesSentRecieved["CableCheckReq"]["recieved"] += 1
-                            logging.info("Recieved CableCheckReq")
-                            self.sendPacket(V2G(self, self.din.encode(CableCheckResponse(sessionID=self.sessionID))))
-                            self.messagesSentRecieved["CableCheckRes:Finished"]["sent"] += 1
-                            logging.info("Sent CableCheckRes")
-                        case "CableCheckRes":
-                            evseProcessing = Body["CableCheckRes"]["EVSEProcessing"]
-                            if evseProcessing == EVSEProcessingMap.get("Ongoing", 1):
-                                self.messagesSentRecieved["CableCheckRes:Ongoing"]["recieved"] += 1
-                                if self.messagesSentRecieved["CableCheckRes:Ongoing"]["recieved"] == 0:
-                                    logging.info("Sent CableCheckRes -- Ongoing")
-                                self.sendPacket(V2G(self, self.din.encode(CableCheckRequest(sessionID=self.sessionID))))
-                                self.messagesSentRecieved["CableCheckReq"]["sent"] += 1
-                                if self.messagesSentRecieved["CableCheckReq"]["sent"] == 0:
-                                    logging.info("Sent CableCheckReq -- Ongoing")
-                            elif evseProcessing == EVSEProcessingMap.get("Finished", 0):
-                                self.messagesSentRecieved["CableCheckRes:Finished"]["recieved"] += 1
-                                logging.info("Recieved CableCheckRes -- Finished")
-                                self.sendPacket(V2G(self, self.din.encode(PreChargeRequest(sessionID=self.sessionID))))
-                                self.messagesSentRecieved["PreChargeReq"]["sent"] += 1
-                                logging.info("Sent PreChargeReq")
-                            else:
-                                logging.warning("Unexpected EVSEProcessing status")
-                                logging.warning(f"EVSEProcessing: {evseProcessing}")
-                                logging.warning(f"XML: {xmlJson}")
-                        case "PreChargeReq":
-                            self.messagesSentRecieved["PreChargeReq"]["recieved"] += 1
-                            logging.info("Recieved PreChargeReq")
-                            self.sendPacket(V2G(self, self.din.encode(PreChargeResponse(sessionID=self.sessionID))))
-                            self.messagesSentRecieved["PreChargeRes"]["sent"] += 1
-                            logging.info("Sent PreChargeRes")
-                        case "PreChargeRes":
-                            self.messagesSentRecieved["PreChargeRes"]["recieved"] += 1
-                            logging.info("Recieved PreChargeRes")
-                            self.sendPacket(V2G(self, self.din.encode(PowerDeliveryRequest(sessionID=self.sessionID))))
-                            self.messagesSentRecieved["PowerDeliveryReq"]["sent"] += 1
-                            logging.info("Sent PowerDeliveryReq")
-                        case "PowerDeliveryReq":
-                            self.messagesSentRecieved["PowerDeliveryReq"]["recieved"] += 1
-                            logging.info("Recieved PowerDeliveryReq")
-                            self.sendPacket(V2G(self, self.din.encode(PowerDeliveryResponse(sessionID=self.sessionID))))
-                            self.messagesSentRecieved["PowerDeliveryRes"]["sent"] += 1
-                            logging.info("Sent PowerDeliveryRes")
-                        case "PowerDeliveryRes":
-                            self.messagesSentRecieved["PowerDeliveryRes"]["recieved"] += 1
-                            logging.info("Recieved PowerDeliveryRes")
-                            self.sendPacket(V2G(self, self.din.encode(CurrentDemandRequest(sessionID=self.sessionID))))
-                            self.messagesSentRecieved["CurrentDemandReq"]["sent"] += 1
-                            logging.info("Sent CurrentDemandReq")
-                        case "CurrentDemandReq":
-                            self.messagesSentRecieved["CurrentDemandReq"]["recieved"] += 1
-                            reportedSOC = Body["CurrentDemandReq"]["DC_EVStatus"]["EVRESSSOC"]
-                            requestedCurrent = Body["CurrentDemandReq"]["EVTargetCurrent"]["Value"] * 10 ** Body["CurrentDemandReq"]["EVTargetCurrent"]["Multiplier"]
-                            requestedVoltage = Body["CurrentDemandReq"]["EVTargetVoltage"]["Value"] * 10 ** Body["CurrentDemandReq"]["EVTargetVoltage"]["Multiplier"]
-                            logging.info(f"Recieved CurrentDemandReq -- SOC:{reportedSOC} | Current:{requestedCurrent} | Voltage:{requestedVoltage}")
-                            self.sendPacket(V2G(self, self.din.encode(CurrentDemandResponse(sessionID=self.sessionID))))
-                            self.messagesSentRecieved["CurrentDemandRes"]["sent"] += 1
-                            logging.info("Sent CurrentDemandRes")
-                        case "CurrentDemandRes":
-                            self.messagesSentRecieved["CurrentDemandRes"]["recieved"] += 1
-                            reportedCurrent = Body["CurrentDemandRes"]["EVSEPresentCurrent"]["Value"] * 10 ** Body["CurrentDemandRes"]["EVSEPresentCurrent"]["Multiplier"]
-                            reportedVoltage = Body["CurrentDemandRes"]["EVSEPresentVoltage"]["Value"] * 10 ** Body["CurrentDemandRes"]["EVSEPresentVoltage"]["Multiplier"]
-                            logging.info(f"Recieved CurrentDemandRes -- Current:{reportedCurrent} | Voltage:{reportedVoltage}")
-                            self.sendPacket(V2G(self, self.din.encode(CurrentDemandRequest(sessionID=self.sessionID))))
-                            self.messagesSentRecieved["CurrentDemandReq"]["sent"] += 1
-                            logging.info("Sent CurrentDemandReq")
-                        case "SessionStopReq":
-                            self.messagesSentRecieved["SessionStopReq"]["recieved"] += 1
-                            logging.info("Recieved SessionStopReq")
-                            self.sendPacket(V2G(self, self.din.encode(SessionStopResponse(sessionID=self.sessionID))))
-                            self.messagesSentRecieved["SessionStopRes"]["sent"] += 1
-                            logging.info("Sent SessionStopRes")
-                            self.killall()
-                        case _:
-                            logging.warning("Unsuppored V2G Packet Recieved")
-                            logging.warning(f"XML: {xmlJson}")
-
-        # Handle advertisment packets
-        elif pkt.haslayer("ICMPv6ND_NS") and pkt[ICMPv6ND_NS].tgt == self.sourceIP:
-            logging.info("Recieved ICMPv6 Neighbor Solicitation")
-            self.sendPacket(NeighborAdvertisement(self))
-            logging.info("Sent ICMPv6 Neighbor Advertisement")
-
-        else:
-            # Dont update message time if packet is not for this emulator
+        resPkt = self.stateMachine.handlePacket(pkt)
+        if resPkt is None:
             return
-        
+        self.sendPacket(resPkt)
+
         self.lastMessageTime = time.time()
     
     def killall(self):
@@ -637,6 +229,11 @@ class Emulator:
         logging.info("Emulator Stopped")
 
     def sendPacket(self, pkt):
+        if type(pkt) is list:
+            for p in pkt:
+                logging.debug(f"Sending packet: {p.summary()}")
+        else:
+            logging.debug(f"Sending packet: {pkt.summary()}")
         sendp(pkt, iface=self.iface, verbose=False)
 
     # Check if any messages have been recieved within timeout period and resets connection if not
@@ -651,15 +248,11 @@ class Emulator:
                     self.scanner.stop()
                     logging.info("Port Scanner Stopped")
                 self.setState(EmulatorState.A)
+                self.stateMachine.stop()
                 time.sleep(3)
                 self.setState(EmulatorState.B)
-
-                self.resetMessagesSentRecieved()
-
-                if self.emulatorType == EmulatorType.PEV:
-                    self.sendPacket(SlacParmReq(self))
-                    self.messagesSentRecieved["CM_SLAC_PARM_REQ"]["sent"] += 1
-                    logging.info("Sent CM_SLAC_PARM_REQ")
+                self.remainingSounds = 10
+                self.stateMachine.start()
 
                 self.lastMessageTime = time.time()
             time.sleep(.1)
