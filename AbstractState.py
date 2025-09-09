@@ -36,7 +36,6 @@ class AbstractState(ABC):
         if pktName not in self.validResponsePacketTypes:
             return False, StateMachineResponseType.NO_TRANSITION_INVALID_PACKET
 
-        # Packet should be sessionSetupRes
         self.emulator.seq = receivedPacket[TCP].ack
         self.emulator.ack = receivedPacket[TCP].seq + len(receivedPacket[TCP].payload)
 

@@ -12,6 +12,9 @@ from States_DIN import *
 import logging
 logger = logging.getLogger(__name__)
 
+#########################################################################################################################
+# PEV STATES #
+
 class supportedAppProtocolReqState(AbstractState):
     @property
     def validResponsePacketTypes(self) -> list:
@@ -49,3 +52,31 @@ class supportedAppProtocolReqState(AbstractState):
         # TODO: Implement other schemas besides DIN
         rspPkt = V2G(self.emulator, self.emulator.EXIProcessor.encode(SessionSetupRequest()))
         return (SessionSetupReqState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkt)
+
+#########################################################################################################################
+# EVSE STATES #
+
+class supportedAppProtocolResState(AbstractState):
+    @property
+    def validResponsePacketTypes(self) -> list:
+        pkts = [PacketType.SessionSetupReq]
+        return [pkt.value for pkt in pkts]
+
+    @property
+    def pktToSend(self) -> Packet:
+        return V2G(self.emulator, self.emulator.appHandshake.encode(SupportedAppProtocolResponse()))
+
+    @property
+    def currentState(self) -> PacketType:
+        return PacketType.supportedAppProtocolRes
+    
+    def handlePacket(self, receivedPacket):
+        a = self._handlePacketTCPHelper(receivedPacket)
+        if not a[0]:
+            return (self, a[1], None)
+        
+        self.emulator.sessionID = bytearray(random.randbytes(8))
+        logging.info(f"Generated new SessionID: {self.emulator.sessionID.hex()}")
+        
+        rspPkt = V2G(self.emulator, self.emulator.EXIProcessor.encode(SessionSetupResponse(sessionID=self.emulator.sessionID)))
+        return (SessionSetupResState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkt)

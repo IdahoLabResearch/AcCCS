@@ -70,9 +70,10 @@ class Emulator:
         self.destinationIP = None
         self.destinationPort = None
 
-        self.seq = random.randint(1000, 9999)
+        # self.seq = random.randint(1000, 9999)
+        self.seq = 1000
         self.ack = 0
-        self.sessionID = "00"
+        self.sessionID = bytearray([0])
 
         self.remainingSounds = 10
 
@@ -87,11 +88,7 @@ class Emulator:
         else:
             raise ValueError(f"Unsupported EXI Protocol: {self.protocol.value}")
 
-        if self.emulatorType == EmulatorType.EVSE:
-            # TODO: Implement EVSE state machine
-            pass
-        elif self.emulatorType == EmulatorType.PEV:
-            self.stateMachine = EmulatorStateMachine(self)
+        self.stateMachine = EmulatorStateMachine(self)
 
         if self.mode == RunMode.SCAN:
             if not self.portscanMAC :

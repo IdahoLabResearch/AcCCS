@@ -17,12 +17,17 @@ class EmulatorStateMachine:
         self.state = None
         self.running = False
         self.pktToSend = None
-        self.timeout = 0.5
+        self.timeout = 1
         self.lastMessageTime = time.time()
 
         if self.emulator.emulatorType == EmulatorType.PEV:
             # Initialize with CM_SLAC_PARM_REQState
             self.goToState(CM_SLAC_PARM_REQState(emulator))
+        elif self.emulator.emulatorType == EmulatorType.EVSE:
+            # Initialize with SetKeyReqState
+            self.goToState(CM_SET_KEY_REQState(emulator))
+        else:
+            raise ValueError("Invalid emulator type")
 
         self.pktSendingThread = threading.Thread(target=self.sendPacket)
 

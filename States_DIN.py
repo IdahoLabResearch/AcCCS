@@ -1,3 +1,7 @@
+"""
+    Copyright 2023, Battelle Energy Alliance, LLC, ALL RIGHTS RESERVED
+"""
+
 from AbstractState import AbstractState
 from scapy.all import *
 from Packets import *
@@ -6,6 +10,9 @@ from V2Gjson import *
 
 import logging
 logger = logging.getLogger(__name__)
+
+#########################################################################################################################
+# PEV STATES #
 
 class SessionSetupReqState(AbstractState):
     @property
@@ -243,3 +250,204 @@ class WeldingDetectionReqState(AbstractState):
     def __init__(self):
         pass
 
+#########################################################################################################################
+# EVSE STATES #
+
+class SessionSetupResState(AbstractState):
+    @property
+    def validResponsePacketTypes(self) -> list:
+        pkts = [PacketType.ServiceDiscoveryReq]
+        return [pkt.value for pkt in pkts]
+    
+    @property
+    def pktToSend(self) -> Packet:
+        return V2G(self.emulator, self.emulator.EXIProcessor.encode(SessionSetupResponse(sessionID=self.emulator.sessionID)))
+
+    @property
+    def currentState(self) -> PacketType:
+        return PacketType.SessionSetupRes
+    
+    def handlePacket(self, receivedPacket):
+        logging.debug("Handling packet in SessionSetupResState")
+        a = self._handlePacketTCPHelper(receivedPacket)
+        if not a[0]:
+            return (self, a[1], None)
+
+        rspPkts = V2G(self.emulator, self.emulator.EXIProcessor.encode(ServiceDiscoveryResponse(sessionID=self.emulator.sessionID)))
+        return (ServiceDiscoveryResState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkts)
+    
+class ServiceDiscoveryResState(AbstractState):
+    @property
+    def validResponsePacketTypes(self) -> list:
+        pkts = [PacketType.ServicePaymentSelectionReq]
+        return [pkt.value for pkt in pkts]
+    
+    @property
+    def pktToSend(self) -> Packet:
+        return V2G(self.emulator, self.emulator.EXIProcessor.encode(ServiceDiscoveryResponse(sessionID=self.emulator.sessionID)))
+
+    @property
+    def currentState(self) -> PacketType:
+        return PacketType.ServiceDiscoveryRes
+    
+    def handlePacket(self, receivedPacket):
+        a = self._handlePacketTCPHelper(receivedPacket)
+        if not a[0]:
+            return (self, a[1], None)
+        
+        rspPkts = V2G(self.emulator, self.emulator.EXIProcessor.encode(ServicePaymentSelectionResponse(sessionID=self.emulator.sessionID)))
+        return (ServicePaymentSelectionResState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkts)
+
+class ServicePaymentSelectionResState(AbstractState):
+    @property
+    def validResponsePacketTypes(self) -> list:
+        pkts = [PacketType.ContractAuthenticationReq]
+        return [pkt.value for pkt in pkts]
+    
+    @property
+    def pktToSend(self) -> Packet:
+        return V2G(self.emulator, self.emulator.EXIProcessor.encode(ServicePaymentSelectionResponse(sessionID=self.emulator.sessionID)))
+
+    @property
+    def currentState(self) -> PacketType:
+        return PacketType.ServicePaymentSelectionRes
+    
+    def handlePacket(self, receivedPacket):
+        a = self._handlePacketTCPHelper(receivedPacket)
+        if not a[0]:
+            return (self, a[1], None)
+
+        rspPkts = V2G(self.emulator, self.emulator.EXIProcessor.encode(ContractAuthenticationResponse(sessionID=self.emulator.sessionID)))
+        return (ContractAuthenticationResState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkts)
+    
+class ContractAuthenticationResState(AbstractState):
+    @property
+    def validResponsePacketTypes(self) -> list:
+        pkts = [PacketType.ChargeParameterDiscoveryReq]
+        return [pkt.value for pkt in pkts]
+
+    @property
+    def pktToSend(self) -> Packet:
+        return V2G(self.emulator, self.emulator.EXIProcessor.encode(ContractAuthenticationResponse(sessionID=self.emulator.sessionID)))
+
+    @property
+    def currentState(self) -> PacketType:
+        return PacketType.ContractAuthenticationRes
+    
+    def handlePacket(self, receivedPacket):
+        a = self._handlePacketTCPHelper(receivedPacket)
+        if not a[0]:
+            return (self, a[1], None)
+
+        rspPkts = V2G(self.emulator, self.emulator.EXIProcessor.encode(ChargeParameterDiscoveryResponse(sessionID=self.emulator.sessionID)))
+        return (ChargeParameterDiscoveryResState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkts)
+
+class ChargeParameterDiscoveryResState(AbstractState):
+    @property
+    def validResponsePacketTypes(self) -> list:
+        pkts = [PacketType.CableCheckReq]
+        return [pkt.value for pkt in pkts]
+
+    @property
+    def pktToSend(self) -> Packet:
+        return V2G(self.emulator, self.emulator.EXIProcessor.encode(ChargeParameterDiscoveryResponse(sessionID=self.emulator.sessionID)))
+
+    @property
+    def currentState(self) -> PacketType:
+        return PacketType.ChargeParameterDiscoveryRes
+    
+    def handlePacket(self, receivedPacket):
+        a = self._handlePacketTCPHelper(receivedPacket)
+        if not a[0]:
+            return (self, a[1], None)
+
+        rspPkts = V2G(self.emulator, self.emulator.EXIProcessor.encode(CableCheckResponse(sessionID=self.emulator.sessionID)))
+        return (CableCheckResState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkts)
+
+class CableCheckResState(AbstractState):
+    @property
+    def validResponsePacketTypes(self) -> list:
+        pkts = [PacketType.PreChargeReq]
+        return [pkt.value for pkt in pkts]
+
+    @property
+    def pktToSend(self) -> Packet:
+        return V2G(self.emulator, self.emulator.EXIProcessor.encode(CableCheckResponse(sessionID=self.emulator.sessionID)))
+
+    @property
+    def currentState(self) -> PacketType:
+        return PacketType.CableCheckRes
+    
+    def handlePacket(self, receivedPacket):
+        a = self._handlePacketTCPHelper(receivedPacket)
+        if not a[0]:
+            return (self, a[1], None)
+
+        rspPkts = V2G(self.emulator, self.emulator.EXIProcessor.encode(PreChargeResponse(sessionID=self.emulator.sessionID)))
+        return (PreChargeResState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkts)
+
+class PreChargeResState(AbstractState):
+    @property
+    def validResponsePacketTypes(self) -> list:
+        pkts = [PacketType.PowerDeliveryReq]
+        return [pkt.value for pkt in pkts]
+
+    @property
+    def pktToSend(self) -> Packet:
+        return V2G(self.emulator, self.emulator.EXIProcessor.encode(PreChargeResponse(sessionID=self.emulator.sessionID)))
+
+    @property
+    def currentState(self) -> PacketType:
+        return PacketType.PreChargeRes
+    
+    def handlePacket(self, receivedPacket):
+        a = self._handlePacketTCPHelper(receivedPacket)
+        if not a[0]:
+            return (self, a[1], None)
+
+        rspPkts = V2G(self.emulator, self.emulator.EXIProcessor.encode(PowerDeliveryResponse(sessionID=self.emulator.sessionID)))
+        return (PowerDeliveryResState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkts)
+
+class PowerDeliveryResState(AbstractState):
+    @property
+    def validResponsePacketTypes(self) -> list:
+        pkts = [PacketType.CurrentDemandReq]
+        return [pkt.value for pkt in pkts]
+    
+    @property
+    def pktToSend(self) -> Packet:
+        return V2G(self.emulator, self.emulator.EXIProcessor.encode(PowerDeliveryResponse(sessionID=self.emulator.sessionID)))
+
+    @property
+    def currentState(self) -> PacketType:
+        return PacketType.PowerDeliveryRes
+    
+    def handlePacket(self, receivedPacket):
+        a = self._handlePacketTCPHelper(receivedPacket)
+        if not a[0]:
+            return (self, a[1], None)
+
+        rspPkts = V2G(self.emulator, self.emulator.EXIProcessor.encode(CurrentDemandResponse(sessionID=self.emulator.sessionID)))
+        return (CurrentDemandResState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkts)
+
+class CurrentDemandResState(AbstractState):
+    @property
+    def validResponsePacketTypes(self) -> list:
+        pkts = [PacketType.CurrentDemandReq, PacketType.SessionStopReq]
+        return [pkt.value for pkt in pkts]
+    
+    @property
+    def pktToSend(self) -> Packet:
+        return V2G(self.emulator, self.emulator.EXIProcessor.encode(CurrentDemandResponse(sessionID=self.emulator.sessionID)))
+    
+    @property
+    def currentState(self) -> PacketType:
+        return PacketType.CurrentDemandRes
+    
+    def handlePacket(self, receivedPacket): 
+        a = self._handlePacketTCPHelper(receivedPacket)
+        if not a[0]:
+            return (self, a[1], None)
+
+        rspPkts = V2G(self.emulator, self.emulator.EXIProcessor.encode(CurrentDemandResponse(sessionID=self.emulator.sessionID)))
+        return (self, StateMachineResponseType.NO_TRANSITION_VALID_PACKET, rspPkts)
