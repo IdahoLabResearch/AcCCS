@@ -1,13 +1,9 @@
 # AcCCS
 Access Capabilities for CCS (AcCCS - pronounced "access" /ˈakˌses/) provides a flexible and inexpensive solution to enable communications testing of various Electric Vehicle (EV) technologies that use the CCS charging standard(s).  This codebase is an example of tools and scripts capable of communicating with and emulating an Electric Vehicle Communications Controller (EVCC) and/or a Supply Equipment Communications Controller (SECC).
 
-This project is the result of our efforts to find COTS hardware and existing open source software capable of communicating via HomePlug GreenPHY (HPGP) with CCS enabled vehicles and charging stations.  We are providing some basic scripts to emulate an EV (see [PEV.py](PEV.py)) or an EVSE (see [EVSE.py](EVSE.py)).  These two scripts utilize third-party open source projects that provide Scapy packet definitions for Layer 2 (HPGP - [layerscapy](/layerscapy/)) and Layer 3 (DIN/ISO - [layers](/layers/)). Our goal was to establish a persistent network connection with a target device so that we can test the device for network vulnerabilities.
+This project is the result of our efforts to find COTS hardware and existing open source software capable of communicating via HomePlug GreenPHY (HPGP) with CCS enabled vehicles and charging stations.  We provide a unified emulator script ([Emulator.py](Emulator.py)) that can emulate either an EV (PEV mode) or an EVSE (EVSE mode) using command-line arguments. The emulator utilizes third-party open source projects that provide Scapy packet definitions for Layer 2 (HPGP - [HomePlugPWN](external_libs/HomePlugPWN/)) and uses the Python EXPy library for EXI encoding/decoding.
 
-To enable some testing of the IPv6 endpoints, the emulator scripts provide the ability to perform some basic port scans of the target.  This functionality is available using command-line options of the emulator.  The emulators can be further enhanced for additional port scanning activities or even fuzz testing of the selected CCS protocol.
-
-The emulators utilize a Java program ([java_decoder](/java_decoder/)) to encode and decode the XML messages exchanged between an EV and EVSE.  This decoder is from the [V2Gdecoder](https://github.com/FlUxIuS/V2Gdecoder) project and has been patched to fix a couple of bugs identified during our testing.  The Java server is started automatically when executing one of the emulators.
-
-> **Note:** This code was primarily developed and tested using the old DIN 70121 specification and schema. The newer ISO 15118-2:2010 standard is included but has not been tested.
+The emulator utilizes the Python [EXPy library](external_libs/EXPy/) for encoding and decoding the XML messages (EXI format) exchanged between an EV and EVSE. This replaces the previous Java-based approach, eliminating the need for a separate Java runtime environment and providing better integration with the Python codebase.
 
 A description of the [CurrentImplementation](/docs/CurrentImplementation.md) of our AcCCS box, as well as some supporting presentations, are found in the [docs](/docs/) folder.
 
@@ -21,11 +17,20 @@ git clone --recurse-submodules <clone url>
 git submodule sync
 ```
 
-If you encounter errors about git not locating specific repository versions, using this dirty hack seems to work:
+If you encounter errors about git not locating specific repository versions or do not clone with the ``--recurse-submodules`` flag, using this dirty hack seems to work:
 
 ```
 git submodule update --force --recursive --init --remote
 ```
+
+### Building the Project
+The project now includes a Makefile that builds the necessary components:
+
+```
+make all
+```
+
+This will build the EXPy library and any other required components.
 
 ## Hardware Configuration
 
@@ -39,7 +44,7 @@ RASPBERRY PI: [Raspberry Pi 4 Model B](https://www.raspberrypi.com/products/rasp
 12V OUT: [12V Isolated DC/DC Converter](https://www.digikey.com/en/products/detail/cui-inc./PYBE30-Q24-S12-T/9859982)\
 5V OUT: [5V Isolated DC/DC Converter](https://www.digikey.com/en/products/detail/cui-inc/PYBE30-Q24-S5-T/9859981)\
 ETH: [USB to RJ45 Adapter](https://www.amazon.com/Gigabit-Adapter-CableCreation-Network-Supporting/dp/B07CKQY8HN)\
-PWM PCB: [PWM PCB](resources/PWM_PCB/)
+PWM PCB: [PWM PCB](PCB/AcCCS_Base_Module_PCB/)
 
 The devices labeled ETH, RELAY, 5V OUT, 12V OUT, and RASPBERRY PI are generic devices so a specific brand is not required. Nevertheless, the above links provided are the exact version of these devices we used in our AcCCS box. A brief description of each of these devices are as follows so that any devices that fits this description can probably be used with little to no alteration. Extra notes regarding the implementation and role of each device are also included.
 
@@ -64,6 +69,19 @@ Op-Amp: [LM6132BIN/NOPB](https://www.ti.com/product/LM6132/part-details/LM6132BI
 
 ![Alt text](/resources/J1772_BG.png?raw=true "SAE J1772 Signaling Circuit")
 
+## PCB Design Files
+
+The project includes KiCad design files for custom PCBs:
+
+**AcCCS Base Module PCB:** Located in [PCB/AcCCS_Base_Module_PCB/](PCB/AcCCS_Base_Module_PCB/), this contains the main control circuitry including the PWM generation circuit described above.
+
+**AcCCS Siphon Module PCB:** Located in [PCB/AcCCS_Siphon_Module_PCB/](PCB/AcCCS_Siphon_Module_PCB/), this is an additional module for enhanced signal monitoring and injection capabilities.
+
+Both PCB designs include:
+- KiCad schematic (.kicad_sch) and PCB layout (.kicad_pcb) files
+- Bill of Materials (BOM) 
+- Project files and version history in backup folders
+
 ## Software Configuration
 
 The DIN and ISO standards define that the TCP/IP communication between EVCC and SECC equipment use IPv6 networking with link-local addressing. For this reason, to properly communicate to these devices from a controller, IPv6 networking on the controller must be configured for link-local addressing on the interfaces that connect to the Devolo radios.
@@ -75,30 +93,99 @@ The DIN and ISO standards define that the TCP/IP communication between EVCC and 
 
 **Scapy** is used for all of the packet activities such as crafting, manipulation, sending, and receiving packets. 
 
-**TQDM** is used for neat progress bars in scripts involving the custom NMAP functionality for scanning SECC and EVCC devices. Custom scapy packets provided by the [HomePlugPWN](https://github.com/FlUxIuS/HomePlugPWN) project are included in the [layerscapy](/layerscapy/) folder. 
+**TQDM** is used for neat progress bars in scripts involving the custom NMAP functionality for scanning SECC and EVCC devices.
 
 **Smbus** is used for I2C communications with the PCB to operate the relays found on the PWM PCB.
 
-### EVSE and EV Python Scripts
-Below is a brief description of the scripts in this project. These scripts are provided as examples of how you might utilize this hardware in your own testing environment. This is not intended to be a finished product with all desired functionality. Some functionality is still a work in progress.
+### Emulator Architecture
+The project has been rewritten using a simple state machine architecture to better track how the system communicates with PEVs and EVSEs
 
-**EVSE.py:** This script emulates an EVSE when run. When the AcCCS's EVSE CP and SIG GND are connected to the PEV's CP and GND, the script follows the J1772 spec by going through layer 2 HomePlug GreenPHY SLAC negotiations, layer 3 UDP SECC Discovery Protocol, and then layer 3 TCP/IPv6 communications. Currently, the TCP/IPv6 communications only support the DIN spec, but future work includes implementing the ISO-2 and ISO-20 specs which are required for TLS encrypted sessions, Plug-n-charge, and 2-way power transfer.
+**Emulator.py:** The main unified emulator script that can operate in either PEV or EVSE mode. Usage:
+```
+python Emulator.py --type EVSE    # Run as EVSE (charging station)
+python Emulator.py --type PEV     # Run as PEV (electric vehicle)
+```
 
-**PEV.py:** Same as EVSE.py, but AcCCS's PEV CP and SIG GND should be connected to the EVSE's CP and GND pins.
+The emulator supports various command-line options including:
+- `--mode`: Operation mode
+- `--protocol`: Protocol version (DIN, ISO2, ISO20)
+- `--debug`: Enable debug logging
+- `--timeout`: Connection timeout value
+- See the [Usage Examples](#Usage-Examples) for a comprehensive list of arguements
 
-**MIM.py:** **NOT IMPLEMENTED** | Forms two separate connections to a PEV and EVSE simultaneously. Will forward packets from one conversation to the other, changing the contents if specified by the user. Cannot form a simple bridge between the two because of high amounts of cross-talk between CP lines. This protocol is very susceptible to RF interference.
+**EmulatorStateMachine.py:** Core state machine implementation that manages the communication flow through different protocol states.
 
-**EXIProcessor.py:** Python wrapper for using the java webserver EXI processor found in the java_decoder folder. This project uses a modified version of the jar file provided by the [V2Gdecoder](https://github.com/FlUxIuS/V2Gdecoder) project which itself is based on the [RISE-V2G](https://github.com/SwitchEV/RISE-V2G) project. This modified jar file is named V2GdecoderMOD.jar and adds functionality to specify which port the webserver will listen on as well as an argument to specify with which schema to encode and decode (DIN vs ISO-2 vs ISO-20).
+**State Modules:** The communication logic is organized into modular state classes:
+- `States_SLAC.py`: HomePlug GreenPHY SLAC states
+- `States_AppHand.py`: Handshake states  
+- `States_DIN.py`: DIN 70121 protocol states
+- `States_TCP.py`: TCP connection management states
+- `States_SECC.py`: SECC specific states
 
-**XMLBuilder.py:** Python script used to create and manipulate XML payloads that follow the DIN and ISO specs. The default values for each of these packet types are taken from real values that were used by EVSEs and PEVs captured during a normal charging session.
+**V2Gjson.py:** JSON-based message handling for V2G communications, replacing the previous XML-based approach.
+
+**Deprecated Scripts:** The previous `EVSE.py` and `PEV.py` scripts have been replaced by the unified `Emulator.py`.
+
+### Recent Updates
+* **State Machine Architecture:** Completely refactored the emulator to use a state machine design
+* **Python EXI Processing:** Replaced Java EXI processor with Python EXPy library, eliminating Java dependency
+* **Unified Emulator:** Combined separate PEV.py and EVSE.py scripts into a single configurable Emulator.py
 
 ### Current TODOs:
-* Implement ISO 15118-2:2010, ISO 15118-2:2015 and ISO 15118-20 spec into XML builder script and emulator scripts
-* Integrate a Python based EXI processor that doesn't require a full JVM :)
-* Complete and test a full MITM script
+* Update EXPy project to support ISO 15118-2 and ISO 15118-20
+* Implement ISO 15118-2 and ISO 15118-20 spec into the new state machine architecture
+* Re-implement working NMAP scanner within Emulator script
 
-## Notes
+## Usage Examples
 
-Only two scripts are expected to be run from command line: EVSE.py and PEV.py. The other scripts and files serve as tools and utilities for these scripts to run. 
+The main script to run from command line is `Emulator.py`. The other scripts and files serve as supporting modules and utilities.
 
-The ```EVSE.py``` and ```PEV.py``` scripts include some basic functionality to port scan (similar to NMAP) while the emulator is running. In our limited testing, the EVSEs stay connected to the emulator indefinitely, but the PEVs terminate the connection after a couple of minutes without any power transfer. For this reason a simple TCP syn scan is included in the script to pick up where the scan left off when the connection is reestablished.
+Help Command:
+```
+usage: Emulator.py [-h] [-M {0,1,2}] [-T {pev,evse}] [-P {DIN,ISO-2,ISO-20}] [-I INTERFACE] [--modified-cordset] [-V] [--source-mac SOURCE_MAC] [--source-ip SOURCE_IP] [--source-port SOURCE_PORT] [--NID NID] [--NMK NMK] [-d] [-t TIMEOUT]
+               [--portscan-MAC PORTSCAN_MAC] [--portscan-IP PORTSCAN_IP] [--portscan-ports PORTSCAN_PORTS]
+
+AcCCS (Access Through CCS): Emulate a PEV or EVSE -- Default values shown in [square brackets]
+
+options:
+  -h, --help            show this help message and exit
+  -M {0,1,2}, --mode {0,1,2}
+                        Emulator mode: [0=Full], 1=Stall, 2=Scan
+  -T {pev,evse}, --type {pev,evse}
+                        Emulator type: [EVSE] or PEV
+  -P {DIN,ISO-2,ISO-20}, --protocol {DIN,ISO-2,ISO-20}
+                        Protocol to use for EXI encoding: [DIN], ISO-2, ISO-20
+  -I INTERFACE, --interface INTERFACE
+                        Interface to listen on: [ethevse], ethpev, etc.
+  --modified-cordset    Enable modified cordset: [false]
+  -V, --virtual         Enable virtual mode: [false]
+  --source-mac SOURCE_MAC
+                        Specify source MAC address (optional)
+  --source-ip SOURCE_IP
+                        Specify source IP address (optional)
+  --source-port SOURCE_PORT
+                        Specify source port (optional)
+  --NID NID             Specify Network ID (optional)
+  --NMK NMK             Specify Network Membership Key (optional)
+  -d, --debug           Enable debug mode: [false]
+  -t TIMEOUT, --timeout TIMEOUT
+                        Timeout for connection reset in seconds: [5]
+  --portscan-MAC PORTSCAN_MAC
+                        MAC address for port scanning (required if in mode 2)
+  --portscan-IP PORTSCAN_IP
+                        IP address for port scanning (required if in mode 2)
+  --portscan-ports PORTSCAN_PORTS
+                        List of ports to scan separated by commas (ex. 1,2,5-10,19,...) (default: Top 8000 common ports)
+```
+
+Basic Usage:
+```bash
+sudo python Emulator.py -T pev -V -t 20
+
+# This starts a PEV emulator without using the I2C relays on the PCB with a timeout of 20 seconds
+
+sudo python Emulator.py -T evse -d -I lo
+
+# This starts an EVSE emulator in debug mode on the loopback interface
+```
+

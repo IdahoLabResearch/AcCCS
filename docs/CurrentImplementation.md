@@ -38,13 +38,13 @@ The enclosure wiring follows this pattern:
 ![Alt text](/docs/Images/AcCCS_Wiring_Diagram.png?raw=true "AcCCS Box Wiring Diagram")
 
 # Networking
-The Raspberry Pi in the AcCCS enclosure has three network interfaces.  The built-in interface (```eth0```) is used for communications with a research laptop. This interface is connected to a RJ-45 connector on the side of the enclosure. One USB network interface (```eth1```) is used to connect to the EVSE Devolo board, and a second USB interface (```eth2```) is used to connect to the PEV Devolo board.
+The Raspberry Pi in the AcCCS enclosure has three network interfaces.  The built-in interface (```eth0```) is used for communications with a research laptop. This interface is connected to a RJ-45 connector on the side of the enclosure. One USB network interface (```ethpev```) is used to connect to the PEV Devolo board, and a second USB interface (```ethevse```) is used to connect to the EVSE Devolo board.
 
 Settings on the Raspberry Pi were updated to enable a few features.  This is done using ```raspi-config.``` Predictable network names was enabled as well as the I2C interface.
 
-The ```eth0``` interface is configured with a static IPv4 address ```10.10.10.10```. The ```eth1``` and ```eth2``` interfaces are not directly configured as Raspbian defaults to a configuration of DHCP for IPv4 and Link-Local for IPv6. 
+The ```eth0``` interface is configured with a static IPv4 address ```10.10.10.10```. The ```ethpev``` and ```ethevse``` interfaces are not directly configured as Raspbian defaults to a configuration of DHCP for IPv4 and Link-Local for IPv6. 
 
-The Raspbian OS was configured to assign the ```eth1``` and ```eth2``` interface names to the USB network interfaces using the MAC address of the interface. There are several ways to make this assignment in Linux, but what we found to work most consistently was to create a couple of files in ```/etc/systemd/network/```.
+The Raspbian OS was configured to assign the ```ethpev``` and ```ethevse``` interface names to the USB network interfaces using the MAC address of the interface. There are several ways to make this assignment in Linux, but what we found to work most consistently was to create a couple of files in ```/etc/systemd/network/```.
 
 ```
 #/etc/systemd/network/09-eth1.link
@@ -53,7 +53,7 @@ The Raspbian OS was configured to assign the ```eth1``` and ```eth2``` interface
 MACAddress=11:22:33:44:55:66 # Update with your MAC
 
 [Link]
-Name=eth1
+Name=ethpev
 ```
 
 ```
@@ -64,7 +64,7 @@ Name=eth1
 MACAddress=11:22:33:44:55:66 # Update with your MAC
 
 [Link]
-Name=eth2
+Name=ethevse
 ```
 
 > **Note:** Even after using several methods to configure a MAC address to match an interface name (e.g. ```eth1```), we found Raspbian still seems to chose the name based on which USB port the interface is plugged into. This is very odd behavior and we have not yet determined the cause or a solution.
@@ -123,29 +123,18 @@ You can now emulate either an EVSE or an EV by running the proper script found i
 ```
 pi@raspberry:~$ cd src/AcCCS/
 
-pi@raspberry:~/src/AcCCS/$ sudo python3 EVSE.py
+pi@raspberry:~/src/AcCCS/$ sudo python Emulator.py
 
 ```
 
-The emulators are run using ```sudo``` because of the need to generate and send raw Ethernet packets.
+The emulator is run using ```sudo``` because of the need to generate and send raw Ethernet packets.
 
 ## Wireshark SSH Dump
 You can monitor all of the traffic between the Raspberry Pi and the EVSE or EV Devolo boards by using the SSH capture capabilities of Wireshark.
 
 ![Alt text](/docs/Images/wireshark.png?raw=true "Wireshark SSH Capture")
 
-On the research laptop, configure Wireshark to connect to the Raspberry Pi in the AcCCS enclosure and sniff the network traffic to/from the EVSE (```eth1```) or to/from the EV (```eth2```).
-
-## Port Scanning
-The emulator scripts [EVSE.py](/emulator/EVSE.py) and [PEV.py](/emulator/PEV.py) include some basic functionality for port scanning the EVSE SECC or the EV EVCC. This option can be selected as a command-line argument.  Results of the port scan are displayed along with the progress of the scan.
-
-## Java Decoder
-Unfortunately the only method we have readily available to encode/decode the XML communications between the EV and EVSE is by reusing the Java webserver from the [V2Gdecoder](https://github.com/FlUxIuS/V2Gdecoder) project. We patched the ```jar``` file to fix a few bugs we found in the latest release, and it is included in the [java_decoder](/emulator/java_decoder) folder along with a couple of schema folders.
-
-A future release of the AcCCS project will replace the V2Gdecoder with a full python implementation for EXI encoding and decoding.
-
-## Schemas
-The primary CCS schema we are using is DIN Spec 70121.  This has been the most stable schema, and it is also accepted by most every EV and EVSE.  We also included a copy of ISO 15118-2:2010 in the [schemas](/emulator/java_decoder/schemas_15118/) folder if you chose to use it instead. We are not currently trying to exercise all of the latest protocol features, but rather using the old DIN spec to simply establish a network connection so that we can perform other cyber activities (e.g. port scanning).  
+On the research laptop, configure Wireshark to connect to the Raspberry Pi in the AcCCS enclosure and sniff the network traffic to/from the PEV (```ethpev```) or to/from the EVSE (```ethevse```).
 
 # References and Credits
 - V2GInjector
@@ -165,3 +154,5 @@ The primary CCS schema we are using is DIN Spec 70121.  This has been the most s
   - https://github.com/SwitchEV/RISE-V2G
 - HomePlugPWN
   - https://github.com/FlUxIuS/HomePlugPWN
+- EXPy
+  - https://github.com/IdahoLabResearch/EXPy
