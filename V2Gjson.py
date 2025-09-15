@@ -1,3 +1,7 @@
+"""
+    Copyright 2023, Battelle Energy Alliance, LLC, ALL RIGHTS RESERVED
+"""
+
 # TODO: implement all every single optional field for each packet type
 
 responseCodeMap = {

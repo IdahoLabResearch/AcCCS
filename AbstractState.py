@@ -1,3 +1,7 @@
+"""
+    Copyright 2023, Battelle Energy Alliance, LLC, ALL RIGHTS RESERVED
+"""
+
 from abc import ABC, abstractmethod
 from scapy.all import *
 from EmulatorEnum import *

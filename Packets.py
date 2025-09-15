@@ -1,3 +1,7 @@
+"""
+    Copyright 2023, Battelle Energy Alliance, LLC, ALL RIGHTS RESERVED
+"""
+
 import sys, os
 
 sys.path.append("./external_libs/HomePlugPWN")
