@@ -425,7 +425,7 @@ class PreChargeResState(AbstractState):
 class PowerDeliveryResState(AbstractState):
     @property
     def validResponsePacketTypes(self) -> list:
-        pkts = [PacketType.CurrentDemandReq]
+        pkts = [PacketType.CurrentDemandReq, PacketType.SessionStopReq]
         return [pkt.value for pkt in pkts]
     
     @property
@@ -441,13 +441,19 @@ class PowerDeliveryResState(AbstractState):
         if not a[0]:
             return (self, a[1], None)
 
-        rspPkts = V2G(self.emulator, self.emulator.EXIProcessor.encode(CurrentDemandResponse(sessionID=self.emulator.sessionID)))
-        return (CurrentDemandResState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkts)
+        xmlJson = a[1]
+
+        if "CurrentDemandReq" in xmlJson["Body"]:
+            rspPkts = V2G(self.emulator, self.emulator.EXIProcessor.encode(CurrentDemandResponse(sessionID=self.emulator.sessionID)))
+            return (CurrentDemandResState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkts)
+        elif "SessionStopReq" in xmlJson["Body"]:
+            rspPkts = V2G(self.emulator, self.emulator.EXIProcessor.encode(SessionStopResponse(sessionID=self.emulator.sessionID)))
+            return (SessionStopResState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkts)
 
 class CurrentDemandResState(AbstractState):
     @property
     def validResponsePacketTypes(self) -> list:
-        pkts = [PacketType.CurrentDemandReq, PacketType.SessionStopReq]
+        pkts = [PacketType.CurrentDemandReq, PacketType.PowerDeliveryReq]
         return [pkt.value for pkt in pkts]
     
     @property
@@ -465,23 +471,46 @@ class CurrentDemandResState(AbstractState):
 
         xmlJson = a[1]
 
-        reportedSOC = xmlJson["Body"]["CurrentDemandReq"]["DC_EVStatus"]["EVRESSSOC"]
+        if "PowerDeliveryReq" in xmlJson["Body"]:
+            rspPkts = V2G(self.emulator, self.emulator.EXIProcessor.encode(PowerDeliveryResponse(sessionID=self.emulator.sessionID)))
+            return (PowerDeliveryResState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkts)
+        elif "CurrentDemandReq" in xmlJson["Body"]:
+            reportedSOC = xmlJson["Body"]["CurrentDemandReq"]["DC_EVStatus"]["EVRESSSOC"]
 
-        targetVoltageValue = xmlJson["Body"]["CurrentDemandReq"]["EVTargetVoltage"]["Value"]
-        if "Multiplier" in xmlJson["Body"]["CurrentDemandReq"]["EVTargetVoltage"]:
-            targetVoltageMultiplier = xmlJson["Body"]["CurrentDemandReq"]["EVTargetVoltage"]["Multiplier"]
-        else:
-            targetVoltageMultiplier = 0
-        targetVoltage = targetVoltageValue * 10 ** targetVoltageMultiplier
-        
-        targetCurrentValue = xmlJson["Body"]["CurrentDemandReq"]["EVTargetCurrent"]["Value"]
-        if "Multiplier" in xmlJson["Body"]["CurrentDemandReq"]["EVTargetCurrent"]:
-            targetCurrentMultiplier = xmlJson["Body"]["CurrentDemandReq"]["EVTargetCurrent"]["Multiplier"]
-        else:
-            targetCurrentMultiplier = 0
-        targetCurrent = targetCurrentValue * 10 ** targetCurrentMultiplier
+            targetVoltageValue = xmlJson["Body"]["CurrentDemandReq"]["EVTargetVoltage"]["Value"]
+            if "Multiplier" in xmlJson["Body"]["CurrentDemandReq"]["EVTargetVoltage"]:
+                targetVoltageMultiplier = xmlJson["Body"]["CurrentDemandReq"]["EVTargetVoltage"]["Multiplier"]
+            else:
+                targetVoltageMultiplier = 0
+            targetVoltage = targetVoltageValue * 10 ** targetVoltageMultiplier
+            
+            targetCurrentValue = xmlJson["Body"]["CurrentDemandReq"]["EVTargetCurrent"]["Value"]
+            if "Multiplier" in xmlJson["Body"]["CurrentDemandReq"]["EVTargetCurrent"]:
+                targetCurrentMultiplier = xmlJson["Body"]["CurrentDemandReq"]["EVTargetCurrent"]["Multiplier"]
+            else:
+                targetCurrentMultiplier = 0
+            targetCurrent = targetCurrentValue * 10 ** targetCurrentMultiplier
 
-        self.logger.inline(f"CurrentDemandReq | Reported SOC: {reportedSOC} | Target Voltage: {targetVoltage} | Target Current: {targetCurrent}")
+            self.logger.inline(f"CurrentDemandReq | Reported SOC: {reportedSOC} | Target Voltage: {targetVoltage} | Target Current: {targetCurrent}")
 
-        rspPkts = V2G(self.emulator, self.emulator.EXIProcessor.encode(CurrentDemandResponse(sessionID=self.emulator.sessionID)))
-        return (self, StateMachineResponseType.NO_TRANSITION_VALID_PACKET, rspPkts)
+            rspPkts = V2G(self.emulator, self.emulator.EXIProcessor.encode(CurrentDemandResponse(sessionID=self.emulator.sessionID)))
+            return (self, StateMachineResponseType.NO_TRANSITION_VALID_PACKET, rspPkts)
+    
+class SessionStopResState(AbstractState): # TODO: Finish this state
+    @property
+    def validResponsePacketTypes(self) -> list:
+        pkts = []
+        return [pkt.value for pkt in pkts]
+    
+    @property
+    def pktToSend(self) -> Packet:
+        return None
+    
+    @property
+    def currentState(self) -> PacketType:
+        return PacketType.SessionStopRes
+    
+    def handlePacket(self, receivedPacket):
+        a = self._handlePacketTCPHelper(receivedPacket)
+        if not a[0]:
+            return (self, a[1], None)
