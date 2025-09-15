@@ -10,6 +10,7 @@ from Packets import *
 class AbstractState(ABC):
     def __init__(self, emulator):
         self.emulator = emulator
+        self.logger = self.emulator.logger
     
     def expandPacketLayers(self, pkt: Packet) -> list:
         res = []

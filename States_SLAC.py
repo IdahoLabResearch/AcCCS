@@ -8,9 +8,6 @@ from scapy.all import *
 from Packets import *
 from States_SECC import *
 
-import logging
-logger = logging.getLogger(__name__)
-
 #########################################################################################################################
 # PEV STATES #
 
@@ -43,11 +40,11 @@ class CM_SLAC_PARM_REQState(AbstractState):
         HPHPLayerName = self.expandPacketLayers(receivedPacket)[2]
 
         if HPHPLayerName not in self.validResponsePacketTypes:
-            logger.warning(f"Received unexpected packet of type {HPHPLayerName} in state {self.currentState}")
+            self.logger.warning(f"Received unexpected packet of type {HPHPLayerName} in state {self.currentState}")
             return (self, StateMachineResponseType.NO_TRANSITION_INVALID_PACKET, None)
 
         # Only allowed packet should be CM_SLAC_PARM_CNF
-        logger.debug(f"Received packet of type {HPHPLayerName} in state {self.currentState}")
+        self.logger.debug(f"Received packet of type {HPHPLayerName} in state {self.currentState}")
         self.emulator.destinationMAC = receivedPacket[Ether].src
         self.emulator.runID = receivedPacket[CM_SLAC_PARM_CNF].RunID
 
@@ -85,11 +82,11 @@ class CM_MNBC_SOUND_INDState(AbstractState):
         HPHPLayerName = self.expandPacketLayers(receivedPacket)[2]
 
         if HPHPLayerName not in self.validResponsePacketTypes:
-            logger.warning(f"Received unexpected packet of type {HPHPLayerName} in state {self.currentState}")
+            self.logger.warning(f"Received unexpected packet of type {HPHPLayerName} in state {self.currentState}")
             return (self, StateMachineResponseType.NO_TRANSITION_INVALID_PACKET, None)
         
         # Only allowed packet should be CM_ATTEN_CHAR_IND
-        logger.debug(f"Received packet of type {HPHPLayerName} in state {self.currentState}")
+        self.logger.debug(f"Received packet of type {HPHPLayerName} in state {self.currentState}")
         attenCharResPkt = AttenCharRes(self.emulator)
         slacMatchReqPkt = SlacMatchReq(self.emulator)
         rspPkts = [attenCharResPkt, slacMatchReqPkt]
@@ -124,11 +121,11 @@ class CM_SLAC_MATCH_REQState(AbstractState):
         HPHPLayerName = self.expandPacketLayers(receivedPacket)[2]
 
         if HPHPLayerName not in self.validResponsePacketTypes:
-            logger.warning(f"Received unexpected packet of type {HPHPLayerName} in state {self.currentState}")
+            self.logger.warning(f"Received unexpected packet of type {HPHPLayerName} in state {self.currentState}")
             return (self, StateMachineResponseType.NO_TRANSITION_INVALID_PACKET, None)
 
         # Only allowed packet should be CM_SLAC_MATCH_CNF
-        logger.debug(f"Received packet of type {HPHPLayerName} in state {self.currentState}")
+        self.logger.debug(f"Received packet of type {HPHPLayerName} in state {self.currentState}")
         self.emulator.NID = receivedPacket[CM_SLAC_MATCH_CNF].VariableField.NetworkID
         self.emulator.NMK = receivedPacket[CM_SLAC_MATCH_CNF].VariableField.NMK
 
@@ -170,11 +167,11 @@ class CM_SET_KEY_REQState(AbstractState):
         HPHPLayerName = self.expandPacketLayers(receivedPacket)[2]
 
         if HPHPLayerName not in self.validResponsePacketTypes:
-            logger.warning(f"Received unexpected packet of type {HPHPLayerName} in state {self.currentState}")
+            self.logger.warning(f"Received unexpected packet of type {HPHPLayerName} in state {self.currentState}")
             return (self, StateMachineResponseType.NO_TRANSITION_INVALID_PACKET, None)
 
         # Only allowed packet should be CM_SLAC_PARM_REQ
-        logger.debug(f"Received packet of type {HPHPLayerName} in state {self.currentState}")
+        self.logger.debug(f"Received packet of type {HPHPLayerName} in state {self.currentState}")
 
         self.emulator.destinationMAC = receivedPacket[Ether].src
         self.emulator.runID = receivedPacket[CM_SLAC_PARM_REQ].RunID
@@ -212,12 +209,12 @@ class CM_SLAC_PARM_CNFState(AbstractState):
         HPHPLayerName = self.expandPacketLayers(receivedPacket)[2]
 
         if HPHPLayerName not in self.validResponsePacketTypes:
-            logger.warning(f"Received unexpected packet of type {HPHPLayerName} in state {self.currentState}")
+            self.logger.warning(f"Received unexpected packet of type {HPHPLayerName} in state {self.currentState}")
             return (self, StateMachineResponseType.NO_TRANSITION_INVALID_PACKET, None)
         
         # Only allowed packet should be CM_MNBC_SOUND_IND
         countdownVal = receivedPacket[CM_MNBC_SOUND_IND].Countdown
-        logger.debug(f"Received packet of type {HPHPLayerName} in state {self.currentState} with countdown value {countdownVal}")
+        self.logger.debug(f"Received packet of type {HPHPLayerName} in state {self.currentState} with countdown value {countdownVal}")
 
         if countdownVal > 0:
             return (self, StateMachineResponseType.NO_TRANSITION_VALID_PACKET, None)
@@ -254,11 +251,11 @@ class CM_ATTEN_CHAR_INDState(AbstractState):
         HPHPLayerName = self.expandPacketLayers(receivedPacket)[2]
 
         if HPHPLayerName not in self.validResponsePacketTypes:
-            logger.warning(f"Received unexpected packet of type {HPHPLayerName} in state {self.currentState}")
+            self.logger.warning(f"Received unexpected packet of type {HPHPLayerName} in state {self.currentState}")
             return (self, StateMachineResponseType.NO_TRANSITION_INVALID_PACKET, None)
 
         # Only allowed packet should be CM_SLAC_MATCH_REQ
-        logger.debug(f"Received packet of type {HPHPLayerName} in state {self.currentState}")
+        self.logger.debug(f"Received packet of type {HPHPLayerName} in state {self.currentState}")
         slacMatchCnfPkt = SlacMatchCnf(self.emulator)
         rspPkts = [slacMatchCnfPkt]
         return (CM_SLAC_MATCH_CNFState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkts)
@@ -296,7 +293,7 @@ class CM_SLAC_MATCH_CNFState(AbstractState):
             return (self, StateMachineResponseType.NO_TRANSITION_IGNORED_PACKET, None)
         
         # Only allowed packet should be SDP Request
-        logger.debug(f"Received packet of type {SECCtype} in state {self.currentState}")
+        self.logger.debug(f"Received packet of type {SECCtype} in state {self.currentState}")
 
         self.emulator.destinationIP = receivedPacket[IPv6].src
         self.emulator.destinationPort = receivedPacket[UDP].sport

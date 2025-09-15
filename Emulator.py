@@ -19,6 +19,7 @@ from NMAPScanner import NMAPScanner
 from Packets import *
 from V2Gjson import *
 from EmulatorStateMachine import EmulatorStateMachine
+from CustomLogger import setup_logger
 
 from threading import Thread
 import random
@@ -70,7 +71,6 @@ class Emulator:
         self.destinationIP = None
         self.destinationPort = None
 
-        # self.seq = random.randint(1000, 9999)
         self.seq = 1000
         self.ack = 0
         self.sessionID = bytearray([0])
@@ -78,6 +78,8 @@ class Emulator:
         self.remainingSounds = 10
 
         self.appHandshake = AppHandshakeProcessor()
+
+        self.logger = setup_logger(__name__, self.emulatorType.name, logging.DEBUG if self.debug else logging.INFO)
 
         if self.protocol == EXIProtocol.DIN:
             self.EXIProcessor = DINProcessor()
@@ -111,12 +113,7 @@ class Emulator:
             self.I2C_ALL_OFF = 0b0
 
         # Logging
-        logging.basicConfig(
-            level=logging.DEBUG if self.debug else logging.INFO,
-            format=f"%(asctime)s.%(msecs)03d | %(levelname)-7s | {self.emulatorType.value.upper():<4} -- %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-        logging.info("Emulator Initialized")
+        self.logger.info("Emulator Initialized")
 
     def getRandomMAC(self):
         mac_end = [random.randint(0x00, 0x7f) for _ in range(3)]
@@ -166,26 +163,26 @@ class Emulator:
 +===================================================================================================+
 """)
 
-        logging.info("Starting Emulator")
-        logging.info(f"Emulator Type:     {self.emulatorType.value.upper()}")
-        logging.info(f"Emulator Mode:     {self.mode.value} [{RunMode(self.mode).name}]")
-        logging.info(f"Emulator Protocol: {self.protocol.value}")
-        logging.info(f"Interface:         {self.iface}")
+        self.logger.info("Starting Emulator")
+        self.logger.info(f"Emulator Type:     {self.emulatorType.value.upper()}")
+        self.logger.info(f"Emulator Mode:     {self.mode.value} [{RunMode(self.mode).name}]")
+        self.logger.info(f"Emulator Protocol: {self.protocol.value}")
+        self.logger.info(f"Interface:         {self.iface}")
 
         # Initialize I2C Bus
         if not self.virtual:
             self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00)
-        logging.debug("GPIO Expander Initialized")
+        self.logger.debug("GPIO Expander Initialized")
         self.setState(EmulatorState.A)
 
         # Start threads
         # Sniffing thread
-        logging.debug("Starting Sniffing Thread")
-        self.sniffingThread = AsyncSniffer(iface=self.iface, prn=self.handlePacket, started_callback=lambda: logging.debug("Sniffing Thread Started"), lfilter=lambda x: x.haslayer("Ethernet") and not x[Ether].src == self.sourceMAC)
+        self.logger.debug("Starting Sniffing Thread")
+        self.sniffingThread = AsyncSniffer(iface=self.iface, prn=self.handlePacket, started_callback=lambda: self.logger.debug("Sniffing Thread Started"), lfilter=lambda x: x.haslayer("Ethernet") and not x[Ether].src == self.sourceMAC)
         self.sniffingThread.start()
 
         # Timeout thread
-        logging.debug("Starting Timeout Thread")
+        self.logger.debug("Starting Timeout Thread")
         self.timeoutThread = Thread(target=self.checkForTimeout)
         self.timeoutThread.start()
 
@@ -218,28 +215,28 @@ class Emulator:
         self.sniffingThread.stop()
         self.timeoutThread.stop()
         self.bus.write_byte_data(self.I2C_ADDR, self.I2C_REG, self.I2C_ALL_OFF)
-        logging.info("Emulator Stopped")
+        self.logger.info("Emulator Stopped")
 
     def sendPacket(self, pkt):
         if type(pkt) is list:
             for p in pkt:
-                logging.debug(f"Sending packet: {p.summary()}")
+                self.logger.debug(f"Sending packet: {p.summary()}")
         else:
-            logging.debug(f"Sending packet: {pkt.summary()}")
+            self.logger.debug(f"Sending packet: {pkt.summary()}")
         self.lastMessageTime = time.time()
         sendp(pkt, iface=self.iface, verbose=False)
 
     # Check if any messages have been recieved within timeout period and resets connection if not
     def checkForTimeout(self):
-        logging.info("Timeout Thread Started")
+        self.logger.info("Timeout Thread Started")
         self.lastMessageTime = time.time()
         while self.running:
             if time.time() - self.lastMessageTime > self.timeout:
-                logging.warning("Connection timed out, reseting connection")
+                self.logger.warning("Connection timed out, reseting connection")
                 if self.scanning:
                     self.scanning = False
                     self.scanner.stop()
-                    logging.info("Port Scanner Stopped")
+                    self.logger.info("Port Scanner Stopped")
                 self.setState(EmulatorState.A)
                 self.stateMachine.stop()
                 time.sleep(3)
@@ -249,12 +246,12 @@ class Emulator:
 
                 self.lastMessageTime = time.time()
             time.sleep(.1)
-        logging.info("Timeout Thread Stopped")
+        self.logger.info("Timeout Thread Stopped")
 
     # Sets the relays connected to the proximity and control pilot pins based on the emulator's CCS state
     def setState(self, state: EmulatorState):
         if self.virtual:
-            logging.info(f"Setting (virtual) CCS State: {state.value.upper()}")
+            self.logger.info(f"Setting (virtual) CCS State: {state.value.upper()}")
             return
 
         currentI2C = self.bus.read_byte_data(self.I2C_ADDR, self.I2C_REG)
@@ -266,7 +263,7 @@ class Emulator:
             elif state == EmulatorState.B or state == EmulatorState.C:
                 newI2C = currentI2C | self.I2C_EVSE_PP | self.I2C_EVSE_CP
             else:
-                logging.warning(f"Unable to set state, invalid state: {state.value}")
+                self.logger.warning(f"Unable to set state, invalid state: {state.value}")
         
         elif self.emulatorType == EmulatorType.PEV:
             if state == EmulatorState.A:
@@ -276,14 +273,14 @@ class Emulator:
             elif state == EmulatorState.C:
                 newI2C = currentI2C | self.I2C_PEV_PP | self.I2C_PEV_CP1 | self.I2C_PEV_CP2
             else:
-                logging.warning(f"Unable to set state, invalid state: {state.value}")
+                self.logger.warning(f"Unable to set state, invalid state: {state.value}")
 
         else:
-            logging.warning("Unable to set state, invalid emulator type")
+            self.logger.warning("Unable to set state, invalid emulator type")
 
-        logging.info(f"Setting CCS State: {state.value.upper()}")
+        self.logger.info(f"Setting CCS State: {state.value.upper()}")
         self.bus.write_byte_data(self.I2C_ADDR, self.I2C_REG, newI2C)
-        logging.info(f"Set CCS State: {state.value.upper()}")
+        self.logger.info(f"Set CCS State: {state.value.upper()}")
 
 
 if __name__ == "__main__":

@@ -8,9 +8,6 @@ from Packets import *
 from EmulatorEnum import *
 from V2Gjson import *
 
-import logging
-logger = logging.getLogger(__name__)
-
 #########################################################################################################################
 # PEV STATES #
 
@@ -242,6 +239,24 @@ class CurrentDemandReqState(AbstractState):
         a = self._handlePacketTCPHelper(receivedPacket)
         if not a[0]:
             return (self, a[1], None)
+        
+        xmlJson = a[1]
+
+        presentVoltageValue = xmlJson["Body"]["CurrentDemandRes"]["EVSEPresentVoltage"]["Value"]
+        if "Multiplier" in xmlJson["Body"]["CurrentDemandRes"]["EVSEPresentVoltage"]:
+            presentVoltageMultiplier = xmlJson["Body"]["CurrentDemandRes"]["EVSEPresentVoltage"]["Multiplier"]
+        else:
+            presentVoltageMultiplier = 0
+        presentVoltage = presentVoltageValue * 10 ** presentVoltageMultiplier
+        
+        presentCurrentValue = xmlJson["Body"]["CurrentDemandRes"]["EVSEPresentCurrent"]["Value"]
+        if "Multiplier" in xmlJson["Body"]["CurrentDemandRes"]["EVSEPresentCurrent"]:
+            presentCurrentMultiplier = xmlJson["Body"]["CurrentDemandRes"]["EVSEPresentCurrent"]["Multiplier"]
+        else:
+           presentCurrentMultiplier = 0
+        presentCurrent = presentCurrentValue * 10 ** presentCurrentMultiplier
+
+        self.logger.inline(f"CurrentDemandRes | Present Voltage: {presentVoltage} | Present Current: {presentCurrent}")
 
         rspPkt = V2G(self.emulator, self.emulator.EXIProcessor.encode(CurrentDemandRequest(sessionID=self.emulator.sessionID)))
         return (self, StateMachineResponseType.NO_TRANSITION_VALID_PACKET, rspPkt)
@@ -268,7 +283,6 @@ class SessionSetupResState(AbstractState):
         return PacketType.SessionSetupRes
     
     def handlePacket(self, receivedPacket):
-        logging.debug("Handling packet in SessionSetupResState")
         a = self._handlePacketTCPHelper(receivedPacket)
         if not a[0]:
             return (self, a[1], None)
@@ -448,6 +462,26 @@ class CurrentDemandResState(AbstractState):
         a = self._handlePacketTCPHelper(receivedPacket)
         if not a[0]:
             return (self, a[1], None)
+
+        xmlJson = a[1]
+
+        reportedSOC = xmlJson["Body"]["CurrentDemandReq"]["DC_EVStatus"]["EVRESSSOC"]
+
+        targetVoltageValue = xmlJson["Body"]["CurrentDemandReq"]["EVTargetVoltage"]["Value"]
+        if "Multiplier" in xmlJson["Body"]["CurrentDemandReq"]["EVTargetVoltage"]:
+            targetVoltageMultiplier = xmlJson["Body"]["CurrentDemandReq"]["EVTargetVoltage"]["Multiplier"]
+        else:
+            targetVoltageMultiplier = 0
+        targetVoltage = targetVoltageValue * 10 ** targetVoltageMultiplier
+        
+        targetCurrentValue = xmlJson["Body"]["CurrentDemandReq"]["EVTargetCurrent"]["Value"]
+        if "Multiplier" in xmlJson["Body"]["CurrentDemandReq"]["EVTargetCurrent"]:
+            targetCurrentMultiplier = xmlJson["Body"]["CurrentDemandReq"]["EVTargetCurrent"]["Multiplier"]
+        else:
+            targetCurrentMultiplier = 0
+        targetCurrent = targetCurrentValue * 10 ** targetCurrentMultiplier
+
+        self.logger.inline(f"CurrentDemandReq | Reported SOC: {reportedSOC} | Target Voltage: {targetVoltage} | Target Current: {targetCurrent}")
 
         rspPkts = V2G(self.emulator, self.emulator.EXIProcessor.encode(CurrentDemandResponse(sessionID=self.emulator.sessionID)))
         return (self, StateMachineResponseType.NO_TRANSITION_VALID_PACKET, rspPkts)

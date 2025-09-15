@@ -8,10 +8,8 @@ from States_DIN import *
 from scapy.all import *
 from EmulatorEnum import *
 
-import logging
 import threading
 import time
-logger = logging.getLogger(__name__)
 
 class EmulatorStateMachine:
     def __init__(self, emulator):
@@ -23,6 +21,8 @@ class EmulatorStateMachine:
         self.pktToSend = None
         self.timeout = 1
         self.lastMessageTime = time.time()
+
+        self.logger = self.emulator.logger
 
         if self.emulator.emulatorType == EmulatorType.PEV:
             # Initialize with CM_SLAC_PARM_REQState
@@ -39,7 +39,7 @@ class EmulatorStateMachine:
         return self.emulator.emulatorType
 
     def start(self):
-        logger.debug(f"Starting {self.getType()} State Machine")
+        self.logger.debug(f"Starting {self.getType()} State Machine")
         self.running = True
         # Create a new thread if the previous one has already been started
         if hasattr(self.pktSendingThread, '_started') and self.pktSendingThread._started.is_set():
@@ -47,7 +47,7 @@ class EmulatorStateMachine:
         self.pktSendingThread.start()
 
     def stop(self):
-        logger.debug(f"Stopping {self.getType()} State Machine")
+        self.logger.debug(f"Stopping {self.getType()} State Machine")
         self.running = False
         if self.pktSendingThread.is_alive():
             self.pktSendingThread.join()
@@ -69,7 +69,7 @@ class EmulatorStateMachine:
         """
         Sets the current state to the given state.
         """
-        logger.info(f"Transitioning from {self.state} to {state}")
+        self.logger.info(f"Transitioning from {self.state} to {state}")
         self.state = state
     
     def getPktToSend(self):

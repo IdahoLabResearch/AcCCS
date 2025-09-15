@@ -8,9 +8,6 @@ from scapy.all import *
 from Packets import *
 from States_TCP import *
 
-import logging
-logger = logging.getLogger(__name__)
-
 #########################################################################################################################
 # PEV STATES #
 

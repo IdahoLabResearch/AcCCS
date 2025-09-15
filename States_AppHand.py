@@ -9,9 +9,6 @@ from Packets import *
 from V2Gjson import *
 from States_DIN import *
 
-import logging
-logger = logging.getLogger(__name__)
-
 #########################################################################################################################
 # PEV STATES #
 
@@ -76,7 +73,7 @@ class supportedAppProtocolResState(AbstractState):
             return (self, a[1], None)
         
         self.emulator.sessionID = bytearray(random.randbytes(8))
-        logging.info(f"Generated new SessionID: {self.emulator.sessionID.hex()}")
+        self.logger.info(f"Generated new SessionID: {self.emulator.sessionID.hex()}")
         
         rspPkt = V2G(self.emulator, self.emulator.EXIProcessor.encode(SessionSetupResponse(sessionID=self.emulator.sessionID)))
         return (SessionSetupResState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkt)
