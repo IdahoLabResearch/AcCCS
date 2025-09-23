@@ -12,8 +12,7 @@ sys.path.append("./external_libs/HomePlugPWN")
 sys.path.append("./external_libs/V2GInjector/core")
 sys.path.append("./external_libs/EXPy/")
 
-from AppHandshakeProcessor import AppHandshakeProcessor
-from DINProcessor import DINProcessor
+from EXIProcessor import *
 from EmulatorEnum import *
 from NMAPScanner import NMAPScanner
 from Packets import *
@@ -77,12 +76,12 @@ class Emulator:
 
         self.remainingSounds = 10
 
-        self.appHandshake = AppHandshakeProcessor()
+        self.appHandshake = EXIProcessor(ProtocolEnum.HANDSHAKE)
 
         self.logger = setup_logger(__name__, self.emulatorType.name, logging.DEBUG if self.debug else logging.INFO)
 
         if self.protocol == EXIProtocol.DIN:
-            self.EXIProcessor = DINProcessor()
+            self.EXIProcessor = EXIProcessor(ProtocolEnum.DIN)
         elif self.protocol == EXIProtocol.ISO_2:
             raise NotImplementedError("ISO-2 EXI Protocol is not implemented yet")
         elif self.protocol == EXIProtocol.ISO_20:
