@@ -20,7 +20,7 @@ class supportedAppProtocolReqState(AbstractState):
         return [pkt.value for pkt in pkts]
 
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return V2G(self.emulator, self.emulator.appHandshake.encode(SupportedAppProtocolRequest()))
 
     @property
@@ -61,7 +61,7 @@ class supportedAppProtocolResState(AbstractState):
         return [pkt.value for pkt in pkts]
 
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return V2G(self.emulator, self.emulator.appHandshake.encode(SupportedAppProtocolResponse()))
 
     @property
