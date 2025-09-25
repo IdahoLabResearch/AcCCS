@@ -1,3 +1,9 @@
+"""
+    Copyright 2023, Battelle Energy Alliance, LLC, ALL RIGHTS RESERVED
+    
+    Custom logger setup for AcCCS emulator with inline logging capability.
+"""
+
 import sys
 import logging
 
@@ -34,17 +40,17 @@ class InlineFormatter(logging.Formatter):
             return super().format(record)
 
 
-def inline(self, message, *args, **kwargs):
-    """Custom logger method for inline logging"""
-    if self.isEnabledFor(INLINE_LEVEL):
-        self._log(INLINE_LEVEL, message, args, **kwargs)
+class CustomLogger(logging.Logger):
+    def inline(self, message, *args, **kwargs):
+        """Custom logger method for inline logging"""
+        if self.isEnabledFor(INLINE_LEVEL):
+            self._log(INLINE_LEVEL, message, args, **kwargs)
 
 
 def setup_logger(name, emulator_type, level):
-    # Add the inline method to Logger class if not already added
-    if not hasattr(logging.Logger, 'inline'):
-        logging.Logger.inline = inline
-    
+    # Set the custom logger class
+    logging.setLoggerClass(CustomLogger)
+
     # Create logger
     logger = logging.getLogger(name)
     

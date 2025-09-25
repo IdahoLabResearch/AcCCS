@@ -10,6 +10,9 @@ sys.path.append("./external_libs/V2GInjector/core")
 from layers.SECC import *
 from layers.V2G import *
 from layerscapy.HomePlugGP import *
+from scapy.layers.l2 import Ether
+from scapy.layers.inet6 import IPv6, ICMPv6ND_NA, ICMPv6ND_NS, ICMPv6NDOptDstLLAddr
+from scapy.layers.inet import TCP, UDP
 
 def SlacParmReq(emulator):
     ethLayer = Ether()
@@ -338,6 +341,3 @@ def V2G(emulator, payload: bytes):
     v2gLayer.Payload = payload
 
     return ethLayer / ipLayer / tcpLayer / v2gLayer
-
-if __name__ == "__main__":
-    print(SlacParmReq().name)

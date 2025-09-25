@@ -3,7 +3,6 @@
 """
 
 from states import *
-from scapy.all import *
 from EmulatorEnum import *
 
 import threading
@@ -39,9 +38,7 @@ class EmulatorStateMachine:
     def start(self):
         self.logger.debug(f"Starting {self.getType()} State Machine")
         self.running = True
-        # Create a new thread if the previous one has already been started
-        if hasattr(self.pktSendingThread, '_started') and self.pktSendingThread._started.is_set():
-            self.pktSendingThread = threading.Thread(target=self.sendPacket)
+        self.pktSendingThread = threading.Thread(target=self.sendPacket)
         self.pktSendingThread.start()
 
     def stop(self):
@@ -55,6 +52,8 @@ class EmulatorStateMachine:
         Reads the incoming packet and determines the next state.
         sets the next state and returns a response packet.
         """
+        if self.state is None:
+            raise ValueError("State machine is not in a value state.")
         (state, responseType, rspPkts) = self.state.handlePacket(pkt)
 
         if responseType == StateMachineResponseType.SUCCESSFUL_TRANSITION:
@@ -71,6 +70,8 @@ class EmulatorStateMachine:
         self.state = state
     
     def getPktToSend(self):
+        if self.state is None:
+            raise ValueError("State machine is not in a value state.")
         return self.state.pktToSend
     
     def sendPacket(self):
