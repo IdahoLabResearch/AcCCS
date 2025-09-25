@@ -4,9 +4,12 @@
 
 from AbstractState import AbstractState
 from EmulatorEnum import PacketType, StateMachineResponseType
-from scapy.all import *
+from scapy.layers.inet6 import IPv6
+from scapy.layers.inet import UDP, IP
+from scapy.layers.l2 import Ether
+from scapy.packet import Packet
 from Packets import *
-from States_TCP import *
+from .tcp import *
 
 #########################################################################################################################
 # PEV STATES #
@@ -18,7 +21,7 @@ class SDPRequestState(AbstractState):
         return [pkt.value for pkt in pkts]
     
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return None
 
     @property
@@ -59,7 +62,7 @@ class SDPResponseState(AbstractState):
         return [pkt.value for pkt in pkts]
     
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return None
 
     @property

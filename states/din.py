@@ -3,7 +3,7 @@
 """
 
 from AbstractState import AbstractState
-from scapy.all import *
+from scapy.packet import Packet
 from Packets import *
 from EmulatorEnum import *
 from V2Gjson import *
@@ -18,7 +18,7 @@ class SessionSetupReqState(AbstractState):
         return [pkt.value for pkt in pkts]
     
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return V2G(self.emulator, self.emulator.EXIProcessor.encode(SessionSetupRequest()))
     
     @property
@@ -43,7 +43,7 @@ class ServiceDiscoveryReqState(AbstractState):
         return [pkt.value for pkt in pkts]
     
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return V2G(self.emulator, self.emulator.EXIProcessor.encode(ServiceDiscoveryRequest(sessionID=self.emulator.sessionID)))
 
     @property
@@ -65,7 +65,7 @@ class ServicePaymentSelectionReqState(AbstractState):
         return [pkt.value for pkt in pkts]
 
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return V2G(self.emulator, self.emulator.EXIProcessor.encode(ServicePaymentSelectionRequest(sessionID=self.emulator.sessionID)))
 
     @property
@@ -87,7 +87,7 @@ class ContractAuthenticationReqState(AbstractState):
         return [pkt.value for pkt in pkts]
 
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return V2G(self.emulator, self.emulator.EXIProcessor.encode(ContractAuthenticationRequest(sessionID=self.emulator.sessionID)))
 
     @property
@@ -118,7 +118,7 @@ class ChargeParameterDiscoveryReqState(AbstractState):
         return [pkt.value for pkt in pkts]
 
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return V2G(self.emulator, self.emulator.EXIProcessor.encode(ChargeParameterDiscoveryRequest(sessionID=self.emulator.sessionID)))
     
     @property
@@ -149,7 +149,7 @@ class PowerDeliveryReqState(AbstractState):
         return [pkt.value for pkt in pkts]
     
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return V2G(self.emulator, self.emulator.EXIProcessor.encode(PowerDeliveryRequest(sessionID=self.emulator.sessionID)))
 
     @property
@@ -175,7 +175,7 @@ class CableCheckReqState(AbstractState):
         return [pkt.value for pkt in pkts]
 
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return V2G(self.emulator, self.emulator.EXIProcessor.encode(CableCheckRequest(sessionID=self.emulator.sessionID)))
 
     @property
@@ -206,7 +206,7 @@ class PreChargeReqState(AbstractState):
         return [pkt.value for pkt in pkts]
 
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return V2G(self.emulator, self.emulator.EXIProcessor.encode(PreChargeRequest(sessionID=self.emulator.sessionID)))
 
     @property
@@ -228,7 +228,7 @@ class CurrentDemandReqState(AbstractState):
         return [pkt.value for pkt in pkts]
     
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return V2G(self.emulator, self.emulator.EXIProcessor.encode(CurrentDemandRequest(sessionID=self.emulator.sessionID)))
     
     @property
@@ -275,7 +275,7 @@ class SessionSetupResState(AbstractState):
         return [pkt.value for pkt in pkts]
     
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return V2G(self.emulator, self.emulator.EXIProcessor.encode(SessionSetupResponse(sessionID=self.emulator.sessionID)))
 
     @property
@@ -297,7 +297,7 @@ class ServiceDiscoveryResState(AbstractState):
         return [pkt.value for pkt in pkts]
     
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return V2G(self.emulator, self.emulator.EXIProcessor.encode(ServiceDiscoveryResponse(sessionID=self.emulator.sessionID)))
 
     @property
@@ -319,7 +319,7 @@ class ServicePaymentSelectionResState(AbstractState):
         return [pkt.value for pkt in pkts]
     
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return V2G(self.emulator, self.emulator.EXIProcessor.encode(ServicePaymentSelectionResponse(sessionID=self.emulator.sessionID)))
 
     @property
@@ -341,7 +341,7 @@ class ContractAuthenticationResState(AbstractState):
         return [pkt.value for pkt in pkts]
 
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return V2G(self.emulator, self.emulator.EXIProcessor.encode(ContractAuthenticationResponse(sessionID=self.emulator.sessionID)))
 
     @property
@@ -363,7 +363,7 @@ class ChargeParameterDiscoveryResState(AbstractState):
         return [pkt.value for pkt in pkts]
 
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return V2G(self.emulator, self.emulator.EXIProcessor.encode(ChargeParameterDiscoveryResponse(sessionID=self.emulator.sessionID)))
 
     @property
@@ -385,7 +385,7 @@ class CableCheckResState(AbstractState):
         return [pkt.value for pkt in pkts]
 
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return V2G(self.emulator, self.emulator.EXIProcessor.encode(CableCheckResponse(sessionID=self.emulator.sessionID)))
 
     @property
@@ -407,7 +407,7 @@ class PreChargeResState(AbstractState):
         return [pkt.value for pkt in pkts]
 
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return V2G(self.emulator, self.emulator.EXIProcessor.encode(PreChargeResponse(sessionID=self.emulator.sessionID)))
 
     @property
@@ -429,7 +429,7 @@ class PowerDeliveryResState(AbstractState):
         return [pkt.value for pkt in pkts]
     
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return V2G(self.emulator, self.emulator.EXIProcessor.encode(PowerDeliveryResponse(sessionID=self.emulator.sessionID)))
 
     @property
@@ -457,7 +457,7 @@ class CurrentDemandResState(AbstractState):
         return [pkt.value for pkt in pkts]
     
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return V2G(self.emulator, self.emulator.EXIProcessor.encode(CurrentDemandResponse(sessionID=self.emulator.sessionID)))
     
     @property
@@ -503,7 +503,7 @@ class SessionStopResState(AbstractState): # TODO: Finish this state
         return [pkt.value for pkt in pkts]
     
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return None
     
     @property

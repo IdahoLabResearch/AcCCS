@@ -2,9 +2,7 @@
     Copyright 2023, Battelle Energy Alliance, LLC, ALL RIGHTS RESERVED
 """
 
-from States_SLAC import *
-from States_AppHand import *
-from States_DIN import *
+from states import *
 from scapy.all import *
 from EmulatorEnum import *
 

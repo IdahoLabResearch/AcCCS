@@ -18,6 +18,7 @@ from NMAPScanner import NMAPScanner
 from Packets import *
 from V2Gjson import *
 from EmulatorStateMachine import EmulatorStateMachine
+from scapy.layers.l2 import Ether
 from CustomLogger import setup_logger
 
 from threading import Thread
@@ -80,10 +81,11 @@ class Emulator:
 
         self.logger = setup_logger(__name__, self.emulatorType.name, logging.DEBUG if self.debug else logging.INFO)
 
+        # TODO: Dynamically determine protocol after supportedAppProtocol handshake
         if self.protocol == EXIProtocol.DIN:
             self.EXIProcessor = EXIProcessor(ProtocolEnum.DIN)
         elif self.protocol == EXIProtocol.ISO_2:
-            raise NotImplementedError("ISO-2 EXI Protocol is not implemented yet")
+            self.EXIProcessor = EXIProcessor(ProtocolEnum.ISO2)
         elif self.protocol == EXIProtocol.ISO_20:
             raise NotImplementedError("ISO-20 EXI Protocol is not implemented yet")
         else:
@@ -119,7 +121,7 @@ class Emulator:
         mac_end_joined = ":".join(f"{x:02x}" for x in mac_end)
         return f"00:1e:c0:{mac_end_joined}"
 
-    def getLinkLocalIP(self, mac_address=None):
+    def getLinkLocalIP(self, mac_address):
             mac_int = int(mac_address.replace(":", ""), 16)
 
             first_byte = (mac_int >> 40) & 0xFF
@@ -212,7 +214,7 @@ class Emulator:
     def killall(self):
         self.running = False
         self.sniffingThread.stop()
-        self.timeoutThread.stop()
+        self.timeoutThread.join()
         self.bus.write_byte_data(self.I2C_ADDR, self.I2C_REG, self.I2C_ALL_OFF)
         self.logger.info("Emulator Stopped")
 

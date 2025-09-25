@@ -4,9 +4,10 @@
 
 from AbstractState import AbstractState
 from EmulatorEnum import PacketType, StateMachineResponseType
-from scapy.all import *
+from scapy.layers.l2 import Ether
+from scapy.packet import Packet
 from Packets import *
-from States_SECC import *
+from .secc import *
 
 #########################################################################################################################
 # PEV STATES #
@@ -18,7 +19,7 @@ class CM_SLAC_PARM_REQState(AbstractState):
         return [pkt.value for pkt in pkts]
     
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return SlacParmReq(self.emulator)
 
     @property
@@ -60,7 +61,7 @@ class CM_MNBC_SOUND_INDState(AbstractState):
         return [pkt.value for pkt in pkts]
 
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return None
     
     @property
@@ -99,7 +100,7 @@ class CM_SLAC_MATCH_REQState(AbstractState):
         return [pkt.value for pkt in pkts]
     
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return SlacMatchReq(self.emulator)
 
     @property
@@ -145,7 +146,7 @@ class CM_SET_KEY_REQState(AbstractState):
         return [pkt.value for pkt in pkts]
     
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return None
 
     @property
@@ -187,7 +188,7 @@ class CM_SLAC_PARM_CNFState(AbstractState):
         return [pkt.value for pkt in pkts]
     
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return SlacParmCnf(self.emulator)
     
     @property
@@ -229,7 +230,7 @@ class CM_ATTEN_CHAR_INDState(AbstractState):
         return [pkt.value for pkt in pkts]
     
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return AttenCharInd(self.emulator)
 
     @property
@@ -267,7 +268,7 @@ class CM_SLAC_MATCH_CNFState(AbstractState):
         return [pkt.value for pkt in pkts]
     
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return SlacMatchCnf(self.emulator)
     
     @property

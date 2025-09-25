@@ -4,10 +4,11 @@
 
 from AbstractState import AbstractState
 from EmulatorEnum import PacketType, StateMachineResponseType
-from scapy.all import *
+from scapy.layers.inet import TCP
+from scapy.packet import Packet
 from Packets import *
 from V2Gjson import *
-from States_DIN import *
+from .din import *
 
 #########################################################################################################################
 # PEV STATES #

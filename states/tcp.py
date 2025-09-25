@@ -3,10 +3,11 @@
 """
 
 from AbstractState import AbstractState
-from scapy.all import *
+from scapy.layers.inet import TCP
+from scapy.packet import Packet
 from Packets import *
 from EmulatorEnum import *
-from States_AppHand import *
+from .apphand import *
 from V2Gjson import *
 
 #########################################################################################################################
@@ -19,7 +20,7 @@ class SYNState(AbstractState):
         return [pkt.value for pkt in pkts]
 
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return SYN(self.emulator)
 
     @property
@@ -49,7 +50,7 @@ class SYNACKState(AbstractState):
         return [pkt.value for pkt in pkts]
     
     @property
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         return SYNACK(self.emulator)
     
     @property

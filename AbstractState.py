@@ -3,7 +3,7 @@
 """
 
 from abc import ABC, abstractmethod
-from scapy.all import *
+from scapy.layers.inet import TCP
 from EmulatorEnum import *
 from Packets import *
 
@@ -20,7 +20,7 @@ class AbstractState(ABC):
             res.append(pkt.name)
         return res
 
-    def _handlePacketTCPHelper(self, receivedPacket: Packet) -> bool:
+    def _handlePacketTCPHelper(self, receivedPacket: Packet) -> tuple:
         """Helper function to 
         - check if a received packet is a valid TCP packet
         - check if the packet is a valid V2G packet
@@ -48,7 +48,7 @@ class AbstractState(ABC):
 
     @property
     @abstractmethod
-    def pktToSend(self) -> Packet:
+    def pktToSend(self) -> Packet | None:
         """Returns the packet to be sent in this state."""
         pass
 
