@@ -100,3 +100,5 @@ class PacketType(Enum):
     CurrentDemandRes = "CurrentDemandRes"
     WeldingDetectionReq = "WeldingDetectionReq"
     WeldingDetectionRes = "WeldingDetectionRes"
+    AuthorizationReq = "AuthorizationReq"
+    AuthorizationRes = "AuthorizationRes"
