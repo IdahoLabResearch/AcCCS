@@ -1,8 +1,8 @@
-import time, logging
+import time, logging, socket
 
 from threading import Thread
-from scapy.all import Ether
-from typing import TYPE_CHECKING
+from scapy.all import Packet, Ether
+from typing import TYPE_CHECKING, Optional
 
 from external_libs.HomePlugPWN.layerscapy.HomePlugGP import *
 
@@ -19,62 +19,82 @@ class SLACHandler:
         self.sourceMAC = self.evse.sourceMAC
         self.NID = self.evse.NID
         self.NMK = self.evse.NMK
-
+        
+        self.sock = None
+        
+        self.timeSinceLastPkt = int(time.time())
         self.timeout = 8
         self.stop = False
+        
+    def create_socket(self):
+        # Create a raw socket
+        self.sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))
+        # Bind to a specific network interface (e.g., "eth0")
+        self.sock.bind((self.iface, 0))
+    
+    def receive(self) -> Optional[Packet]:
+        raw_packet = self.sock.recv(65535)
+        
+        try:
+            packet = Ether(raw_packet)
+            if packet[Ether].type != 0x88E1 or packet[Ether].src == self.sourceMAC:
+                return None
+            if hasattr(packet[1][2], "RunID") and packet[1][2].RunID != self.runID:
+                return None
+            return packet
+        except Exception as err:
+            logger.error(err)
 
     # Starts SLAC process
     def start(self):
         self.stop = False
-        logger.info("Sending SET_KEY_REQ")
-        sendp(self.buildSetKey(), iface=self.iface, verbose=0)
-        
-        self.sniffThread = Thread(target=self.startSniff)
-        self.sniffThread.start()
+        self.create_socket()
+        self.handleSLAC()
 
+        # Thread to determine if EVSE timed out or SLAC error occured and restart SLAC process
         self.timeoutThread = Thread(target=self.checkForTimeout)
         self.timeoutThread.start()
 
     def checkForTimeout(self):
-        self.lastMessageTime = int(time.time())
-        while True:
-            if self.stop:
-                break
-            if int(time.time()) - self.lastMessageTime > self.timeout:
-                logger.info("SLAC timed out, resetting connection...")
-                self.evse.toggleProximity()
-                self.lastMessageTime = int(time.time())
-
-    def startSniff(self):
-        sniff(iface=self.iface, prn=self.handlePacket, stop_filter=self.stopSniff)
-
-    def stopSniff(self, pkt):
-        return self.stop
-
-    def handlePacket(self, pkt):
-        if pkt[Ether].type != 0x88E1 or pkt[Ether].src == self.sourceMAC:
-            return
-
-        self.lastMessageTime = int(time.time())
-
-        if pkt.haslayer("CM_SLAC_PARM_REQ"):
-            logger.info("Recieved SLAC_PARM_REQ")
-            self.destinationMAC = pkt[Ether].src
-            self.runID = pkt[CM_SLAC_PARM_REQ].RunID
-            logger.info("Sending CM_SLAC_PARM_CNF")
-            sendp(self.buildSlacParmCnf(), iface=self.iface, verbose=0)
-
-        if pkt.haslayer("CM_MNBC_SOUND_IND"):
-            logger.info(f"Recieved MNBC_SOUND_IND, Countdown {pkt[CM_MNBC_SOUND_IND].Countdown}")
-            if pkt[CM_MNBC_SOUND_IND].Countdown == 0:
-                logger.info("Sending ATTEN_CHAR_IND")
-                sendp(self.buildAttenCharInd(), iface=self.iface, verbose=0)
-
-        if pkt.haslayer("CM_SLAC_MATCH_REQ"):
-            logger.info("Recieved SLAC_MATCH_REQ")
-            logger.info("Sending SLAC_MATCH_CNF")
-            sendp(self.buildSlacMatchCnf(), iface=self.iface, verbose=0)
-            self.stop = True
+        while self.stop == False:
+            if int(time.time()) - self.timeSinceLastPkt > self.timeout:
+                logger.info("Timed out... Sending SET_KEY_REQ")
+                self.sock.send(bytes(self.buildSetKey()))
+                self.timeSinceLastPkt = int(time.time()) 
+                
+    def handleSLAC(self):
+        logger.info("Sending SET_KEY_REQ")
+        self.sock.send(bytes(self.buildSetKey()))
+        while not self.stop:
+            packet = self.receive()
+            if not packet:
+                continue
+            if packet.haslayer("CM_SLAC_PARM_REQ"):
+                self.handle_CM_SLAC_PARM_REQ(packet)
+            elif packet.haslayer("CM_MNBC_SOUND_IND"):
+                self.handle_CM_ATTEN_CHAR_IND()
+            elif packet.haslayer("CM_SLAC_MATCH_REQ"):
+                self.handle_CM_SLAC_MATCH_CNF(packet)
+            self.timeSinceLastPkt = int(time.time())
+            
+    def handle_CM_SLAC_PARM_REQ(self, packet: Packet):
+        logger.info("Recieved SLAC_PARM_REQ")
+        self.destinationMAC = packet[Ether].src
+        self.runID = packet[CM_SLAC_PARM_REQ].RunID
+        logger.info("Sending CM_SLAC_PARM_CNF")
+        self.sock.send(bytes(self.buildSlacParmCnf()))
+        
+    def handle_CM_ATTEN_CHAR_IND(self, packet: Packet):
+        logger.info(f"Recieved MNBC_SOUND_IND, Countdown {packet[CM_MNBC_SOUND_IND].Countdown}")
+        if packet[CM_MNBC_SOUND_IND].Countdown == 0:
+            logger.info("Sending ATTEN_CHAR_IND")
+            self.sock.send(bytes(self.buildAttenCharInd()))
+        
+    def handle_CM_SLAC_MATCH_CNF(self, packet: Packet):
+        logger.info("Recieved SLAC_MATCH_REQ")
+        logger.info("Sending SLAC_MATCH_CNF")
+        self.sock.send(bytes(self.buildSlacMatchCnf()))
+        self.stop = True
 
     def buildSlacParmCnf(self):
         ethLayer = Ether()
