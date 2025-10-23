@@ -19,6 +19,7 @@ class SLACHandler:
         self.sourceMAC = self.evse.sourceMAC
         self.NID = self.evse.NID
         self.NMK = self.evse.NMK
+        self.runID = None
         
         self.sock = None
         
@@ -28,7 +29,7 @@ class SLACHandler:
         
     def create_socket(self):
         # Create a raw socket
-        self.sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))
+        self.sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0003))
         # Bind to a specific network interface (e.g., "eth0")
         self.sock.bind((self.iface, 0))
     
@@ -39,8 +40,9 @@ class SLACHandler:
             packet = Ether(raw_packet)
             if packet[Ether].type != 0x88E1 or packet[Ether].src == self.sourceMAC:
                 return None
-            if hasattr(packet[1][2], "RunID") and packet[1][2].RunID != self.runID:
-                return None
+            if hasattr(packet[1][2], "RunID") and self.runID != None:
+                if packet[1][2].RunID != self.runID:
+                    return None
             return packet
         except Exception as err:
             logger.error(err)
@@ -72,7 +74,7 @@ class SLACHandler:
             if packet.haslayer("CM_SLAC_PARM_REQ"):
                 self.handle_CM_SLAC_PARM_REQ(packet)
             elif packet.haslayer("CM_MNBC_SOUND_IND"):
-                self.handle_CM_ATTEN_CHAR_IND()
+                self.handle_CM_ATTEN_CHAR_IND(packet)
             elif packet.haslayer("CM_SLAC_MATCH_REQ"):
                 self.handle_CM_SLAC_MATCH_CNF(packet)
             self.timeSinceLastPkt = int(time.time())
