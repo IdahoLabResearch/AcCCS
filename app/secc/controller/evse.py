@@ -36,24 +36,12 @@ class EVSE:
         self.config = Config()
         self.config.load_envs()
         
-        self.mode = RunMode(args.mode[0]) if args.mode else RunMode.FULL
         self.iface = self.config.iface
-        self.sourceMAC = args.source_mac[0] if args.source_mac else get_nic_mac_address(self.iface)
-        self.sourceIP = args.source_ip[0] if args.source_ip else str(get_link_local_addr(self.iface))
+        self.sourceMAC = get_nic_mac_address(self.iface)
+        self.sourceIP = str(get_link_local_addr(self.iface))
         self.sourcePort = args.source_port[0] if args.source_port else get_tcp_port()
         self.NID = args.NID[0] if args.NID else b"\x9c\xb0\xb2\xbb\xf5\x6c\x0e"
         self.NMK = args.NMK[0] if args.NMK else b"\x48\xfe\x56\x02\xdb\xac\xcd\xe5\x1e\xda\xdc\x3e\x08\x1a\x52\xd1"
-        self.nmapMAC = args.nmap_mac[0] if args.nmap_mac else ""
-        self.nmapIP = args.nmap_ip[0] if args.nmap_ip else ""
-        self.nmapPorts = []
-        if args.nmap_ports:
-            for arg in args.nmap_port[0].split(','):
-                if "-" in arg:
-                    i1,i2 = arg.split("-")
-                    for i in range(int(i1), int(i2)+1):
-                        self.nmapPorts.append(i)
-                else:
-                    self.nmapPorts.append(int(arg))
         if args.modified_cordset:
             self.modified_cordset = True
         else:

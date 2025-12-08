@@ -10,10 +10,12 @@ from app.shared.messages.enums import (
     EnergyTransferModeEnum,
     Protocol,
     ServiceV20,
+    AuthEnum,
 )
 from app.shared.utils import (
     load_requested_energy_services,
     load_requested_protocols,
+    load_requested_auth_modes,
 )
 
 logger = logging.getLogger(__name__)
@@ -26,11 +28,32 @@ class EVCCConfig(BaseModel):
         "ISO_15118_20_AC",
         "ISO_15118_20_DC",
     ]
-    _default_supported_energy_services = ["AC"]
+    # Supported protocols, used for SupportedAppProtocol (SAP). The order in which
+    # the protocols are listed here determines the priority (i.e. first list entry
+    # the protocols are listed here determines the priority (i.e. first list entry
+    # has higher priority than second list entry). A list entry must be a member
+    # of the Protocol enum
+    raw_supported_protocols: Optional[List[str]] = Field(
+        _default_protocols, max_items=6, alias="supportedProtocols"
+    )
+    supported_protocols: Optional[List[Protocol]] = None
+    
+    _default_supported_energy_services = ["DC"]
     raw_supported_energy_services: List[str] = Field(
         _default_supported_energy_services, max_items=4, alias="supportedEnergyServices"
     )
     supported_energy_services: List[ServiceV20] = None
+    
+    _default_auth_modes = ["PNC", "EIM"]
+    raw_supported_auth_modes: List[str] = Field(
+        _default_auth_modes, max_items=4, alias="supportedAuthModes"
+    )
+    supported_auth_modes: List[AuthEnum] = None
+    
+    energy_transfer_mode: Optional[EnergyTransferModeEnum] = Field(
+        EnergyTransferModeEnum.DC_EXTENDED, alias="energyTransferMode"
+    )
+    
     is_cert_install_needed: bool = Field(False, alias="isCertInstallNeeded")
     # Indicates the security level (either TCP (unencrypted) or TLS (encrypted))
     # the EVCC shall send in the SDP request
@@ -51,18 +74,6 @@ class EVCCConfig(BaseModel):
     # If the USE_TLS setting is set to False and ENFORCE_TLS is set to True, then
     # ENFORCE_TLS overrules USE_TLS.
     enforce_tls: bool = Field(False, alias="enforceTls")
-    # Supported protocols, used for SupportedAppProtocol (SAP). The order in which
-    # the protocols are listed here determines the priority (i.e. first list entry
-    # the protocols are listed here determines the priority (i.e. first list entry
-    # has higher priority than second list entry). A list entry must be a member
-    # of the Protocol enum
-    raw_supported_protocols: Optional[List[str]] = Field(
-        _default_protocols, max_items=6, alias="supportedProtocols"
-    )
-    supported_protocols: Optional[List[Protocol]] = None
-    energy_transfer_mode: Optional[EnergyTransferModeEnum] = Field(
-        EnergyTransferModeEnum.AC_THREE_PHASE_CORE, alias="energyTransferMode"
-    )
     # Indicates the maximum number of entries the EVCC supports within the
     # sub-elements of a ScheduleTuple (e.g. PowerScheduleType and PriceRuleType in
     # ISO 15118-20 as well as PMaxSchedule and SalesTariff in ISO 15118-2).
@@ -81,6 +92,9 @@ class EVCCConfig(BaseModel):
         )
         self.supported_protocols = load_requested_protocols(
             self.raw_supported_protocols
+        )
+        self.supported_auth_modes = load_requested_auth_modes(
+            self.raw_supported_auth_modes
         )
 
     @field_validator("max_supporting_points", mode="before")
@@ -122,7 +136,7 @@ async def load_from_file(file_name: str) -> EVCCConfig:
             ev_config.load_raw_values()
             logger.info("EVCC Settings")
             for key, value in ev_config.model_dump().items():
-                if key == "supported_energy_services" or key == "supported_protocols":
+                if key == "supported_energy_services" or key == "supported_protocols" or key == "supported_auth_modes":
                     logger.info(f"{key:30}: {[item.name for item in value]}")
                 elif key == "energy_transfer_mode":
                     logger.info(f"{key:30}: {value.name}")

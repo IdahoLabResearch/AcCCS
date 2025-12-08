@@ -20,14 +20,21 @@ class SLACHandler:
         self.sourceMAC = self.pev.sourceMAC
         self.sourceIP = self.pev.sourceIP
         self.runID = b"\xf4\x00\x37\xd0\x00\x5c\x00\x7f"
+        self.NID = None
+        self.NMK = None
         
         self.sock = None
+        
+        self.slac_sound_start = None
+        self.stopSounds = False
+        self.stopReceive = False
 
         self.timeSinceLastPkt = int(time.time())
-        self.timeout = 8  # How long to wait for a message to timeout
+        self.timeout = 1  # How long to wait for a message to timeout
         self.stop = False
         
         self.CM_ATTEN_CHAR_IND_recved = False
+        self.CM_START_ATTEN_CHAR_IND_sent = False
         
     def create_socket(self):
         # Create a raw socket
@@ -72,10 +79,20 @@ class SLACHandler:
     def checkForTimeout(self):
         while self.stop == False:
             if int(time.time()) - self.timeSinceLastPkt > self.timeout:
-                self.CM_ATTEN_CHAR_IND_recved = False
-                logger.info("Timed out... Sending SLAC_PARM_REQ")
-                self.sock.send(bytes(self.buildSlacParmReq()))
-                self.timeSinceLastPkt = int(time.time()) 
+                self.restart()
+            if self.CM_START_ATTEN_CHAR_IND_sent and not self.stopSounds:
+                now = int(time.time() * 1000)
+                if now - self.slac_sound_start > (self.pev.slacSoundTimeout):
+                    self.restart()
+            time.sleep(0.01)
+                    
+    def restart(self):
+        self.CM_ATTEN_CHAR_IND_recved = False
+        self.CM_START_ATTEN_CHAR_IND_sent = False
+        self.stopSounds = False
+        logger.info("Timed out... Sending SLAC_PARM_REQ")
+        self.sock.send(bytes(self.buildSlacParmReq()))
+        self.timeSinceLastPkt = int(time.time())
                 
     def handleSLAC(self):
         logger.info("Sending CM_SLAC_PARM_REQ")
@@ -99,6 +116,8 @@ class SLACHandler:
         self.numRemainingSounds = self.numSounds
         
         logger.info("Sending 3 CM_START_ATTEN_CHAR_IND")
+        self.slac_sound_start = int(time.time() * 1000)
+        self.CM_START_ATTEN_CHAR_IND_sent = True
         self.sock.send(bytes(self.buildStartAttenCharInd()))
         for i in range(2):
             time.sleep(0.02)
@@ -114,12 +133,13 @@ class SLACHandler:
     def handle_CM_ATTEN_CHAR_IND(self):
         self.stopSounds = True
         logger.info("Recieved CM_ATTEN_CHAR_IND")
+        logger.info(f"Time taken for SLAC sound: {int(time.time() * 1000) - self.slac_sound_start} ms")
         if self.CM_ATTEN_CHAR_IND_recved == False:
             self.CM_ATTEN_CHAR_IND_recved = True
             logger.info("Sending ATTEN_CHAR_RES")
-            sendp(self.buildAttenCharRes(), iface=self.iface, verbose=0)
+            self.sock.send(bytes(self.buildAttenCharRes()))
             logger.info("Sending SLAC_MATCH_REQ")
-            sendp(self.buildSlacMatchReq(), iface=self.iface, verbose=0)
+            self.sock.send(bytes(self.buildSlacMatchReq()))
         self.timeSinceLastPkt = int(time.time())
         return
 
@@ -128,7 +148,7 @@ class SLACHandler:
         self.NID = packet[CM_SLAC_MATCH_CNF].VariableField.NetworkID
         self.NMK = packet[CM_SLAC_MATCH_CNF].VariableField.NMK
         logger.info("Sending SET_KEY_REQ")
-        sendp(self.buildSetKeyReq(), iface=self.iface, verbose=0)
+        self.sock.send(bytes(self.buildSetKeyReq()))
         self.stop = True
         return
 

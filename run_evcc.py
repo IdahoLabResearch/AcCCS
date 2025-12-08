@@ -4,26 +4,16 @@ from app.evcc.controller.pev import PEV
 from app.shared.EmulatorEnum import PEVState
 
 parser = argparse.ArgumentParser(description="Emulator for EVCC/PEV")
-parser.add_argument(
-    "-M",
-    "--mode",
-    nargs=1,
-    type=int,
-    help="Mode for emulator to run in: 0 for full conversation, 1 for stalling the conversation, 2 for portscanning (default: 0)",
-)
-parser.add_argument("--source-mac", nargs=1, help="Source MAC address of packets (default: 20:7b:d2:a6:8b:36)")
-parser.add_argument("--source-ip", nargs=1, help="Source IP address of packets (default: fe80::8280:f77f:d5be:8fbe)")
+
 parser.add_argument("--source-port", nargs=1, type=int, help="Source port of packets (default: random port between 49152 and 65534)")
-parser.add_argument("--NID", nargs=1, help="Network ID of the HomePlug GreenPHY AVLN (default: \\x9c\\xb0\\xb2\\xbb\\xf5\\x6c\\x0e)")
-parser.add_argument(
-    "--NMK",
-    nargs=1,
-    help="Network Membership Key of the HomePlug GreenPHY AVLN (default: \\x48\\xfe\\x56\\x02\\xdb\\xac\\xcd\\xe5\\x1e\\xda\\xdc\\x3e\\x08\\x1a\\x52\\xd1)",
-)
-parser.add_argument("--nmap-mac", nargs=1, help="The MAC address of the target device to NMAP scan (default: EVCC MAC address)")
-parser.add_argument("--nmap-ip", nargs=1, help="The IP address of the target device to NMAP scan (default: EVCC IP address)")
-parser.add_argument("--nmap-ports", nargs=1, help="List of ports to scan seperated by commas (ex. 1,2,5-10,19,...) (default: Top 8000 common ports)")
-parser.add_argument("--modified-cordset", action="store_true", help="Set this option when using a modified cordset during testing of a target vehicle. The AcCCS system will provide a 150 ohm ground on the proximity line to reset the connection. (default: False)")
+
+parser.add_argument("--protocols", help="Comma separated, ordered list of protocols to use (default: ISO_15118_2, DIN_SPEC_70121)")
+parser.add_argument("--authmodes", help="Comma separated, ordered list of authentication modes to use (default: PNC, EIM)")
+parser.add_argument("--energymode", help="Energy transfer mode to use (default: DC)")
+parser.add_argument("--useTLS", help="Use TLS for communication (default: True)")
+
+parser.add_argument("--slacSoundTimeout", type=int, help="Timeout in milliseconds to wait for SLAC sound before restarting SLAC process (default: 1000)")
+
 args = parser.parse_args()
 
 pev = PEV(args)

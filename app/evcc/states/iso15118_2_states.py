@@ -183,6 +183,7 @@ class ServiceDiscovery(StateEVCC):
             return
 
         self.select_auth_mode(service_discovery_res.auth_option_list.auth_options)
+        logger.info(f"Selected authorization option: {self.comm_session.selected_auth_option.value}")
         await self.select_services(service_discovery_res)
         await self.select_energy_transfer_mode()
 
@@ -273,10 +274,21 @@ class ServiceDiscovery(StateEVCC):
             # have a mechanism to determine a user-defined or default
             # authorization option. This implementation favors pnc, but
             # feel free to change if need be.
-            if AuthEnum.PNC_V2 in auth_option_list and self.comm_session.is_tls:
-                self.comm_session.selected_auth_option = AuthEnum.PNC_V2
-            else:
-                self.comm_session.selected_auth_option = AuthEnum.EIM_V2
+            auth_modes = self.comm_session.config.supported_auth_modes
+            for auth_mode in auth_modes:
+                if auth_mode == AuthEnum.PNC and AuthEnum.PNC_V2 in auth_option_list and self.comm_session.is_tls:
+                    self.comm_session.selected_auth_option = AuthEnum.PNC_V2
+                    return
+                elif auth_mode == AuthEnum.EIM and AuthEnum.EIM_V2 in auth_option_list:
+                    self.comm_session.selected_auth_option = AuthEnum.EIM_V2
+                    return
+                
+            if self.comm_session.selected_auth_option is None:
+                self.stop_state_machine(
+                    "No compatible authorization option found "
+                    f"in offered options: {auth_option_list}"
+                )
+            
 
     async def select_services(self, service_discovery_res: ServiceDiscoveryRes):
         """

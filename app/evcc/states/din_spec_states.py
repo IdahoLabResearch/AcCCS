@@ -215,6 +215,9 @@ class ServiceDiscovery(StateEVCC):
 
     def select_auth_mode(self, auth_option_list: List[AuthEnum]):
         self.comm_session.selected_auth_option = None
+        if AuthEnum.EIM not in self.comm_session.config.supported_auth_modes:
+            logger.warning("""Although EVCC didn't select EIM authentication, DIN SPEC
+                           70121 does not support other authentication modes. Defaulting to EIM.""")
         if AuthEnum.EIM_V2 in auth_option_list:
             self.comm_session.selected_auth_option = AuthEnum.EIM_V2
 
