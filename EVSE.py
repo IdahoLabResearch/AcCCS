@@ -30,6 +30,8 @@ class EVSE:
 
     def __init__(self, args):
         self.mode = RunMode(args.mode[0]) if args.mode else RunMode.FULL
+        self.skip_slac = True if args.skip_slac else False
+        self.disable_i2c = True if args.disable_i2c else False
         self.iface = args.interface[0] if args.interface else "eth1"
         self.sourceMAC = args.source_mac[0] if args.source_mac else "00:1e:c0:f2:6c:a0"
         self.sourceIP = args.source_ip[0] if args.source_ip else "fe80::21e:c0ff:fef2:6ca0"
@@ -59,10 +61,12 @@ class EVSE:
         self.exi = EXIProcessor(self.protocol)
 
         self.slac = _SLACHandler(self)
+        self.sdp = _SDPHandler(self)
         self.tcp = _TCPHandler(self)
 
         # I2C bus for relays
-        self.bus = SMBus(1)
+        if not self.disable_i2c:
+            self.bus = SMBus(1)
 
         # Constants for i2c controlled relays
         self.I2C_ADDR = 0x20
@@ -74,10 +78,13 @@ class EVSE:
     # Start the emulator
     def start(self):
         # Initialize the I2C bus for wwrite
-        self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00)
+        if not self.disable_i2c:
+            self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00)
 
         self.toggleProximity()
-        self.doSLAC()
+        if not self.skip_slac:
+            self.doSLAC()
+        self.doSDP()
         self.doTCP()
         # If NMAP is not done, restart connection
         if not self.tcp.finishedNMAP:
@@ -86,6 +93,9 @@ class EVSE:
 
     # Close the circuit for the proximity pins
     def closeProximity(self):
+        if self.disable_i2c:
+            return
+
         if self.modified_cordset:
             print("INFO (EVSE): Closing CP/PP relay connections")
             self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.EVSE_PP | self.EVSE_CP)
@@ -95,6 +105,9 @@ class EVSE:
 
     # Close the circuit for the proximity pins
     def openProximity(self):
+        if self.disable_i2c:
+            return
+
         print("INFO (EVSE): Opening CP/PP relay connections")
         self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.ALL_OFF)
 
@@ -108,6 +121,10 @@ class EVSE:
     def doTCP(self):
         self.tcp.start()
         print("INFO (EVSE): Done TCP")
+
+    def doSDP(self):
+        self.sdp.start()
+        print("INFO (EVSE): Done SDP")
 
     # Starts SLAC thread that handles layer 2 comms
     def doSLAC(self):
@@ -155,21 +172,12 @@ class _SLACHandler:
         sniff(iface=self.iface, prn=self.handlePacket, stop_filter=self.stopSniff)
 
     def stopSniff(self, pkt):
-        if pkt.haslayer("SECC_RequestMessage"):
-            print("INDO (EVSE): Recieved SECC_RequestMessage")
-            # self.evse.destinationMAC = pkt[Ether].src
-            # use this to send 3 secc responses incase car doesnt see one
-            self.destinationIP = pkt[IPv6].src
-            self.destinationPort = pkt[UDP].sport
-            Thread(target=self.sendSECCResponse).start()
+        if pkt.haslayer("CM_SLAC_MATCH_REQ"):
+            print("INFO (EVSE): Recieved SLAC_MATCH_REQ")
+            print("INFO (EVSE): Sending SLAC_MATCH_CNF")
+            sendp(self.buildSlacMatchCnf(), iface=self.iface, verbose=0)
             self.stop = True
         return self.stop
-
-    def sendSECCResponse(self):
-        time.sleep(0.2)
-        for i in range(3):
-            print("INFO (EVSE): Sending SECC_ResponseMessage")
-            sendp(self.buildSECCResponse(), iface=self.iface, verbose=0)
 
     def handlePacket(self, pkt):
         if pkt[Ether].type != 0x88E1 or pkt[Ether].src == self.sourceMAC:
@@ -188,11 +196,6 @@ class _SLACHandler:
             print("INFO (EVSE): Recieved last MNBC_SOUND_IND")
             print("INFO (EVSE): Sending ATTEN_CHAR_IND")
             sendp(self.buildAttenCharInd(), iface=self.iface, verbose=0)
-
-        if pkt.haslayer("CM_SLAC_MATCH_REQ"):
-            print("INFO (EVSE): Recieved SLAC_MATCH_REQ")
-            print("INFO (EVSE): Sending SLAC_MATCH_CNF")
-            sendp(self.buildSlacMatchCnf(), iface=self.iface, verbose=0)
 
     def buildSlacParmCnf(self):
         ethLayer = Ether()
@@ -348,13 +351,41 @@ class _SLACHandler:
         responsePacket = ethLayer / homePlugAVLayer / homePlugLayer
         return responsePacket
 
+class _SDPHandler:
+    def __init__(self, evse: EVSE):
+        self.evse = evse
+
+        self.destinationIP = None
+        self.destinationPort = None
+
+    def start(self):
+        sniff(iface=self.evse.iface, stop_filter=self.stopSniff)
+
+    def stopSniff(self, pkt):
+        if pkt.haslayer("SECC_RequestMessage"):
+            print("INDO (EVSE): Recieved SECC_RequestMessage")
+            # self.evse.destinationMAC = pkt[Ether].src
+            # use this to send 3 secc responses incase car doesnt see one
+            self.destinationIP = pkt[IPv6].src
+            self.destinationPort = pkt[UDP].sport
+            Thread(target=self.sendSECCResponse).start()
+            return True
+        return False
+
+    def sendSECCResponse(self):
+        time.sleep(0.2)
+        for i in range(3):
+            print("INFO (EVSE): Sending SECC_ResponseMessage")
+            sendp(self.buildSECCResponse(), iface=self.evse.iface, verbose=0)
+
+
     def buildSECCResponse(self):
         e = Ether()
-        e.src = self.sourceMAC
-        e.dst = self.destinationMAC
+        e.src = self.evse.sourceMAC
+        e.dst = self.evse.destinationMAC
 
         ip = IPv6()
-        ip.src = self.sourceIP
+        ip.src = self.evse.sourceIP
         ip.dst = self.destinationIP
 
         udp = UDP()
@@ -367,8 +398,8 @@ class _SLACHandler:
 
         seccRM = SECC_ResponseMessage()
         seccRM.SecurityProtocol = 16
-        seccRM.TargetPort = self.sourcePort
-        seccRM.TargetAddress = self.sourceIP  # eno1
+        seccRM.TargetPort = self.evse.sourcePort
+        seccRM.TargetAddress = self.evse.sourceIP  # eno1
 
         responsePacket = e / ip / udp / secc / seccRM
         return responsePacket
@@ -693,6 +724,8 @@ if __name__ == "__main__":
     parser.add_argument("--nmap-mac", nargs=1, help="The MAC address of the target device to NMAP scan (default: EVCC MAC address)")
     parser.add_argument("--nmap-ip", nargs=1, help="The IP address of the target device to NMAP scan (default: EVCC IP address)")
     parser.add_argument("--nmap-ports", nargs=1, help="List of ports to scan seperated by commas (ex. 1,2,5-10,19,...) (default: Top 8000 common ports)")
+    parser.add_argument("--skip-slac", action="store_true", help="Set this option when not using QCA based powerline chip. You will have to handle slac externally. (default: False)")
+    parser.add_argument("--disable-i2c", action="store_true", help="Set this option when not using the original AcCCS hardware, i.e. no I2C bus is present. (default: False)")
     parser.add_argument("--modified-cordset", action="store_true", help="Set this option when using a modified cordset during testing of a target vehicle. The AcCCS system will provide a 150 ohm ground on the proximity line to reset the connection. (default: False)")
     args = parser.parse_args()
 
