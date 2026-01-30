@@ -1,4 +1,7 @@
 """
+    Copyright 2025, Ford Motor Company
+    Copyright 2022, Switch
+
 This modules contains classes which implement all the elements of the
 ISO 15118-20 XSD file V2G_CI_CommonTypes.xsd (see folder 'schemas').
 These are the data types used by both the header and the body elements of the

@@ -1,3 +1,9 @@
+"""
+    Copyright 2025, Ford Motor Company
+
+    Script that runs the SECC/EVSE emulator
+"""
+
 import argparse, asyncio
 
 from app.secc.controller.evse import EVSE

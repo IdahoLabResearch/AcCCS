@@ -1,4 +1,7 @@
 """
+    Copyright 2025, Ford Motor Company
+    Copyright 2022, Switch
+
 This module contains the EVCC's State used to process the SECC's
 SupportedAppProtocolRes. These states are independent of the protocol
 (DIN SPEC 70121 or ISO 15118 protocol), as the EVCC and SECC use the

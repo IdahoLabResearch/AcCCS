@@ -1,4 +1,7 @@
 """
+    Copyright 2025, Ford Motor Company
+    Copyright 2022, Switch
+
 This module contains a dummy implementation of the abstract class for an EVCC to
 retrieve data from the EV. The DummyEVController overrides all abstract methods from
 EVControllerInterface.

@@ -1,3 +1,8 @@
+"""
+    Copyright 2025, Ford Motor Company
+    Copyright 2022, Switch
+"""
+
 __version__ = "0.32.0"
 
 import os

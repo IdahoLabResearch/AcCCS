@@ -1,3 +1,8 @@
+"""
+    Copyright 2025, Ford Motor Company
+    Copyright 2022, Switch
+"""
+
 import os
 from typing import Optional
 

@@ -1,4 +1,7 @@
 """
+    Copyright 2025, Ford Motor Company
+    Copyright 2022, Switch
+
 This module contains the code to retrieve (hardware-related) data from the EVSE
 (Electric Vehicle Supply Equipment).
 """

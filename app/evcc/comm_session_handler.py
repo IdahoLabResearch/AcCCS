@@ -1,4 +1,7 @@
 """
+    Copyright 2025, Ford Motor Company
+    Copyright 2022, Switch
+
 This module contains the EVCC's CommunicationSessionHandler class as well as
 its EVCCCommunicationSession class. The former is used to initiate the EVCC
 and handle the SDP (SECC Discovery Protocol) exchange with the EVCC, which - if

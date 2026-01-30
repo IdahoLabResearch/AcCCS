@@ -1,5 +1,7 @@
 """
     Copyright 2023, Battelle Energy Alliance, LLC, ALL RIGHTS RESERVED
+    Copyright 2025, Ford Motor Company
+    Copyright 2022, Switch
 
     This class is used to emulate a PEV when talking to an EVSE. Handles level 2 SLAC communications
     and level 3 UDP and TCP communications to the charging station.

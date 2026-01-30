@@ -1,3 +1,8 @@
+"""
+    Copyright 2023, Battelle Energy Alliance, LLC, ALL RIGHTS RESERVED
+    Copyright 2025, Ford Motor Company
+"""
+
 import os, time, logging, socket
 
 from threading import Thread

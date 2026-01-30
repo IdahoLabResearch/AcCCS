@@ -1,3 +1,9 @@
+"""
+    Copyright 2025, Ford Motor Company
+
+    Script that runs the EVCC emulator
+"""
+
 import argparse, asyncio
 
 from app.evcc.controller.pev import PEV
