@@ -2472,6 +2472,7 @@ class CurrentDemand(StateSECC):
         current = (
             await evse_controller.get_evse_present_current(Protocol.ISO_15118_2)
         )
+        max_power = await evse_controller.get_evse_max_power_limit()
         current_demand_res = CurrentDemandRes(
             response_code=ResponseCode.OK,
             dc_evse_status=await evse_controller.get_dc_evse_status(),
@@ -2486,7 +2487,7 @@ class CurrentDemand(StateSECC):
             evse_power_limit_achieved=await evse_controller.is_evse_power_limit_achieved(),  # noqa
             evse_max_voltage_limit=await evse_controller.get_evse_max_voltage_limit(),
             evse_max_current_limit=await evse_controller.get_evse_max_current_limit(),
-            evse_max_power_limit=await evse_controller.get_evse_max_power_limit(),
+            evse_max_power_limit=max_power,
             evse_id=await evse_controller.get_evse_id(Protocol.ISO_15118_2),
             sa_schedule_tuple_id=self.comm_session.selected_schedule,
             # TODO Could maybe request an OCPP setting that determines
@@ -2499,7 +2500,7 @@ class CurrentDemand(StateSECC):
         )
         logger.info(f"EVSE Present Voltage: {voltage.value * (10 ** voltage.multiplier)} {voltage.unit.value}")
         logger.info(f"EVSE Present Current: {current.value * (10 ** current.multiplier)} {current.unit.value}")
-
+        logger.info(f"EVSE Max Power Limit: {max_power.value * (10 ** max_power.multiplier)} {max_power.unit.value}")
         if current_demand_res.meter_info:
             self.comm_session.sent_meter_info = current_demand_res.meter_info
 

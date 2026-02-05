@@ -1445,8 +1445,10 @@ class CurrentDemand(StateEVCC):
         )
         current = dc_ev_charge_params.dc_target_current
         voltage = dc_ev_charge_params.dc_target_voltage
+        max_power = dc_ev_charge_params.dc_max_power_limit
         logger.info(f"EV Target Voltage: {voltage.value * (10 ** voltage.multiplier)} {voltage.unit.value}")
         logger.info(f"EV Target Current: {current.value * (10 ** current.multiplier)} {current.unit.value}")
+        logger.info(f"EV Max Power Limit: {max_power.value * (10 ** max_power.multiplier)} {max_power.unit.value}")
         return current_demand_req
 
     async def stop_charging(self):
