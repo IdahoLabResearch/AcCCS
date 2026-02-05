@@ -70,6 +70,8 @@ class EVSE:
         
         self.iface = self.config.iface
         self.slac = SLACHandler(self)
+
+        logger.info(f"SECC MAC address: {self.sourceMAC}")
         
         self.doSLAC()
 
@@ -104,5 +106,4 @@ class EVSE:
     # Starts SLAC thread that handles layer 2 comms
     def doSLAC(self):
         self.slac.start()
-        self.slac.sniffThread.join()
         logger.info("Done SLAC")

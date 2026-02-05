@@ -2466,15 +2466,17 @@ class CurrentDemand(StateSECC):
         # We don't care about signed meter values from the EVCC, but if you
         # do, then set receipt_required to True and set the field meter_info
         evse_controller = self.comm_session.evse_controller
+        voltage = (
+            await evse_controller.get_evse_present_voltage(Protocol.ISO_15118_2)
+        )
+        current = (
+            await evse_controller.get_evse_present_current(Protocol.ISO_15118_2)
+        )
         current_demand_res = CurrentDemandRes(
             response_code=ResponseCode.OK,
             dc_evse_status=await evse_controller.get_dc_evse_status(),
-            evse_present_voltage=await evse_controller.get_evse_present_voltage(
-                Protocol.ISO_15118_2
-            ),
-            evse_present_current=await evse_controller.get_evse_present_current(
-                Protocol.ISO_15118_2
-            ),
+            evse_present_voltage=voltage,
+            evse_present_current=current,
             evse_current_limit_achieved=(
                 await evse_controller.is_evse_current_limit_achieved()
             ),
@@ -2495,6 +2497,8 @@ class CurrentDemand(StateSECC):
             #     self.comm_session.protocol),
             receipt_required=False,
         )
+        logger.info(f"EVSE Present Voltage: {voltage.value * (10 ** voltage.multiplier)} {voltage.unit.value}")
+        logger.info(f"EVSE Present Current: {current.value * (10 ** current.multiplier)} {current.unit.value}")
 
         if current_demand_res.meter_info:
             self.comm_session.sent_meter_info = current_demand_res.meter_info

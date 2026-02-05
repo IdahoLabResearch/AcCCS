@@ -1443,6 +1443,10 @@ class CurrentDemand(StateEVCC):
             ),
             ev_target_voltage=dc_ev_charge_params.dc_target_voltage,
         )
+        current = dc_ev_charge_params.dc_target_current
+        voltage = dc_ev_charge_params.dc_target_voltage
+        logger.info(f"EV Target Voltage: {voltage.value * (10 ** voltage.multiplier)} {voltage.unit.value}")
+        logger.info(f"EV Target Current: {current.value * (10 ** current.multiplier)} {current.unit.value}")
         return current_demand_req
 
     async def stop_charging(self):

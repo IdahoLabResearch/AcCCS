@@ -79,6 +79,8 @@ class PEV:
         
         evcc_config = await load_from_file(self.config.ev_config_file_path)
         self.slac = SLACHandler(self)
+
+        logger.info(f"EVCC MAC address: {self.sourceMAC}")
         
         self.doSLAC()
         
