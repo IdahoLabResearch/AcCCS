@@ -68,12 +68,9 @@ The DIN and ISO standards define that the TCP/IP communication between EVCC and 
 
 ### Python Module Dependencies
 * scapy
-* tqdm
 * smbus
 
 **Scapy** is used for all of the packet activities such as crafting, manipulation, sending, and receiving packets. 
-
-**TQDM** is used for neat progress bars in scripts involving the custom NMAP functionality for scanning SECC and EVCC devices. Custom scapy packets provided by the [HomePlugPWN](https://github.com/FlUxIuS/HomePlugPWN) project are included in the [layerscapy](https://github.com/FlUxIuS/HomePlugPWN/tree/master/layerscapy) folder. 
 
 **Smbus** is used for I2C communications with the PCB to operate the relays found on the PWM PCB.
 
@@ -89,25 +86,13 @@ Below is a brief description of the scripts in this project. These scripts are p
 ### Current TODOs:
 * Complete and test a full MITM script
 
-## Notes from Ford
+## Running the emulators
 
 Only two scripts are expected to be run from command line: ```run_evcc.py``` and ```run_secc.py```. The other scripts and files serve as tools and utilities for these scripts to run. 
 
 These scripts run the ```EVSE.py``` and ```PEV.py``` scripts, respectively, in the background, which include some basic functionality to port scan (similar to NMAP) while the emulator is running. In our limited testing, the EVSEs stay connected to the emulator indefinitely, but the PEVs terminate the connection after a couple of minutes without any power transfer. For this reason a simple TCP syn scan is included in the script to pick up where the scan left off when the connection is reestablished.
 
-## Modifications for external libraries from Ford
-Some changes are needed to be done to the external libraries. Some of these are needed due to the addition of ISO 15118-2 features and some are enhancements. Do the following: 
-### HomePlugPWN
-In [HomePlugGP.py](https://github.com/JakeMG-INL/HomePlugPWN/blob/eae353cb5146933e6f4e69587074733e813d05f6/layerscapy/HomePlugGP.py), in the very first line, change
-```python
-from layerscapy.HomePlugAV import *
-```
-to
-```python
-from .HomePlugAV import *
-```
-
-## Guide from Ford
+## Certificate Management
 Files ```.env.evcc``` and ```.env.secc``` are the config files for the EVCC and the SECC, respectively. For EVCC, however, there is another set of config files which control the parameters for the individual protocols. These files are located in the [examples](/app/shared/examples/evcc) folder. One of these files has to be specified in the ```.env.evcc``` file by setting the EVCC_CONFIG_PATH property. This is what determines what protocol the EV will use for charging.
 
 ### Plug and Charge (ISO 15118-2 and ISO 15118-20)
