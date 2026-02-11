@@ -4,7 +4,6 @@
     States package for the AcCCS emulator state machine.
 """
 
-# Import all state classes to maintain backward compatibility
 from .slac import *
 from .apphand import *
 from .din import *

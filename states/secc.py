@@ -2,7 +2,6 @@
     Copyright 2023, Battelle Energy Alliance, LLC, ALL RIGHTS RESERVED
 """
 
-from AbstractState import AbstractState
 from EmulatorEnum import PacketType, StateMachineResponseType
 from scapy.layers.inet6 import IPv6
 from scapy.layers.inet import UDP, IP

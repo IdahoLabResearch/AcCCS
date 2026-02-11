@@ -2,13 +2,15 @@
     Copyright 2023, Battelle Energy Alliance, LLC, ALL RIGHTS RESERVED
 """
 
-from AbstractState import AbstractState
+from .AbstractState import AbstractState
 from EmulatorEnum import PacketType, StateMachineResponseType
 from scapy.layers.inet import TCP
 from scapy.packet import Packet
 from Packets import *
-from V2Gjson import *
+from V2Gjson.din import *
+from V2Gjson.apphand import *
 from .din import *
+from EmulatorEnum import EXIProtocol
 
 #########################################################################################################################
 # PEV STATES #
@@ -21,7 +23,21 @@ class supportedAppProtocolReqState(AbstractState):
 
     @property
     def pktToSend(self) -> Packet | None:
-        return V2G(self.emulator, self.emulator.appHandshake.encode(SupportedAppProtocolRequest()))
+
+        if self.emulator.protocol == EXIProtocol.DIN:
+            AppProtocol = AppProtocolType(ProtocolNamespace="urn:din:70121:2012:MsgDef", VersionNumberMajor=2, VersionNumberMinor=0, SchemaID=1, Priority=1)
+        elif self.emulator.protocol == EXIProtocol.ISO_2:
+            AppProtocol = AppProtocolType(ProtocolNamespace="urn:iso:15118:2:2013:MsgDef", VersionNumberMajor=2, VersionNumberMinor=0, SchemaID=1, Priority=1)
+        elif self.emulator.protocol == EXIProtocol.ISO_20:
+            raise Exception("ISO 15118-20 not yet implemented")
+        
+        supportedAppProtocolReqPayload = supportedAppProtocolReq(AppProtocol=[AppProtocol])
+        EXIpayload = self.emulator.EXIProcessor.encode(supportedAppProtocolReqPayload)
+        if EXIpayload is None:
+            raise Exception(f"Error during EXI encoding while in {self.currentState} state")
+        
+        return V2G(self.emulator, EXIpayload)
+        
 
     @property
     def currentState(self) -> PacketType:
@@ -48,7 +64,16 @@ class supportedAppProtocolReqState(AbstractState):
         self.emulator.ack = receivedPacket[TCP].seq + len(receivedPacket[TCP].payload)
 
         # TODO: Implement other schemas besides DIN
-        rspPkt = V2G(self.emulator, self.emulator.EXIProcessor.encode(SessionSetupRequest()))
+        Header = MessageHeaderType(SessionID=self.emulator.SessionID)
+        SessionSetupReq = SessionSetupReqType(EVCCID=self.emulator.EVCCID)
+        Body = BodyType(SessionSetupReq=SessionSetupReq)
+        V2Gpayload = V2G_Message(Header=Header, Body=Body)
+
+        EXIpayload = self.emulator.EXIProcessor.encode(V2Gpayload)
+        if EXIpayload is None:
+            raise Exception(f"Error during EXI encoding while in {self.currentState} state")
+
+        rspPkt = V2G(self.emulator, EXIpayload)
         return (SessionSetupReqState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkt)
 
 #########################################################################################################################
@@ -62,6 +87,14 @@ class supportedAppProtocolResState(AbstractState):
 
     @property
     def pktToSend(self) -> Packet | None:
+
+        SupportedAppProtocolRes = supportedAppProtocolRes(ResponseCode=responseCodeType.OK)
+        Body = BodyType(SupportedAppProtocolResponse=SupportedAppProtocolResponse)
+        V2Gpayload = V2G_Message(
+            Header=MessageHeaderType(SessionID=self.emulator.SessionID),
+            Body=Body
+        )
+
         return V2G(self.emulator, self.emulator.appHandshake.encode(SupportedAppProtocolResponse()))
 
     @property

@@ -2,11 +2,11 @@
     Copyright 2023, Battelle Energy Alliance, LLC, ALL RIGHTS RESERVED
 """
 
-from AbstractState import AbstractState
+from .AbstractState import AbstractState
 from scapy.packet import Packet
 from Packets import *
 from EmulatorEnum import *
-from V2Gjson import *
+from V2Gjson.din import *
 
 #########################################################################################################################
 # PEV STATES #
@@ -19,6 +19,8 @@ class SessionSetupReqState(AbstractState):
     
     @property
     def pktToSend(self) -> Packet | None:
+        SessionSetupRequest = SessionSetupReqType(EVCCID=self.emulator.evccID)
+
         return V2G(self.emulator, self.emulator.EXIProcessor.encode(SessionSetupRequest()))
     
     @property

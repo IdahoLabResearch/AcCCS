@@ -16,7 +16,7 @@ from EXIProcessor import *
 from EmulatorEnum import *
 from NMAPScanner import NMAPScanner
 from Packets import *
-from V2Gjson import *
+from V2Gjson.din import *
 from EmulatorStateMachine import EmulatorStateMachine
 from scapy.layers.l2 import Ether
 from CustomLogger import setup_logger
@@ -27,9 +27,12 @@ import argparse
 import logging
 import time
 import ipaddress
+import yaml
 
 class Emulator:
     def __init__(self, args):
+        self.config = self.load_config()
+
         self.emulatorType = EmulatorType(args.type[0]) if args.type else EmulatorType.EVSE
 
         self.mode = RunMode(args.mode[0]) if args.mode else RunMode.FULL
@@ -42,6 +45,8 @@ class Emulator:
 
         self.sourceMAC = args.source_mac[0] if args.source_mac else self.getRandomMAC()
         self.sourceIP = args.source_ip[0] if args.source_ip else self.getLinkLocalIP(self.sourceMAC)
+
+        self.EVCCID = bytearray(b"DECAFBAD")
 
         self.scanning = False
         self.portscanIP = args.portscan_IP[0] if args.portscan_IP else None
@@ -73,7 +78,7 @@ class Emulator:
 
         self.seq = 1000
         self.ack = 0
-        self.sessionID = bytearray([0])
+        self.SessionID = bytearray([0])
 
         self.remainingSounds = 10
 
@@ -136,6 +141,51 @@ class Emulator:
             ipv6_address = ipaddress.IPv6Address(0xfe800000000000000000000000000000 | eui64_int)
 
             return str(ipv6_address)
+
+    def load_config(self):
+        """Load configuration from YAML file with error handling."""
+        config_path = os.path.join(os.path.dirname(__file__), "EmulatorConfig.yaml")
+        
+        try:
+            with open(config_path, 'r') as config_file:
+                config = yaml.safe_load(config_file)
+                return config
+        except FileNotFoundError:
+            print(f"Warning: Configuration file {config_path} not found. Using default values.")
+            return self.get_default_config()
+        except yaml.YAMLError as e:
+            print(f"Error parsing configuration file: {e}. Using default values.")
+            return self.get_default_config()
+
+
+    def get_default_config(self):
+        """Return default configuration if YAML file is not available."""
+        return {
+            'emulator': {
+                'type': 'evse',
+                'mode': 0,
+                'protocol': 'DIN',
+                'modified_cordset': False,
+                'virtual': False,
+                'debug': False,
+                'timeout': 15
+            },
+            'network': {
+                'interface': None,
+                'source_mac': None,
+                'source_ip': None,
+                'source_port': None
+            },
+            'homeplug': {
+                'nid': None,
+                'nmk': None
+            },
+            'scanning': {
+                'portscan_mac': None,
+                'portscan_ip': None,
+                'portscan_ports': None
+            }
+        }
 
     def start(self):
         print(r"""

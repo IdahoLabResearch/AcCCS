@@ -2,13 +2,13 @@
     Copyright 2023, Battelle Energy Alliance, LLC, ALL RIGHTS RESERVED
 """
 
-from AbstractState import AbstractState
+from .AbstractState import AbstractState
 from scapy.layers.inet import TCP
 from scapy.packet import Packet
 from Packets import *
 from EmulatorEnum import *
 from .apphand import *
-from V2Gjson import *
+from V2Gjson.din import *
 
 #########################################################################################################################
 # PEV STATES #

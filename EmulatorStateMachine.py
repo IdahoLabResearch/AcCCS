@@ -3,10 +3,12 @@
 """
 
 from states import *
+from states.AbstractState import StateContext
 from EmulatorEnum import *
 
 import threading
 import time
+
 
 class EmulatorStateMachine:
     def __init__(self, emulator):
@@ -23,10 +25,10 @@ class EmulatorStateMachine:
 
         if self.emulator.emulatorType == EmulatorType.PEV:
             # Initialize with CM_SLAC_PARM_REQState
-            self.goToState(CM_SLAC_PARM_REQState(emulator))
+            self.goToState(CM_SLAC_PARM_REQ_State(StateContext(emulator)))
         elif self.emulator.emulatorType == EmulatorType.EVSE:
             # Initialize with SetKeyReqState
-            self.goToState(CM_SET_KEY_REQState(emulator))
+            self.goToState(CM_SET_KEY_REQ_State(StateContext(emulator)))
         else:
             raise ValueError("Invalid emulator type")
 
@@ -47,20 +49,17 @@ class EmulatorStateMachine:
         if self.pktSendingThread.is_alive():
             self.pktSendingThread.join()
 
-    def handlePacket(self, pkt: Packet) -> Packet:
+    def handlePacket(self, pkt: Packet) -> None:
         """
         Reads the incoming packet and determines the next state.
         sets the next state and returns a response packet.
         """
         if self.state is None:
-            raise ValueError("State machine is not in a value state.")
-        (state, responseType, rspPkts) = self.state.handlePacket(pkt)
+            raise ValueError("State machine is not in a valid state.")
+        result = self.state.handlePacket(pkt)
 
-        if responseType == StateMachineResponseType.SUCCESSFUL_TRANSITION:
-            self.goToState(state)
-
-        self.state = state
-        return rspPkts
+        if result.success and result.next_state:
+            self.goToState(result.next_state)
 
     def goToState(self, state: AbstractState):
         """
@@ -69,14 +68,15 @@ class EmulatorStateMachine:
         self.logger.info(f"Transitioning from {self.state} to {state}")
         self.state = state
     
-    def getPktToSend(self):
-        if self.state is None:
-            raise ValueError("State machine is not in a value state.")
-        return self.state.pktToSend
-    
     def sendPacket(self):
         while self.running:
-            if self.getPktToSend() and time.time() - self.lastMessageTime > self.timeout:
-                self.emulator.sendPacket(self.getPktToSend())
+            if not self.state:
+                time.sleep(0.1)
+                continue
+            if not self.state.shouldRetry:
+                time.sleep(0.1)
+                continue
+            if self.state.getOutgoingPackets() and time.time() - self.lastMessageTime > self.timeout:
+                self.emulator.sendPacket(self.state.getOutgoingPackets())
                 self.lastMessageTime = time.time()
                 time.sleep(0.1)

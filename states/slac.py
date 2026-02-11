@@ -2,8 +2,8 @@
     Copyright 2023, Battelle Energy Alliance, LLC, ALL RIGHTS RESERVED
 """
 
-from AbstractState import AbstractState
-from EmulatorEnum import PacketType, StateMachineResponseType
+from .AbstractState import *
+from EmulatorEnum import PacketType
 from scapy.layers.l2 import Ether
 from scapy.packet import Packet
 from Packets import *
@@ -12,292 +12,381 @@ from .secc import *
 #########################################################################################################################
 # PEV STATES #
 
-class CM_SLAC_PARM_REQState(AbstractState):
+class CM_SLAC_PARM_REQ_State(AbstractState):
+    def __init__(self, context):
+        super().__init__(context)
+
     @property
-    def validResponsePacketTypes(self) -> list:
+    def name(self) -> str:
+        return "CM_SLAC_PARM_REQ"
+
+    @property
+    def validIncomingPacketTypes(self) -> list[PacketType]:
         pkts = [PacketType.CM_SLAC_PARM_CNF]
-        return [pkt.value for pkt in pkts]
+        return pkts
     
-    @property
-    def pktToSend(self) -> Packet | None:
-        return SlacParmReq(self.emulator)
+    def shouldRetry(self) -> bool:
+        return True
 
-    @property
-    def currentState(self) -> PacketType:
-        return PacketType.CM_SLAC_PARM_REQ
-    
-    def handlePacket(self, receivedPacket: Packet) -> tuple:
-        # Check if the packet is of type HPGP
-        if not receivedPacket[Ether].type == 0x88e1:
-            return (self, StateMachineResponseType.NO_TRANSITION_IGNORED_PACKET, None)
+    def getOutgoingPackets(self) -> list[Packet]:
+        return [SlacParmReq(self.emulator)]
 
-        # Check if the packet addressed to the emulator's MAC address
-        if not receivedPacket[Ether].dst == self.emulator.sourceMAC:
-            return (self, StateMachineResponseType.NO_TRANSITION_IGNORED_PACKET, None)
+    def handlePacket(self, pkt: Packet) -> StateTransitionResult:
+        if (result := PacketValidator.validateEthernetPacket(pkt, self.emulator)) is not None:
+            return result
+
+        if (result := PacketValidator.validateHPGPPacket(pkt, self.emulator)) is not None:
+            return result
 
         # Update emulator timeout timer
         self.emulator.lastMessageTime = time.time()
 
-        HPHPLayerName = self.expandPacketLayers(receivedPacket)[2]
+        HPGPLayerName = expandPacketLayers(pkt)[2]
 
-        if HPHPLayerName not in self.validResponsePacketTypes:
-            self.logger.warning(f"Received unexpected packet of type {HPHPLayerName} in state {self.currentState}")
-            return (self, StateMachineResponseType.NO_TRANSITION_INVALID_PACKET, None)
+        if HPGPLayerName not in [pkt_type.value for pkt_type in self.validIncomingPacketTypes]:
+            self.logger.warning(f"Received unexpected packet of type {HPGPLayerName} in state {self.name}")
+            return StateTransitionResult(
+                success=False,
+                next_state=None,
+                error_message=f"Received unexpected packet of type {HPGPLayerName} in state {self.name}"
+            )
 
         # Only allowed packet should be CM_SLAC_PARM_CNF
-        self.logger.debug(f"Received packet of type {HPHPLayerName} in state {self.currentState}")
-        self.emulator.destinationMAC = receivedPacket[Ether].src
-        self.emulator.runID = receivedPacket[CM_SLAC_PARM_CNF].RunID
+        self.logger.debug(f"Received packet of type {HPGPLayerName} in state {self.name}")
+        self.emulator.destinationMAC = pkt[Ether].src
+        self.emulator.runID = pkt[CM_SLAC_PARM_CNF].RunID
 
+        return StateTransitionResult(
+            success=True,
+            next_state=CM_MNBC_SOUND_IND_State(self.context),
+            error_message=None
+        )
+
+
+class CM_MNBC_SOUND_IND_State(AbstractState):
+    def __init__(self, context):
+        super().__init__(context)
+
+    @property
+    def name(self) -> str:
+        return "CM_MNBC_SOUND_IND"
+
+    @property
+    def validIncomingPacketTypes(self) -> list[PacketType]:
+        return [PacketType.CM_ATTEN_CHAR_IND]
+    
+    def shouldRetry(self) -> bool:
+        return False
+
+    def getOutgoingPackets(self) -> list[Packet]:
         startAttenPkts = [StartAttenCharInd(self.emulator) for i in range(3)]
         soundPkts = [MNBCSoundInd(self.emulator) for i in range(10)]
         rspPkts = startAttenPkts + soundPkts
-        return (CM_MNBC_SOUND_INDState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkts)
-
-class CM_MNBC_SOUND_INDState(AbstractState):
-    @property
-    def validResponsePacketTypes(self) -> list:
-        pkts = [PacketType.CM_ATTEN_CHAR_IND]
-        return [pkt.value for pkt in pkts]
-
-    @property
-    def pktToSend(self) -> Packet | None:
-        return None
+        return rspPkts
     
-    @property
-    def currentState(self) -> PacketType:
-        return PacketType.CM_START_ATTEN_CHAR_IND
-    
-    def handlePacket(self, receivedPacket: Packet) -> tuple:
-        # Check if the packet is of type HPGP
-        if not receivedPacket[Ether].type == 0x88e1:
-            return (self, StateMachineResponseType.NO_TRANSITION_IGNORED_PACKET, None)
+    def handlePacket(self, pkt: Packet) -> StateTransitionResult:
+        if (result := PacketValidator.validateEthernetPacket(pkt, self.emulator)) is not None:
+            return result
 
-        # Check if the packet addressed to the emulator's MAC address
-        if not receivedPacket[Ether].dst == self.emulator.sourceMAC:
-            return (self, StateMachineResponseType.NO_TRANSITION_IGNORED_PACKET, None)
+        if (result := PacketValidator.validateHPGPPacket(pkt, self.emulator)) is not None:
+            return result
         
         # Update emulator timeout timer
         self.emulator.lastMessageTime = time.time()
 
-        HPHPLayerName = self.expandPacketLayers(receivedPacket)[2]
+        HPGPLayerName = expandPacketLayers(pkt)[2]
 
-        if HPHPLayerName not in self.validResponsePacketTypes:
-            self.logger.warning(f"Received unexpected packet of type {HPHPLayerName} in state {self.currentState}")
-            return (self, StateMachineResponseType.NO_TRANSITION_INVALID_PACKET, None)
+        if HPGPLayerName not in [pkt_type.value for pkt_type in self.validIncomingPacketTypes]:
+            self.logger.warning(f"Received unexpected packet of type {HPGPLayerName} in state {self.name}")
+            return StateTransitionResult(
+                success=False,
+                next_state=None,
+                error_message=f"Received unexpected packet of type {HPGPLayerName} in state {self.name}"
+            )
         
         # Only allowed packet should be CM_ATTEN_CHAR_IND
-        self.logger.debug(f"Received packet of type {HPHPLayerName} in state {self.currentState}")
+        self.logger.debug(f"Received packet of type {HPGPLayerName} in state {self.name}")
+
+        return StateTransitionResult(
+            success=True,
+            next_state=CM_SLAC_MATCH_REQ_State(self.context),
+            error_message=None
+        )
+
+class CM_SLAC_MATCH_REQ_State(AbstractState):
+    def __init__(self, context):
+        super().__init__(context)
+
+    @property
+    def name(self) -> str:
+        return "CM_SLAC_MATCH_REQ"
+
+    @property
+    def validIncomingPacketTypes(self) -> list[PacketType]:
+        return [PacketType.CM_SLAC_MATCH_CNF]
+    
+    def shouldRetry(self) -> bool:
+        return False
+
+    def getOutgoingPackets(self) -> list[Packet]:
         attenCharResPkt = AttenCharRes(self.emulator)
         slacMatchReqPkt = SlacMatchReq(self.emulator)
         rspPkts = [attenCharResPkt, slacMatchReqPkt]
-        return (CM_SLAC_MATCH_REQState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkts)
-
-class CM_SLAC_MATCH_REQState(AbstractState):
-    @property
-    def validResponsePacketTypes(self) -> list:
-        pkts = [PacketType.CM_SLAC_MATCH_CNF]
-        return [pkt.value for pkt in pkts]
+        return rspPkts
     
-    @property
-    def pktToSend(self) -> Packet | None:
-        return SlacMatchReq(self.emulator)
-
-    @property
-    def currentState(self) -> PacketType:
-        return PacketType.CM_SLAC_MATCH_REQ
-    
-    def handlePacket(self, receivedPacket: Packet) -> tuple:
-        # Check if the packet is of type HPGP
-        if not receivedPacket[Ether].type == 0x88e1:
-            return (self, StateMachineResponseType.NO_TRANSITION_IGNORED_PACKET, None)
-
-        # Check if the packet addressed to the emulator's MAC address
-        if not receivedPacket[Ether].dst == self.emulator.sourceMAC:
-            return (self, StateMachineResponseType.NO_TRANSITION_IGNORED_PACKET, None)
+    def handlePacket(self, pkt: Packet) -> StateTransitionResult:
+        if (result := PacketValidator.validateEthernetPacket(pkt, self.emulator)) is not None:
+            return result
+        if (result := PacketValidator.validateHPGPPacket(pkt, self.emulator)) is not None:
+            return result 
 
         # Update emulator timeout timer
         self.emulator.lastMessageTime = time.time()
 
-        HPHPLayerName = self.expandPacketLayers(receivedPacket)[2]
+        HPGPLayerName = expandPacketLayers(pkt)[2]
 
-        if HPHPLayerName not in self.validResponsePacketTypes:
-            self.logger.warning(f"Received unexpected packet of type {HPHPLayerName} in state {self.currentState}")
-            return (self, StateMachineResponseType.NO_TRANSITION_INVALID_PACKET, None)
+        if HPGPLayerName not in [pkt_type.value for pkt_type in self.validIncomingPacketTypes]:
+            self.logger.warning(f"Received unexpected packet of type {HPGPLayerName} in state {self.name}")
+            return StateTransitionResult(
+                success=False,
+                next_state=None,
+                error_message=f"Received unexpected packet of type {HPGPLayerName} in state {self.name}"
+            )
 
         # Only allowed packet should be CM_SLAC_MATCH_CNF
-        self.logger.debug(f"Received packet of type {HPHPLayerName} in state {self.currentState}")
-        self.emulator.NID = receivedPacket[CM_SLAC_MATCH_CNF].VariableField.NetworkID
-        self.emulator.NMK = receivedPacket[CM_SLAC_MATCH_CNF].VariableField.NMK
+        self.logger.debug(f"Received packet of type {HPGPLayerName} in state {self.name}")
+        self.emulator.NID = pkt[CM_SLAC_MATCH_CNF].VariableField.NetworkID
+        self.emulator.NMK = pkt[CM_SLAC_MATCH_CNF].VariableField.NMK
 
+        # TODO: Move this
         setKeyPkt = [SetKeyReq(self.emulator)]
         SECCpkts = [SECCRequest(self.emulator) for i in range(3)]
         rspPkts = setKeyPkt + SECCpkts
         
-        return (SDPRequestState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkts)
+        return StateTransitionResult(
+            success=True,
+            next_state=SDPRequestState(self.context),
+            error_message=None
+        )
 
 #########################################################################################################################
 # EVSE STATES #
 
-class CM_SET_KEY_REQState(AbstractState):
-    @property
-    def validResponsePacketTypes(self) -> list:
-        pkts = [PacketType.CM_SLAC_PARM_REQ]
-        return [pkt.value for pkt in pkts]
-    
-    @property
-    def pktToSend(self) -> Packet | None:
-        return None
+class CM_SET_KEY_REQ_State(AbstractState):
+    def __init__(self, context):
+        super().__init__(context)
 
     @property
-    def currentState(self) -> PacketType:
-        return PacketType.CM_SET_KEY_REQ
-    
-    def handlePacket(self, receivedPacket: Packet) -> tuple:
-        # Check if the packet is of type HPGP
-        if not receivedPacket[Ether].type == 0x88e1:
-            return (self, StateMachineResponseType.NO_TRANSITION_IGNORED_PACKET, None)
+    def name(self) -> str:
+        return "CM_SET_KEY_REQ"
 
-        # Check if the packet broadcast
-        if not receivedPacket[Ether].dst == "ff:ff:ff:ff:ff:ff":
-            return (self, StateMachineResponseType.NO_TRANSITION_IGNORED_PACKET, None)
+    @property
+    def validIncomingPacketTypes(self) -> list[PacketType]:
+        return [PacketType.CM_SLAC_PARM_REQ]
+
+    def shouldRetry(self) -> bool:
+        return False
+
+    def getOutgoingPackets(self) -> list[Packet]:
+        return [SetKeyReq(self.emulator)]
+    
+    def handlePacket(self, pkt: Packet) -> StateTransitionResult:
+        if (result := PacketValidator.validateEthernetPacket(pkt, self.emulator)) is not None:
+            return result
+        
+        if (result := PacketValidator.validateHPGPPacket(pkt, self.emulator)) is not None:
+            return result
 
         # Update emulator timeout timer
         self.emulator.lastMessageTime = time.time()
 
-        HPHPLayerName = self.expandPacketLayers(receivedPacket)[2]
+        HPGPLayerName = expandPacketLayers(pkt)[2]
 
-        if HPHPLayerName not in self.validResponsePacketTypes:
-            self.logger.warning(f"Received unexpected packet of type {HPHPLayerName} in state {self.currentState}")
-            return (self, StateMachineResponseType.NO_TRANSITION_INVALID_PACKET, None)
+        if HPGPLayerName not in [pkt_type.value for pkt_type in self.validIncomingPacketTypes]:
+            self.logger.warning(f"Received unexpected packet of type {HPGPLayerName} in state {self.name}")
+            return StateTransitionResult(
+                success=False,
+                next_state=None,
+                error_message=f"Received unexpected packet of type {HPGPLayerName} in state {self.name}"
+            )
 
         # Only allowed packet should be CM_SLAC_PARM_REQ
-        self.logger.debug(f"Received packet of type {HPHPLayerName} in state {self.currentState}")
+        self.logger.debug(f"Received packet of type {HPGPLayerName} in state {self.name}")
 
-        self.emulator.destinationMAC = receivedPacket[Ether].src
-        self.emulator.runID = receivedPacket[CM_SLAC_PARM_REQ].RunID
+        self.emulator.destinationMAC = pkt[Ether].src
+        self.emulator.runID = pkt[CM_SLAC_PARM_REQ].RunID
 
-        rspPkt = SlacParmCnf(self.emulator)
+        return StateTransitionResult(
+            success=True,
+            next_state=CM_SLAC_PARM_CNF_State(self.context),
+            error_message=None
+        )
 
-        return (CM_SLAC_PARM_CNFState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkt)
+class CM_SLAC_PARM_CNF_State(AbstractState):
+    def __init__(self, context):
+        super().__init__(context)
 
-class CM_SLAC_PARM_CNFState(AbstractState):
     @property
-    def validResponsePacketTypes(self) -> list:
-        pkts = [PacketType.CM_MNBC_SOUND_IND]
-        return [pkt.value for pkt in pkts]
-    
+    def name(self) -> str:
+        return "CM_SLAC_PARM_CNF"
+
     @property
-    def pktToSend(self) -> Packet | None:
-        return SlacParmCnf(self.emulator)
+    def validIncomingPacketTypes(self) -> list[PacketType]:
+        return [PacketType.CM_MNBC_SOUND_IND]
     
-    @property
-    def currentState(self) -> PacketType:
-        return PacketType.CM_SLAC_PARM_CNF
+    def shouldRetry(self) -> bool:
+        return True
+
+    def getOutgoingPackets(self) -> list[Packet]:
+        return [SlacParmCnf(self.emulator)]
     
-    def handlePacket(self, receivedPacket: Packet) -> tuple:
-        # Check if the packet is of type HPGP
-        if not receivedPacket[Ether].type == 0x88e1:
-            return (self, StateMachineResponseType.NO_TRANSITION_IGNORED_PACKET, None)
+    def handlePacket(self, pkt: Packet) -> StateTransitionResult:
+        if (result := PacketValidator.validateEthernetPacket(pkt, self.emulator)) is not None:
+            return result
+        
+        if (result := PacketValidator.validateHPGPPacket(pkt, self.emulator)) is not None:
+            return result
         
         # Check if the packet is broadcast
-        if not receivedPacket[Ether].dst == "ff:ff:ff:ff:ff:ff":
-            return (self, StateMachineResponseType.NO_TRANSITION_IGNORED_PACKET, None)
+        if not pkt[Ether].dst == "ff:ff:ff:ff:ff:ff":
+            return StateTransitionResult(
+                success=False,
+                next_state=None,
+                error_message=None
+            )
         
         # Update emulator timeout timer
         self.emulator.lastMessageTime = time.time()
 
-        HPHPLayerName = self.expandPacketLayers(receivedPacket)[2]
+        HPGPLayerName = expandPacketLayers(pkt)[2]
 
-        if HPHPLayerName not in self.validResponsePacketTypes:
-            self.logger.warning(f"Received unexpected packet of type {HPHPLayerName} in state {self.currentState}")
-            return (self, StateMachineResponseType.NO_TRANSITION_INVALID_PACKET, None)
+        if HPGPLayerName not in [pkt_type.value for pkt_type in self.validIncomingPacketTypes]:
+            self.logger.warning(f"Received unexpected packet of type {HPGPLayerName} in state {self.name}")
+            return StateTransitionResult(
+                success=False,
+                next_state=None,
+                error_message=f"Received unexpected packet of type {HPGPLayerName} in state {self.name}"
+            )
         
         # Only allowed packet should be CM_MNBC_SOUND_IND
-        countdownVal = receivedPacket[CM_MNBC_SOUND_IND].Countdown
-        self.logger.debug(f"Received packet of type {HPHPLayerName} in state {self.currentState} with countdown value {countdownVal}")
+        countdownVal = pkt[CM_MNBC_SOUND_IND].Countdown
+        self.logger.debug(f"Received packet of type {HPGPLayerName} in state {self.name} with countdown value {countdownVal}")
 
         if countdownVal > 0:
-            return (self, StateMachineResponseType.NO_TRANSITION_VALID_PACKET, None)
+            return StateTransitionResult(
+                success=False,
+                next_state=None,
+                error_message=None
+            )
         
-        rspPkt = AttenCharInd(self.emulator)
-        return (CM_ATTEN_CHAR_INDState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkt)
+        return StateTransitionResult(
+            success=True,
+            next_state=CM_ATTEN_CHAR_IND_State(self.context),
+            error_message=None
+        )
     
-class CM_ATTEN_CHAR_INDState(AbstractState):
-    @property
-    def validResponsePacketTypes(self) -> list:
-        pkts = [PacketType.CM_SLAC_MATCH_REQ]
-        return [pkt.value for pkt in pkts]
-    
-    @property
-    def pktToSend(self) -> Packet | None:
-        return AttenCharInd(self.emulator)
+class CM_ATTEN_CHAR_IND_State(AbstractState):
+    def __init__(self, context):
+        super().__init__(context)
 
     @property
-    def currentState(self) -> PacketType:
-        return PacketType.CM_ATTEN_CHAR_IND
-    
-    def handlePacket(self, receivedPacket: Packet) -> tuple:
-        # Check if the packet is of type HPGP
-        if not receivedPacket[Ether].type == 0x88e1:
-            return (self, StateMachineResponseType.NO_TRANSITION_IGNORED_PACKET, None)
+    def name(self) -> str:
+        return "CM_ATTEN_CHAR_IND"
 
-        # Check if the packet addressed to the emulator's MAC address
-        if not receivedPacket[Ether].dst == self.emulator.sourceMAC:
-            return (self, StateMachineResponseType.NO_TRANSITION_IGNORED_PACKET, None)
+    @property
+    def validIncomingPacketTypes(self) -> list[PacketType]:
+        return [PacketType.CM_SLAC_MATCH_REQ]
+    
+    def shouldRetry(self) -> bool:
+        return False
+
+    def getOutgoingPackets(self) -> list[Packet]:
+        return [AttenCharInd(self.emulator)]
+    
+    def handlePacket(self, pkt: Packet) -> StateTransitionResult:
+        if (result := PacketValidator.validateEthernetPacket(pkt, self.emulator)) is not None:
+            return result
+        
+        if (result := PacketValidator.validateHPGPPacket(pkt, self.emulator)) is not None:
+            return result
 
         # Update emulator timeout timer
         self.emulator.lastMessageTime = time.time()
 
-        HPHPLayerName = self.expandPacketLayers(receivedPacket)[2]
+        HPGPLayerName = expandPacketLayers(pkt)[2]
 
-        if HPHPLayerName not in self.validResponsePacketTypes:
-            self.logger.warning(f"Received unexpected packet of type {HPHPLayerName} in state {self.currentState}")
-            return (self, StateMachineResponseType.NO_TRANSITION_INVALID_PACKET, None)
+        if HPGPLayerName not in [pkt_type.value for pkt_type in self.validIncomingPacketTypes]:
+            self.logger.warning(f"Received unexpected packet of type {HPGPLayerName} in state {self.name}")
+            return StateTransitionResult(
+                success=False,
+                next_state=None,
+                error_message=f"Received unexpected packet of type {HPGPLayerName} in state {self.name}"
+            )
 
         # Only allowed packet should be CM_SLAC_MATCH_REQ
-        self.logger.debug(f"Received packet of type {HPHPLayerName} in state {self.currentState}")
-        slacMatchCnfPkt = SlacMatchCnf(self.emulator)
-        rspPkts = [slacMatchCnfPkt]
-        return (CM_SLAC_MATCH_CNFState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkts)
+        self.logger.debug(f"Received packet of type {HPGPLayerName} in state {self.name}")
+
+        return StateTransitionResult(
+            success=True,
+            next_state=CM_SLAC_MATCH_CNF_State(self.context),
+            error_message=None
+        )
     
-class CM_SLAC_MATCH_CNFState(AbstractState):
+class CM_SLAC_MATCH_CNF_State(AbstractState):
+    def __init__(self, context):
+        super().__init__(context)
+
     @property
-    def validResponsePacketTypes(self) -> list:
-        pkts = [PacketType.SDPRequest]
-        return [pkt.value for pkt in pkts]
-    
+    def name(self) -> str:
+        return "CM_SLAC_MATCH_CNF"
+
     @property
-    def pktToSend(self) -> Packet | None:
-        return SlacMatchCnf(self.emulator)
-    
+    def validIncomingPacketTypes(self) -> list[PacketType]:
+        return [PacketType.SDPRequest]
+
     @property
-    def currentState(self) -> PacketType:
-        return PacketType.CM_SLAC_MATCH_CNF
+    def shouldRetry(self) -> bool:
+        return True
+
+    def getOutgoingPackets(self) -> list[Packet]:
+        return [SlacMatchCnf(self.emulator)]
     
-    def handlePacket(self, receivedPacket: Packet) -> tuple:
-        # Check if packet has IPv6 and is broadcast
-        if not (receivedPacket.haslayer(IPv6) and receivedPacket[IPv6].dst == "ff02::1"):
-            return (self, StateMachineResponseType.NO_TRANSITION_IGNORED_PACKET, None)
+    def handlePacket(self, pkt: Packet) -> StateTransitionResult:
+        if (result := PacketValidator.validateUDPPacket(pkt, self.emulator)):
+            return result
         
-        # Check if packet has UDP and is addressed to correct port
-        if not (receivedPacket.haslayer(UDP) and receivedPacket[UDP].dport == 15118):
-            return (self, StateMachineResponseType.NO_TRANSITION_IGNORED_PACKET, None)
+        if pkt[UDP].dport != 15118:
+            return StateTransitionResult(
+                success=False,
+                next_state=None,
+                error_message="UDP packet not addressed to port 15118"
+            )
         
         # Check if packet has SECC layer
-        if not receivedPacket.haslayer("SECC"):
-            return (self, StateMachineResponseType.NO_TRANSITION_IGNORED_PACKET, None)
+        if not pkt.haslayer("SECC"):
+            return StateTransitionResult(
+                success=False,
+                next_state=None,
+                error_message="Packet does not have SECC layer"
+            )
         
-        SECCtype = self.expandPacketLayers(receivedPacket)[4]
+        SECCtype = expandPacketLayers(pkt)[4]
 
-        if SECCtype not in self.validResponsePacketTypes:
-            return (self, StateMachineResponseType.NO_TRANSITION_IGNORED_PACKET, None)
+        if SECCtype not in [pkt_type.value for pkt_type in self.validIncomingPacketTypes]:
+            return StateTransitionResult(
+                success=False,
+                next_state=None,
+                error_message=f"Received unexpected packet of type {SECCtype} in state {self.name}"
+            )
         
         # Only allowed packet should be SDP Request
-        self.logger.debug(f"Received packet of type {SECCtype} in state {self.currentState}")
+        self.logger.debug(f"Received packet of type {SECCtype} in state {self.name}")
 
-        self.emulator.destinationIP = receivedPacket[IPv6].src
-        self.emulator.destinationPort = receivedPacket[UDP].sport
+        self.emulator.destinationIP = pkt[IPv6].src
+        self.emulator.destinationPort = pkt[UDP].sport
 
-        rspPkts = [SECCResponse(self.emulator) for i in range(3)]
-        return (SDPResponseState(self.emulator), StateMachineResponseType.SUCCESSFUL_TRANSITION, rspPkts)
+        return StateTransitionResult(
+            success=True,
+            next_state=SDPResponseState(self.context),
+            error_message=None
+        )

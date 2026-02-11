@@ -1,0 +1,27 @@
+# Default configuration for the AcCCS Emulator
+emulator:
+  type: "evse"
+  mode: 0
+  protocol: "DIN"
+  modified_cordset: false
+  virtual: false
+  timeout: 15
+
+network:
+  interface: null
+  source_mac: null
+  source_ip: null
+  source_port: null
+
+homeplug:
+  NID: null
+  NMK: null
+
+scanning:
+  enable: false
+  portscan_mac: null
+  portscan_ip: null
+  portscan_ports: null
+
+logging:
+  debug: false
