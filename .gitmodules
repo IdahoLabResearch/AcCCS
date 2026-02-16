@@ -1,4 +1,4 @@
 [submodule "external_libs/HomePlugPWN"]
 	path = external_libs/HomePlugPWN
-	url = git@github.com:JakeMG-INL/HomePlugPWN.git
+	url = https://github.com/JakeMG-INL/HomePlugPWN.git
 	branch = minimal-libs
