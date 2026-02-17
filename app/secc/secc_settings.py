@@ -32,6 +32,7 @@ class Config:
     supported_protocols: Optional[List[Protocol]] = None
     supported_auth_options: Optional[List[AuthEnum]] = None
     standby_allowed: bool = False
+    virtual: bool = False
     default_protocols = [
         "DIN_SPEC_70121",
         "ISO_15118_2",
@@ -110,6 +111,9 @@ class Config:
         # enum values in PowerDeliveryReq's ChargeProgress field). In Standby, the
         # EV can still use value-added services while not consuming any power.
         self.standby_allowed = env.bool("STANDBY_ALLOWED", default=False)
+        
+        self.virtual = env.bool("VIRTUAL", default=False)
+        
         load_shared_settings(env_path)
         env.seal()  # raise all errors at once, if any
         self.env_dump = dict(env.dump())

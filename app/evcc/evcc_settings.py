@@ -22,6 +22,7 @@ class Config:
     console_log_level: Optional[str] = None
     file_log_level: Optional[str] = None
     ev_config_file_path: str = None
+    virtual: bool = False
 
     def load_envs(self, env_path: Optional[str] = None) -> None:
         """
@@ -50,6 +51,9 @@ class Config:
                 default="app/shared/examples/evcc/iso15118_2/evcc_config_eim_ac.json",  # noqa
             )
         )
+        
+        self.virtual = env.bool("VIRTUAL", default=False)
+        
         env.seal()  # raise all errors at once, if any
         load_shared_settings()
         logger.info("EVCC environment settings:")

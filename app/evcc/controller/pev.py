@@ -12,8 +12,6 @@ import time
 import json
 import logging
 
-from smbus import SMBus
-
 from app.shared.EmulatorEnum import RunMode, PEVState
 
 from app.evcc.transport.slac import SLACHandler
@@ -52,22 +50,28 @@ class PEV:
         self.destinationIP = None
         self.destinationPort = None
         self.slac = None
-        
-        # I2C bus for relays
-        self.bus = SMBus(1)
 
-        # Constants for i2c controlled relays
-        self.I2C_ADDR = 0x20
-        self.CONTROL_REG = 0x9
-        self.PEV_CP1 = 0b10
-        self.PEV_CP2 = 0b100
-        self.PEV_PP = 0b10000
-        self.ALL_OFF = 0b0
+        self.virtual = self.config.virtual
+
+        if not self.virtual:
+            from smbus import SMBus
+        
+            # I2C bus for relays
+            self.bus = SMBus(1)
+
+            # Constants for i2c controlled relays
+            self.I2C_ADDR = 0x20
+            self.CONTROL_REG = 0x9
+            self.PEV_CP1 = 0b10
+            self.PEV_CP2 = 0b100
+            self.PEV_PP = 0b10000
+            self.ALL_OFF = 0b0
 
     async def start(self):
-        # Initialize the smbus for I2C commands
-        self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00)
-        self.toggleProximity()
+        if not self.virtual:
+            # Initialize the smbus for I2C commands
+            self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00)
+            self.toggleProximity()
         
         evcc_config = {
             "supportedProtocols": self.protocols,
@@ -107,13 +111,22 @@ class PEV:
     def setState(self, state: PEVState):
         if state == PEVState.A:
             logger.info("Going to state A")
-            self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.ALL_OFF)
+            if self.virtual:
+                return
+            else:
+                self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.ALL_OFF)
         elif state == PEVState.B:
             logger.info("Going to state B")
-            self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.PEV_PP | self.PEV_CP1)
+            if self.virtual:
+                return
+            else:
+                self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.PEV_PP | self.PEV_CP1)
         elif state == PEVState.C:
             logger.info("Going to state C")
-            self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.PEV_PP | self.PEV_CP1 | self.PEV_CP2)
+            if self.virtual:
+                return
+            else:
+                self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.PEV_PP | self.PEV_CP1 | self.PEV_CP2)
 
     def toggleProximity(self, t: int = 5):
         self.openProximity()
