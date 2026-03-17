@@ -28,7 +28,7 @@ def load_requested_protocols(read_protocols: Optional[List[str]]) -> List[Protoc
     ]
 
     protocols = _format_list(read_protocols)
-    valid_protocols = list(set(protocols).intersection(supported_protocols))
+    valid_protocols = [protocol for protocol in protocols if protocol in supported_protocols]
     if not valid_protocols:
         raise NoSupportedProtocols(
             f"No supported protocols configured. Supported protocols are "
@@ -53,7 +53,7 @@ def load_requested_energy_services(
     ]
 
     services = _format_list(read_services)
-    valid_services = list(set(services).intersection(supported_services))
+    valid_services = [service for service in services if service in supported_services]
     if not valid_services:
         raise NoSupportedEnergyServices(
             f"No supported energy services configured. Supported energy services are "
@@ -70,7 +70,7 @@ def load_requested_auth_modes(read_auth_modes: Optional[List[str]]) -> List[Auth
         "PNC",
     ]
     auth_modes = _format_list(read_auth_modes)
-    valid_auth_options = list(set(auth_modes).intersection(default_auth_modes))
+    valid_auth_options = [mode for mode in auth_modes if mode in default_auth_modes]
     if not valid_auth_options:
         raise NoSupportedAuthenticationModes(
             f"No supported authentication modes configured. Supported auth modes"
