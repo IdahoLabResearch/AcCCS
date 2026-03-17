@@ -44,6 +44,11 @@ from app.shared.messages.datatypes import (
     PVEVSEMinCurrentLimit,
     PVEVSEMinVoltageLimit,
     PVEVSEPeakCurrentRipple,
+    PVEVSEMaxCurrentLimitDin,
+    PVEVSEMaxPowerLimitDin,
+    PVEVSEMaxVoltageLimitDin,
+    PVEVSEMinCurrentLimitDin,
+    PVEVSEMinVoltageLimitDin,
 )
 from app.shared.messages.din_spec.datatypes import (
     PMaxScheduleEntry as PMaxScheduleEntryDINSPEC,
@@ -271,6 +276,15 @@ class SimEVSEController(EVSEControllerInterface):
     async def set_status(self, status: ServiceStatus) -> None:
         logger.debug(f"New Status: {status}")
 
+    async def is_valid_evse_id(self, evse_id: str) -> bool:
+        # A DIN 70121 EVSE ID is a string of hexadecimal
+        # format (each byte represented by two hexadecimal digits).
+        try:
+            bytes.fromhex(evse_id)
+            return True
+        except ValueError:
+            return False
+
     async def get_evse_id(self, protocol: Protocol) -> str:
         #  To transform a string-based DIN SPEC 91286 EVSE ID to hexBinary
         #  representation and vice versa, the following conversion rules shall
@@ -289,6 +303,10 @@ class SimEVSEController(EVSEControllerInterface):
             evse_id = env.str("EVSEID", default="ZZ00000")
         else:
             evse_id = env.str("EVSEID", default="49A89A6360")
+            if not await self.is_valid_evse_id(evse_id):
+                logger.warning(f"Invalid EVSE ID {evse_id} provided for "
+                               f"protocol {protocol}. Using default EVSE ID.")
+                evse_id = "49A89A6360"
         env.seal()  # raise all errors at once, if any
         return evse_id
 
@@ -915,8 +933,11 @@ class SimEVSEController(EVSEControllerInterface):
     # async def get_evse_max_current_limit(self) -> PVEVSEMaxCurrentLimit:
     #     return PVEVSEMaxCurrentLimit(multiplier=0, value=300, unit="A")
 
-    async def get_evse_max_power_limit(self) -> PVEVSEMaxPowerLimit:
-        return PVEVSEMaxPowerLimit(multiplier=1, value=1000, unit="W")
+    async def get_evse_max_power_limit(self, protocol: Protocol) -> PVEVSEMaxPowerLimit:
+        if protocol == Protocol.DIN_SPEC_70121:
+            return PVEVSEMaxPowerLimitDin(multiplier=1, value=1000, unit="W")
+        else:
+            return PVEVSEMaxPowerLimit(multiplier=1, value=1000, unit="W")
 
     async def get_dc_charge_params_v20(
         self, energy_service: ServiceV20

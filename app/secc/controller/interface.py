@@ -22,8 +22,13 @@ from app.shared.messages.datatypes import (
     PVEVSEMaxCurrentLimit,
     PVEVSEMaxPowerLimit,
     PVEVSEMaxVoltageLimit,
+    PVEVSEMaxCurrentLimitDin,
+    PVEVSEMaxPowerLimitDin,
+    PVEVSEMaxVoltageLimitDin,
     PVEVSEPresentCurrent,
+    PVEVSEPresentCurrentDin,
     PVEVSEPresentVoltage,
+    PVEVSEPresentVoltageDin
 )
 from app.shared.messages.din_spec.datatypes import (
     ResponseCode as ResponseCodeDINSPEC,
@@ -762,7 +767,7 @@ class EVSEControllerInterface(ABC):
 
     async def get_evse_present_voltage(
         self, protocol: Protocol
-    ) -> Union[PVEVSEPresentVoltage, RationalNumber]:
+    ) -> Union[PVEVSEPresentVoltage, PVEVSEPresentVoltageDin, RationalNumber]:
         """
         Gets the presently available voltage at the EVSE
 
@@ -775,7 +780,10 @@ class EVSEControllerInterface(ABC):
             exponent, value = PhysicalValue.get_exponent_value_repr(
                 cast(int, self.evse_data_context.present_voltage)
             )
-            return PVEVSEPresentVoltage(multiplier=exponent, value=value, unit="V")
+            if protocol == Protocol.DIN_SPEC_70121:
+                return PVEVSEPresentVoltageDin(multiplier=exponent, value=value, unit="V")
+            else:
+                return PVEVSEPresentVoltage(multiplier=exponent, value=value, unit="V")
         else:
             return RationalNumber.get_rational_repr(
                 self.evse_data_context.present_voltage
@@ -783,7 +791,7 @@ class EVSEControllerInterface(ABC):
 
     async def get_evse_present_current(
         self, protocol: Protocol
-    ) -> Union[PVEVSEPresentCurrent, RationalNumber]:
+    ) -> Union[PVEVSEPresentCurrent, PVEVSEPresentCurrentDin, RationalNumber]:
         """
         Gets the presently available current at the EVSE
 
@@ -796,7 +804,10 @@ class EVSEControllerInterface(ABC):
             exponent, value = PhysicalValue.get_exponent_value_repr(
                 cast(int, self.evse_data_context.present_current)
             )
-            return PVEVSEPresentCurrent(multiplier=exponent, value=value, unit="A")
+            if protocol == Protocol.DIN_SPEC_70121:
+                return PVEVSEPresentCurrentDin(multiplier=exponent, value=value, unit="A")
+            else:
+                return PVEVSEPresentCurrent(multiplier=exponent, value=value, unit="A")
         else:
             return RationalNumber.get_rational_repr(
                 self.evse_data_context.present_current
@@ -881,12 +892,14 @@ class EVSEControllerInterface(ABC):
         # TODO retrieve from evse data context
         return False
 
-    async def get_evse_max_voltage_limit(self) -> PVEVSEMaxVoltageLimit:
+    async def get_evse_max_voltage_limit(
+            self, protocol: Protocol) -> PVEVSEMaxVoltageLimit:
         """
         Gets the max voltage that can be provided by the charger
 
         Relevant for:
         - ISO 15118-2
+        - DIN SPEC 70121
         """
         session_limits = self.evse_data_context.session_limits
         if self.evse_data_context.current_type == CurrentType.AC:
@@ -894,20 +907,29 @@ class EVSEControllerInterface(ABC):
         else:
             voltage_limit = session_limits.dc_limits.max_voltage
         exponent, value = PhysicalValue.get_exponent_value_repr(voltage_limit)
-        return PVEVSEMaxVoltageLimit(
-            multiplier=exponent,
-            value=value,
-            unit=UnitSymbol.VOLTAGE,
-        )
+        if protocol == Protocol.DIN_SPEC_70121:
+            return PVEVSEMaxVoltageLimitDin(
+                multiplier=exponent,
+                value=value,
+                unit=UnitSymbol.VOLTAGE,
+            )
+        else:
+            return PVEVSEMaxVoltageLimit(
+                multiplier=exponent,
+                value=value,
+                unit=UnitSymbol.VOLTAGE,
+            )
 
     async def get_evse_max_current_limit(
         self,
-    ) -> Union[PVEVSEMaxCurrentLimit, PVEVSEMaxCurrent]:
+        protocol: Protocol,
+    ) -> Union[PVEVSEMaxCurrentLimit, PVEVSEMaxCurrentLimitDin, PVEVSEMaxCurrent]:
         """
         Gets the max current that can be provided by the charger
 
         Relevant for:
         - ISO 15118-2
+        - DIN SPEC 70121
         """
         # This is currently being used by -2 only.
         logger.info(
@@ -967,11 +989,18 @@ class EVSEControllerInterface(ABC):
                 current_limit = session_limits.dc_limits.max_charge_current
             logger.debug(f"Active EVSEMaxCurrentLimit: {current_limit}")
             exponent, value = PhysicalValue.get_exponent_value_repr(current_limit)
-            return PVEVSEMaxCurrentLimit(
-                multiplier=exponent,
-                value=value,
-                unit=UnitSymbol.AMPERE,
-            )
+            if protocol == Protocol.DIN_SPEC_70121:
+                return PVEVSEMaxCurrentLimitDin(
+                    multiplier=exponent,
+                    value=value,
+                    unit=UnitSymbol.AMPERE,
+                )
+            else:
+                return PVEVSEMaxCurrentLimit(
+                    multiplier=exponent,
+                    value=value,
+                    unit=UnitSymbol.AMPERE,
+                )
 
     @abstractmethod
     async def get_dc_charge_params_v20(
@@ -987,12 +1016,14 @@ class EVSEControllerInterface(ABC):
         """
         raise NotImplementedError
 
-    async def get_evse_max_power_limit(self) -> PVEVSEMaxPowerLimit:
+    async def get_evse_max_power_limit(
+            self, protocol: Protocol) -> PVEVSEMaxPowerLimit:
         """
         Gets the max power that can be provided by the charger
 
         Relevant for:
         - ISO 15118-2
+        - DIN SPEC 70121
         """
         session_limits = self.evse_data_context.session_limits
         max_discharge_power = 0.0
@@ -1007,11 +1038,18 @@ class EVSEControllerInterface(ABC):
         else:
             power_limit = max_charge_power
         exponent, value = PhysicalValue.get_exponent_value_repr(power_limit)
-        return PVEVSEMaxPowerLimit(
-            multiplier=exponent,
-            value=value,
-            unit=UnitSymbol.WATT,
-        )
+        if protocol == Protocol.DIN_SPEC_70121:
+            return PVEVSEMaxPowerLimitDin(
+                multiplier=exponent,
+                value=value,
+                unit=UnitSymbol.WATT,
+            )
+        else:
+            return PVEVSEMaxPowerLimit(
+                multiplier=exponent,
+                value=value,
+                unit=UnitSymbol.WATT,
+            )
 
     async def get_dc_charge_loop_params_v20(
         self, control_mode: ControlMode, selected_service: ServiceV20

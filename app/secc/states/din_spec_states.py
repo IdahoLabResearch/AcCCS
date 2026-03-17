@@ -847,13 +847,19 @@ class CurrentDemand(StateSECC):
                 await self.comm_session.evse_controller.is_evse_power_limit_achieved()
             ),
             evse_max_current_limit=(
-                await self.comm_session.evse_controller.get_evse_max_current_limit()
+                await self.comm_session.evse_controller.get_evse_max_current_limit(
+                    Protocol.DIN_SPEC_70121
+                )
             ),
             evse_max_voltage_limit=(
-                await self.comm_session.evse_controller.get_evse_max_voltage_limit()
+                await self.comm_session.evse_controller.get_evse_max_voltage_limit(
+                    Protocol.DIN_SPEC_70121
+                )
             ),
             evse_max_power_limit=(
-                await self.comm_session.evse_controller.get_evse_max_power_limit()
+                await self.comm_session.evse_controller.get_evse_max_power_limit(
+                    Protocol.DIN_SPEC_70121
+                )
             ),
         )
         await self.comm_session.evse_controller.send_display_params()
