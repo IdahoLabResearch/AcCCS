@@ -187,7 +187,7 @@ class SupportedAppProtocol(StateEVCC):
             f"ID '{sap_res.schema_id}'"
         )
 
-    def get_session_id(self, length=1) -> str:
+    def get_session_id(self, length=6) -> str:
         """
         Check if there's a saved session ID from a previously paused charging
         session and applies that for the now resumed charging session.

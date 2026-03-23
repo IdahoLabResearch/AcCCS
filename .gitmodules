@@ -2,3 +2,8 @@
 	path = external_libs/HomePlugPWN
 	url = https://github.com/JakeMG-INL/HomePlugPWN.git
 	branch = minimal-libs
+
+[submodule "external_libs/EXPy"]
+	path = external_libs/EXPy
+	url = https://github.com/IdahoLabResearch/EXPy.git
+	branch = main
