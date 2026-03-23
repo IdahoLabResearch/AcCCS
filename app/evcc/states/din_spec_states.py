@@ -755,7 +755,7 @@ class CurrentDemand(StateEVCC):
         power_delivery_req = PowerDeliveryReq(
             ready_to_charge=False,
             dc_ev_power_delivery_parameter=(
-                await ev_controller.get_dc_ev_power_delivery_parameter()
+                await ev_controller.get_dc_ev_power_delivery_parameter_dinspec()
             ),
         )
         self.create_next_message(
@@ -792,6 +792,12 @@ class CurrentDemand(StateEVCC):
             ),
             ev_target_voltage=dc_charge_params.dc_target_voltage,
         )
+        current = dc_charge_params.dc_target_current
+        voltage = dc_charge_params.dc_target_voltage
+        max_power = dc_charge_params.dc_max_power_limit
+        logger.info(f"EV Target Voltage: {voltage.value * (10 ** voltage.multiplier)} {voltage.unit.value}")
+        logger.info(f"EV Target Current: {current.value * (10 ** current.multiplier)} {current.unit.value}")
+        logger.info(f"EV Max Power Limit: {max_power.value * (10 ** max_power.multiplier)} {max_power.unit.value}")
         return current_demand_req
 
 

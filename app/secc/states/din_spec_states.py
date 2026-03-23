@@ -825,20 +825,22 @@ class CurrentDemand(StateSECC):
                 ResponseCode.FAILED,
             )
             return
-
+        
+        evse_controller = self.comm_session.evse_controller
+        voltage = (
+            await evse_controller.get_evse_present_voltage(Protocol.DIN_SPEC_70121)
+        )
+        current = (
+            await evse_controller.get_evse_present_current(Protocol.DIN_SPEC_70121)
+        )
+        max_power = await evse_controller.get_evse_max_power_limit(
+            protocol=Protocol.DIN_SPEC_70121
+        )
         current_demand_res: CurrentDemandRes = CurrentDemandRes(
             response_code=ResponseCode.OK,
             dc_evse_status=await self.comm_session.evse_controller.get_dc_evse_status(),
-            evse_present_voltage=(
-                await self.comm_session.evse_controller.get_evse_present_voltage(
-                    Protocol.DIN_SPEC_70121
-                )
-            ),
-            evse_present_current=(
-                await self.comm_session.evse_controller.get_evse_present_current(
-                    Protocol.DIN_SPEC_70121
-                )
-            ),
+            evse_present_voltage=voltage,
+            evse_present_current=current,
             evse_current_limit_achieved=current_demand_req.charging_complete,
             evse_voltage_limit_achieved=(
                 await self.comm_session.evse_controller.is_evse_voltage_limit_achieved()
@@ -856,12 +858,11 @@ class CurrentDemand(StateSECC):
                     Protocol.DIN_SPEC_70121
                 )
             ),
-            evse_max_power_limit=(
-                await self.comm_session.evse_controller.get_evse_max_power_limit(
-                    Protocol.DIN_SPEC_70121
-                )
-            ),
+            evse_max_power_limit=max_power,
         )
+        logger.info(f"EVSE Present Voltage: {voltage.value * (10 ** voltage.multiplier)} {voltage.unit.value}")
+        logger.info(f"EVSE Present Current: {current.value * (10 ** current.multiplier)} {current.unit.value}")
+        logger.info(f"EVSE Max Power Limit: {max_power.value * (10 ** max_power.multiplier)} {max_power.unit.value}")
         await self.comm_session.evse_controller.send_display_params()
         self.create_next_message(
             None,
