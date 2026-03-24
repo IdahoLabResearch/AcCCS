@@ -583,6 +583,7 @@ class CommunicationSessionHandler:
                         await self.restart_sdp(False)
                     except SDPFailedError as exc:
                         logger.exception(exc)
+                        break
                         # TODO not sure what else to do here
                 elif isinstance(notification, StopNotification):
                     await cancel_task(self.comm_session[1])
@@ -596,6 +597,7 @@ class CommunicationSessionHandler:
                             await self.restart_sdp(True)
                         except SDPFailedError as exc:
                             logger.exception(exc)
+                            break
                             # TODO not sure what else to do here
                 else:
                     logger.warning(
