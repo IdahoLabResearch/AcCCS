@@ -503,7 +503,8 @@ class EVControllerInterface(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def get_remaining_time_to_full_soc(self) -> PVRemainingTimeToFullSOC:
+    async def get_remaining_time_to_full_soc(
+        self, protocol: Protocol) -> PVRemainingTimeToFullSOC:
         """
         Gets the remaining time until full soc is reached.
 
@@ -611,7 +612,8 @@ class EVControllerInterface(ABC):
         """
         raise NotImplementedError
 
-    async def get_remaining_time_to_bulk_soc(self) -> PVRemainingTimeToBulkSOC:
+    async def get_remaining_time_to_bulk_soc(
+            self, protocol: Protocol) -> PVRemainingTimeToBulkSOC:
         """
         Gets the remaining time until bulk soc is reached.
 
@@ -666,7 +668,7 @@ class EVControllerInterface(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def get_dc_charge_params(self) -> DCEVChargeParams:
+    async def get_dc_charge_params(self, protocol: Protocol) -> DCEVChargeParams:
         """
         This would return an encapsulation of the following parameters:
         DC Max Current Limit

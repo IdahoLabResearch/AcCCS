@@ -40,10 +40,10 @@ class PEV:
         self.sourceMAC = get_nic_mac_address(self.iface)
         self.sourceIP = str(get_link_local_addr(self.iface))
         self.sourcePort = args.source_port[0] if args.source_port else get_tcp_port()
-        self.protocols = args.protocols.split(",") if args.protocols else ["ISO_15118_2", "DIN_SPEC_70121"]
-        self.authModes = args.authmodes.split(",") if args.authmodes else ["PNC", "EIM"]
-        self.energyMode = args.energymode if args.energymode else "DC"
-        self.useTLS = args.useTLS if args.useTLS else "True"
+        self.protocols = args.protocols.split(",") if args.protocols else None
+        self.authModes = args.authmodes.split(",") if args.authmodes else None
+        self.energyMode = args.energymode if args.energymode else None
+        self.useTLS = args.useTLS if args.useTLS else None
         self.slacSoundTimeout = args.slacSoundTimeout if args.slacSoundTimeout else 1000
 
         self.destinationMAC = None
@@ -73,15 +73,27 @@ class PEV:
             self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00)
             self.toggleProximity()
         
-        evcc_config = {
-            "supportedProtocols": self.protocols,
-            "supportedAuthModes": self.authModes,
-            "supportedEnergyServices": [self.energyMode],
-            "useTls": self.useTLS,
-        }
+        with open(self.config.ev_config_file_path, "r") as f:
+            evcc_config_data = json.load(f)
+
+        if self.protocols:
+            evcc_config_data["supportedProtocols"] = self.protocols
+        if self.authModes:
+            evcc_config_data["supportedAuthModes"] = self.authModes
+        if self.energyMode:
+            evcc_config_data["supportedEnergyServices"] = [self.energyMode]
+        if self.useTLS:
+            if self.useTLS.lower() == "true":
+                evcc_config_data["useTls"] = True
+            elif self.useTLS.lower() == "false":
+                evcc_config_data["useTls"] = False
+            else:
+                logger.warning(f"Invalid value for useTLS: {self.useTLS}. "
+                               f"Should be 'true' or 'false'. Defaulting to the .env value.")
+
         self.config.ev_config_file_path = "app/shared/examples/evcc/evcc_settings.json"
         with open(self.config.ev_config_file_path, "w") as f:
-            json.dump(evcc_config, f, indent=4)
+            json.dump(evcc_config_data, f, indent=4)
         
         evcc_config = await load_from_file(self.config.ev_config_file_path)
         self.slac = SLACHandler(self)

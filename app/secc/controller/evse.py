@@ -9,7 +9,6 @@
 
 # need to do this to import the custom SECC and V2G scapy layer
 import time, logging
-import netifaces
 
 from app.shared.EmulatorEnum import RunMode
 

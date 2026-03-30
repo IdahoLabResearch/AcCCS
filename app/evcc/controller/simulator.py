@@ -33,6 +33,14 @@ from app.shared.messages.datatypes import (
     PVPMax,
     PVRemainingTimeToBulkSOC,
     PVRemainingTimeToFullSOC,
+    PVEVMaxCurrentLimitDin,
+    PVEVMaxPowerLimitDin,
+    PVEVMaxVoltageLimitDin,
+    PVEVEnergyCapacityDin,
+    PVEVTargetCurrentDin,
+    PVEVTargetVoltageDin,
+    PVRemainingTimeToBulkSOCDin,
+    PVRemainingTimeToFullSOCDin,
 )
 from app.shared.messages.din_spec.datatypes import (
     DCEVPowerDeliveryParameter as DCEVPowerDeliveryParameterDINSPEC,
@@ -593,7 +601,11 @@ class SimEVController(EVControllerInterface):
     async def get_dc_ev_power_delivery_parameter_dinspec(
         self,
     ) -> DCEVPowerDeliveryParameterDINSPEC:
-        pass
+        return DCEVPowerDeliveryParameterDINSPEC(
+            dc_ev_status=await self.get_dc_ev_status_dinspec(),
+            bulk_charging_complete=False,
+            charging_complete=await self.continue_charging(),
+        )
 
     async def get_dc_ev_power_delivery_parameter(self) -> DCEVPowerDeliveryParameter:
         return DCEVPowerDeliveryParameter(
@@ -611,11 +623,19 @@ class SimEVController(EVControllerInterface):
         else:
             return False
 
-    async def get_remaining_time_to_full_soc(self) -> PVRemainingTimeToFullSOC:
-        return PVRemainingTimeToFullSOC(multiplier=0, value=100, unit="s")
+    async def get_remaining_time_to_full_soc(
+            self, protocol: Protocol) -> PVRemainingTimeToFullSOC:
+        if protocol == Protocol.DIN_SPEC_70121:
+            return PVRemainingTimeToFullSOCDin(multiplier=0, value=100, unit="s")
+        else:
+            return PVRemainingTimeToFullSOC(multiplier=0, value=100, unit="s")
 
-    async def get_remaining_time_to_bulk_soc(self) -> PVRemainingTimeToBulkSOC:
-        return PVRemainingTimeToBulkSOC(multiplier=0, value=80, unit="s")
+    async def get_remaining_time_to_bulk_soc(
+            self, protocol: Protocol) -> PVRemainingTimeToBulkSOC:
+        if protocol == Protocol.DIN_SPEC_70121:
+            return PVRemainingTimeToBulkSOCDin(multiplier=0, value=80, unit="s")
+        else:
+            return PVRemainingTimeToBulkSOC(multiplier=0, value=80, unit="s")
 
     async def welding_detection_has_finished(self):
         if self.welding_detection_cycles == 3:
@@ -674,8 +694,33 @@ class SimEVController(EVControllerInterface):
     # |                          DC-SPECIFIC FUNCTIONS                           |
     # ============================================================================
 
-    async def get_dc_charge_params(self) -> DCEVChargeParams:
+    async def get_dc_charge_params(self, protocol: Protocol) -> DCEVChargeParams:
         """Applies to both DIN SPEC and 15118-2"""
+        if protocol not in (Protocol.ISO_15118_2, Protocol.DIN_SPEC_70121):
+            logger.error(
+                f"Invalid protocol '{protocol}' for DC charge params, "
+                "expected ISO 15118-2 or DIN SPEC 70121"
+            )
+            raise InvalidProtocolError
+        elif protocol == Protocol.DIN_SPEC_70121:
+            self.dc_ev_charge_params.dc_max_current_limit = PVEVMaxCurrentLimitDin(
+                multiplier=-3, value=32000, unit=UnitSymbol.AMPERE
+            )
+            self.dc_ev_charge_params.dc_max_power_limit = PVEVMaxPowerLimitDin(
+                multiplier=1, value=8000, unit=UnitSymbol.WATT
+            )
+            self.dc_ev_charge_params.dc_max_voltage_limit = PVEVMaxVoltageLimitDin(
+                multiplier=1, value=50, unit=UnitSymbol.VOLTAGE
+            )
+            self.dc_ev_charge_params.dc_energy_capacity = PVEVEnergyCapacityDin(
+                multiplier=1, value=7000, unit=UnitSymbol.WATT_HOURS
+            )
+            self.dc_ev_charge_params.dc_target_current = PVEVTargetCurrentDin(
+                multiplier=0, value=1, unit=UnitSymbol.AMPERE
+            )
+            self.dc_ev_charge_params.dc_target_voltage = PVEVTargetVoltageDin(
+                multiplier=1, value=50, unit=UnitSymbol.VOLTAGE
+            )
         return self.dc_ev_charge_params
 
     async def get_dc_ev_status_dinspec(self) -> DCEVStatusDINSPEC:

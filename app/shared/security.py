@@ -9,7 +9,7 @@ import secrets
 import ssl
 import sslkeylog
 from base64 import urlsafe_b64encode
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum, auto
 from ssl import DER_cert_to_PEM_cert, SSLContext, SSLError, VerifyMode
 from typing import Dict, List, Optional, Tuple, Union, cast
@@ -478,7 +478,7 @@ def log_certs_details(certs: List[bytes]):
         logger.debug(f"Issuer: {der_cert.issuer}")
         logger.debug(f"Serial number: {der_cert.serial_number}")
         logger.debug(
-            f"Validity: {der_cert.not_valid_before} - {der_cert.not_valid_after}"
+            f"Validity: {der_cert.not_valid_before_utc} - {der_cert.not_valid_after_utc}"
         )
         logger.debug(
             f"Fingerprint: {der_cert.fingerprint(der_cert.signature_hash_algorithm).hex(':')}"  # noqa
@@ -732,11 +732,11 @@ def check_validity(certs: List[Certificate]):
     Raises:
         CertNotYetValidError, CertExpiredError
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     for cert in certs:
-        if cert.not_valid_before > now:
+        if cert.not_valid_before_utc > now:
             raise CertNotYetValidError(cert.subject.__str__())
-        if cert.not_valid_after < now:
+        if cert.not_valid_after_utc < now:
             raise CertExpiredError(cert.subject.__str__())
 
 
