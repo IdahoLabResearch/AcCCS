@@ -334,7 +334,8 @@ class ContractAuthentication(StateEVCC):
             await self.comm_session.ev_controller.get_dc_ev_status_dinspec()
         )
         dc_charge_params: DCEVChargeParams = (
-            await self.comm_session.ev_controller.get_dc_charge_params()
+            await self.comm_session.ev_controller.get_dc_charge_params(
+                protocol=Protocol.DIN_SPEC_70121)
         )
         max_current_limit = dc_charge_params.dc_max_current_limit
         max_voltage_limit = dc_charge_params.dc_max_voltage_limit
@@ -431,7 +432,9 @@ class ChargeParameterDiscovery(StateEVCC):
 
     async def build_charge_parameter_discovery_req(self) -> ChargeParameterDiscoveryReq:
         ev_controller = self.comm_session.ev_controller
-        dc_charge_params: DCEVChargeParams = await ev_controller.get_dc_charge_params()
+        dc_charge_params: DCEVChargeParams = await ev_controller.get_dc_charge_params(
+            protocol=Protocol.DIN_SPEC_70121
+        )
         max_current_limit = dc_charge_params.dc_max_current_limit
         max_voltage_limit = dc_charge_params.dc_max_voltage_limit
         dc_charge_parameter: DCEVChargeParameter = DCEVChargeParameter(
@@ -519,7 +522,9 @@ class CableCheck(StateEVCC):
 
     async def build_pre_charge_req(self) -> PreChargeReq:
         ev_controller = self.comm_session.ev_controller
-        dc_charge_params = await ev_controller.get_dc_charge_params()
+        dc_charge_params = await ev_controller.get_dc_charge_params(
+            protocol=Protocol.DIN_SPEC_70121
+        )
         pre_charge_req = PreChargeReq(
             dc_ev_status=await ev_controller.get_dc_ev_status_dinspec(),
             ev_target_voltage=dc_charge_params.dc_target_voltage,
@@ -598,7 +603,9 @@ class PreCharge(StateEVCC):
 
     async def build_pre_charge_req(self) -> PreChargeReq:
         ev_controller = self.comm_session.ev_controller
-        dc_charge_params = await ev_controller.get_dc_charge_params()
+        dc_charge_params = await ev_controller.get_dc_charge_params(
+            protocol=Protocol.DIN_SPEC_70121
+        )
         pre_charge_req = PreChargeReq(
             dc_ev_status=await ev_controller.get_dc_ev_status_dinspec(),
             ev_target_voltage=dc_charge_params.dc_target_voltage,
@@ -612,7 +619,7 @@ class PreCharge(StateEVCC):
             ready_to_charge=True,
             charging_profile=None,
             dc_ev_power_delivery_parameter=(
-                await ev_controller.get_dc_ev_power_delivery_parameter()
+                await ev_controller.get_dc_ev_power_delivery_parameter_dinspec()
             ),
         )
         return power_delivery_req
@@ -660,7 +667,9 @@ class PowerDelivery(StateEVCC):
 
     async def build_current_demand_req(self) -> CurrentDemandReq:
         ev_controller = self.comm_session.ev_controller
-        dc_charge_params = await ev_controller.get_dc_charge_params()
+        dc_charge_params = await ev_controller.get_dc_charge_params(
+            protocol=Protocol.DIN_SPEC_70121
+        )
         current_demand_req: CurrentDemandReq = CurrentDemandReq(
             dc_ev_status=await ev_controller.get_dc_ev_status_dinspec(),
             ev_target_current=dc_charge_params.dc_target_current,
@@ -670,10 +679,12 @@ class PowerDelivery(StateEVCC):
             bulk_charging_complete=(await ev_controller.is_bulk_charging_complete()),
             charging_complete=await ev_controller.is_charging_complete(),
             remaining_time_to_full_soc=(
-                await ev_controller.get_remaining_time_to_full_soc()
+                await ev_controller.get_remaining_time_to_full_soc(
+                    protocol=Protocol.DIN_SPEC_70121)
             ),
             remaining_time_to_bulk_soc=(
-                await ev_controller.get_remaining_time_to_bulk_soc()
+                await ev_controller.get_remaining_time_to_bulk_soc(
+                    protocol=Protocol.DIN_SPEC_70121)
             ),
             ev_target_voltage=dc_charge_params.dc_target_voltage,
         )
@@ -744,7 +755,7 @@ class CurrentDemand(StateEVCC):
         power_delivery_req = PowerDeliveryReq(
             ready_to_charge=False,
             dc_ev_power_delivery_parameter=(
-                await ev_controller.get_dc_ev_power_delivery_parameter()
+                await ev_controller.get_dc_ev_power_delivery_parameter_dinspec()
             ),
         )
         self.create_next_message(
@@ -758,7 +769,9 @@ class CurrentDemand(StateEVCC):
 
     async def build_current_demand_req(self):
         ev_controller = self.comm_session.ev_controller
-        dc_charge_params: DCEVChargeParams = await ev_controller.get_dc_charge_params()
+        dc_charge_params: DCEVChargeParams = await ev_controller.get_dc_charge_params(
+            protocol=Protocol.DIN_SPEC_70121
+        )
         current_demand_req: CurrentDemandReq = CurrentDemandReq(
             dc_ev_status=await ev_controller.get_dc_ev_status_dinspec(),
             ev_target_current=dc_charge_params.dc_target_current,
@@ -768,13 +781,23 @@ class CurrentDemand(StateEVCC):
             bulk_charging_complete=(await ev_controller.is_bulk_charging_complete()),
             charging_complete=await ev_controller.is_charging_complete(),
             remaining_time_to_full_soc=(
-                await ev_controller.get_remaining_time_to_full_soc()
+                await ev_controller.get_remaining_time_to_full_soc(
+                    protocol=Protocol.DIN_SPEC_70121
+                )
             ),
             remaining_time_to_bulk_soc=(
-                await ev_controller.get_remaining_time_to_bulk_soc()
+                await ev_controller.get_remaining_time_to_bulk_soc(
+                    protocol=Protocol.DIN_SPEC_70121
+                )
             ),
             ev_target_voltage=dc_charge_params.dc_target_voltage,
         )
+        current = dc_charge_params.dc_target_current
+        voltage = dc_charge_params.dc_target_voltage
+        max_power = dc_charge_params.dc_max_power_limit
+        logger.info(f"EV Target Voltage: {voltage.value * (10 ** voltage.multiplier)} {voltage.unit.value}")
+        logger.info(f"EV Target Current: {current.value * (10 ** current.multiplier)} {current.unit.value}")
+        logger.info(f"EV Max Power Limit: {max_power.value * (10 ** max_power.multiplier)} {max_power.unit.value}")
         return current_demand_req
 
 

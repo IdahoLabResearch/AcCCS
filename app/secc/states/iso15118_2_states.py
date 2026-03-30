@@ -2472,7 +2472,9 @@ class CurrentDemand(StateSECC):
         current = (
             await evse_controller.get_evse_present_current(Protocol.ISO_15118_2)
         )
-        max_power = await evse_controller.get_evse_max_power_limit()
+        max_power = await evse_controller.get_evse_max_power_limit(
+            protocol=Protocol.ISO_15118_2
+        )
         current_demand_res = CurrentDemandRes(
             response_code=ResponseCode.OK,
             dc_evse_status=await evse_controller.get_dc_evse_status(),
@@ -2485,8 +2487,12 @@ class CurrentDemand(StateSECC):
                 await evse_controller.is_evse_voltage_limit_achieved()
             ),
             evse_power_limit_achieved=await evse_controller.is_evse_power_limit_achieved(),  # noqa
-            evse_max_voltage_limit=await evse_controller.get_evse_max_voltage_limit(),
-            evse_max_current_limit=await evse_controller.get_evse_max_current_limit(),
+            evse_max_voltage_limit=await evse_controller.get_evse_max_voltage_limit(
+                protocol=Protocol.ISO_15118_2
+            ),
+            evse_max_current_limit=await evse_controller.get_evse_max_current_limit(
+                protocol=Protocol.ISO_15118_2
+            ),
             evse_max_power_limit=max_power,
             evse_id=await evse_controller.get_evse_id(Protocol.ISO_15118_2),
             sa_schedule_tuple_id=self.comm_session.selected_schedule,

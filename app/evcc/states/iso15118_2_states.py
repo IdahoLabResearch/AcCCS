@@ -941,7 +941,9 @@ class PowerDelivery(StateEVCC):
 
     async def build_current_demand_data(self) -> CurrentDemandReq:
         dc_ev_charge_params = (
-            await self.comm_session.ev_controller.get_dc_charge_params()
+            await self.comm_session.ev_controller.get_dc_charge_params(
+                protocol=Protocol.ISO_15118_2
+            )
         )
         current_demand_req = CurrentDemandReq(
             dc_ev_status=await self.comm_session.ev_controller.get_dc_ev_status(),
@@ -955,10 +957,14 @@ class PowerDelivery(StateEVCC):
                 await self.comm_session.ev_controller.is_charging_complete()
             ),
             remaining_time_to_full_soc=(
-                await self.comm_session.ev_controller.get_remaining_time_to_full_soc()
+                await self.comm_session.ev_controller.get_remaining_time_to_full_soc(
+                    protocol=Protocol.ISO_15118_2
+                )
             ),
             remaining_time_to_bulk_soc=(
-                await self.comm_session.ev_controller.get_remaining_time_to_bulk_soc()
+                await self.comm_session.ev_controller.get_remaining_time_to_bulk_soc(
+                    protocol=Protocol.ISO_15118_2
+                )
             ),
             ev_target_voltage=dc_ev_charge_params.dc_target_voltage,
         )
@@ -1039,7 +1045,9 @@ class MeteringReceipt(StateEVCC):
                 )
 
     async def build_current_demand_req(self) -> CurrentDemandReq:
-        dc_charge_params = await self.comm_session.ev_controller.get_dc_charge_params()
+        dc_charge_params = await self.comm_session.ev_controller.get_dc_charge_params(
+            protocol=Protocol.ISO_15118_2
+        )
         current_demand_req: CurrentDemandReq = CurrentDemandReq(
             dc_ev_status=await self.comm_session.ev_controller.get_dc_ev_status(),
             ev_target_current=dc_charge_params.dc_target_current,
@@ -1054,10 +1062,14 @@ class MeteringReceipt(StateEVCC):
                 await self.comm_session.ev_controller.is_charging_complete()
             ),
             remaining_time_to_full_soc=(
-                await self.comm_session.ev_controller.get_remaining_time_to_full_soc()
+                await self.comm_session.ev_controller.get_remaining_time_to_full_soc(
+                    protocol=Protocol.ISO_15118_2
+                )
             ),
             remaining_time_to_bulk_soc=(
-                await self.comm_session.ev_controller.get_remaining_time_to_bulk_soc()
+                await self.comm_session.ev_controller.get_remaining_time_to_bulk_soc(
+                    protocol=Protocol.ISO_15118_2
+                )
             ),
         )
         return current_demand_req
@@ -1293,7 +1305,9 @@ class CableCheck(StateEVCC):
 
     async def build_pre_charge_message(self):
         charge_params: DCEVChargeParams = (
-            await self.comm_session.ev_controller.get_dc_charge_params()
+            await self.comm_session.ev_controller.get_dc_charge_params(
+                protocol=Protocol.ISO_15118_2
+            )
         )
         pre_charge_req = PreChargeReq(
             dc_ev_status=await self.comm_session.ev_controller.get_dc_ev_status(),
@@ -1367,7 +1381,9 @@ class PreCharge(StateEVCC):
 
     async def build_pre_charge_message(self):
         charge_params: DCEVChargeParams = (
-            await self.comm_session.ev_controller.get_dc_charge_params()
+            await self.comm_session.ev_controller.get_dc_charge_params(
+                protocol=Protocol.ISO_15118_2
+            )
         )
         pre_charge_req = PreChargeReq(
             dc_ev_status=await self.comm_session.ev_controller.get_dc_ev_status(),
@@ -1430,7 +1446,9 @@ class CurrentDemand(StateEVCC):
 
     async def build_current_demand_data(self) -> CurrentDemandReq:
         ev_controller = self.comm_session.ev_controller
-        dc_ev_charge_params = await ev_controller.get_dc_charge_params()
+        dc_ev_charge_params = await ev_controller.get_dc_charge_params(
+            protocol=Protocol.ISO_15118_2
+        )
         current_demand_req = CurrentDemandReq(
             dc_ev_status=await ev_controller.get_dc_ev_status(),
             ev_target_current=dc_ev_charge_params.dc_target_current,
@@ -1439,10 +1457,14 @@ class CurrentDemand(StateEVCC):
             bulk_charging_complete=(await ev_controller.is_bulk_charging_complete()),
             charging_complete=await ev_controller.is_charging_complete(),
             remaining_time_to_full_soc=(
-                await ev_controller.get_remaining_time_to_full_soc()
+                await ev_controller.get_remaining_time_to_full_soc(
+                    protocol=Protocol.ISO_15118_2
+                )
             ),
             remaining_time_to_bulk_soc=(
-                await ev_controller.get_remaining_time_to_bulk_soc()
+                await ev_controller.get_remaining_time_to_bulk_soc(
+                    protocol=Protocol.ISO_15118_2
+                )
             ),
             ev_target_voltage=dc_ev_charge_params.dc_target_voltage,
         )
