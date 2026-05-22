@@ -21,3 +21,15 @@ Electric Vehicle Communications Controller — the vehicle-side controller in a 
 ## SECC
 
 Supply Equipment Communications Controller — the charger-side controller in a CCS charging session. In this repo, emulated by the code under `app/secc/` and launched via `run_secc.py`. Loads an SECC-flavored [[personality]].
+
+## Scenario
+
+A test input artifact (YAML) that names an EVCC [[personality]], an SECC [[personality]], optional runtime overrides, and an expected outcome (clean session completion, specific protocol failure, fallback negotiation result). One scenario = one named end-to-end test case.
+
+Distinct from a [[personality]] (which describes a device's identity, not a test) and from a [[captured-session]] (which is recorded wire traffic used by the replay test layer, not a forward-driven test input).
+
+## Captured session
+
+A recorded artifact (message log or pcap) of an actual charging exchange between an [[EVCC]] and an [[SECC]] — either two AcCCS emulators in veth mode or a real device. Used as input to the replay test layer to verify that the EXI codec and message-parsing layer can faithfully round-trip the messages in the recording.
+
+Distinct from a [[scenario]] (which is a forward-driven test input) — a captured session is backward-driven: bytes go in, equivalence is asserted.

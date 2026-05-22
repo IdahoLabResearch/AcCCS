@@ -33,6 +33,7 @@ This is a **separate, sequential upgrade** that begins only after the [[personal
 - EXPy's `EncodeError` / `DecodeError` are mapped to AcCCS's existing `EXIEncodingError` / `EXIDecodingError` / `V2GMessageValidationError` at the codec boundary, preserving structured `rc` / `namespace` / `root` attributes.
 - Deployment targets (including Raspberry Pi in the AcCCS box) gain a C/C++ build toolchain requirement (CMake ≥3.20, Ninja ≥1.10) at install time and lose the JVM runtime requirement.
 - The XSD schemas under `app/shared/schemas/`, `app/shared/EXICodec.jar`, and the `IEXICodec` ABC are removed in the swap slice. The `EXI` wrapper in `app/shared/exi_codec.py` becomes the test seam.
+- Codec-layer test fixtures (generated in Slices 1–3 against the current Exificient codec) are **rebaselined to EXPy at Slice 5**. The Slice 5 PR includes a side-by-side byte-diff of Exificient-output vs EXPy-output across the full fixture corpus; any divergence is explicitly justified in the PR description (either a known EXPy improvement or an unexpected discrepancy requiring investigation). After Slice 5 merges, the Exificient hash snapshot is deleted and the codec-layer regression baseline becomes EXPy's output. The external truth anchor for the codec then shifts to the hardware-tagged captures in the replay corpus (see ADR-0003).
 
 ## Implementation plan (revised after EXPy v1.0)
 
