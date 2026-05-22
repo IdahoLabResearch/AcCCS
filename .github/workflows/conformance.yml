@@ -1,0 +1,71 @@
+name: Conformance suite
+
+# Runs the AcCCS conformance suite (tests/conformance/) as a hard PR gate.
+# See ADR-0003 and tests/conformance/README.md.
+#
+# Runner requirements:
+#   - CAP_NET_ADMIN (GitHub-hosted ubuntu-latest provides this; the workflow
+#     calls `sudo ./setup_veth.sh` to provision the acccs_secc/acccs_evcc
+#     veth pair before pytest runs).
+#   - Java (for the Exificient EXI codec — codec layer depends on the JVM).
+#   - Python 3.12 with the project's requirements.txt installed.
+#
+# Self-hosted runners (incl. the AcCCS-box Pi as a pre-merge job under a
+# label-triggered workflow) must mirror these prerequisites — see ADR-0003
+# § Substrate and gating.
+
+on:
+  pull_request:
+    branches: [main, development]
+  push:
+    branches: [main, development]
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Set up JDK
+        # Exificient EXI codec is a JAR launched via py4j. Required by codec
+        # and state-machine layers; without Java the layers self-skip and the
+        # gate would silently weaken.
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # requirements.txt pins smbus which only builds on Linux with i2c
+          # headers. The conformance suite does not need smbus (it stubs the
+          # SMBus path via VIRTUAL=True). Install everything else.
+          grep -v '^smbus' requirements.txt > /tmp/req.txt
+          pip install -r /tmp/req.txt
+
+      - name: Provision veth pair
+        # The E2E layer talks over acccs_secc ⇄ acccs_evcc. setup_veth.sh
+        # uses `ip link` which needs CAP_NET_ADMIN — ubuntu-latest grants
+        # this via sudo by default.
+        run: sudo ./setup_veth.sh
+
+      - name: Run conformance suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: pytest tests/conformance/ -v
+
+      - name: Tear down veth pair
+        if: always()
+        run: sudo ./remove_veth.sh

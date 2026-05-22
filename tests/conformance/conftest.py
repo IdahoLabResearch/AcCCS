@@ -1,0 +1,179 @@
+"""Shared fixtures for the AcCCS conformance suite.
+
+See `tests/conformance/README.md` and `docs/adr/0003-conformance-test-framework.md`.
+
+Three groups of fixtures live here:
+
+1. `exi_codec` — session-scoped JVM-backed Exificient codec, registered on the
+   `EXI` singleton. The codec layer and (transitively) state-machine layer
+   depend on this.
+2. `veth_pair` — verifies that the `acccs_secc` / `acccs_evcc` veth pair
+   exists. The E2E layer depends on this; tests that need it skip when it is
+   absent so a developer without `CAP_NET_ADMIN` still gets the codec and
+   state-machine layers.
+3. `launch_emulator` — factory fixture that spawns `run_evcc.py` / `run_secc.py`
+   as subprocesses with the requested test personality, then tears them down.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+import shutil
+import signal
+import subprocess
+import sys
+from pathlib import Path
+from typing import Iterable, Iterator, Optional
+
+import pytest
+
+
+# Production code calls `logger.trace(...)` (a custom log level installed by
+# `app.shared.logging._init_logger`). The conformance suite does not run that
+# initialiser — it would create timestamped log files and load fileConfig from
+# an installer-flavoured path — so we install just the trace method here.
+if not hasattr(logging.getLoggerClass(), "trace"):
+    _TRACE = logging.DEBUG - 5
+    logging.addLevelName(_TRACE, "TRACE")
+    logging.getLoggerClass().trace = lambda self, *a, **kw: None  # type: ignore[attr-defined]
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SECC_IFACE = "acccs_secc"
+EVCC_IFACE = "acccs_evcc"
+
+
+# ---------------------------------------------------------------------------
+# Codec
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def exi_codec():
+    """Initialise the Exificient EXI codec once per test session.
+
+    The codec layer cannot run without a registered codec on the `EXI`
+    singleton. Initialisation launches a JVM via py4j; if Java is unavailable,
+    skip every test that depends on this fixture rather than erroring.
+    """
+    if shutil.which("java") is None:
+        pytest.skip("java not on PATH — Exificient codec cannot launch")
+
+    # Imported lazily so collecting tests doesn't pull in py4j unnecessarily.
+    from app.shared.exi_codec import EXI
+    from app.shared.exificient_exi_codec import ExificientEXICodec
+    from app.shared.settings import load_shared_settings
+
+    # `to_exi` / `from_exi` consult `shared_settings` for log toggles; without
+    # this call the codec raises KeyError on first use.
+    load_shared_settings()
+    codec = ExificientEXICodec()
+    EXI().set_exi_codec(codec)
+    yield codec
+    # py4j's launch_gateway sets `die_on_exit=True`, so the JVM goes away when
+    # the test process does. No explicit teardown required.
+
+
+# ---------------------------------------------------------------------------
+# Veth
+# ---------------------------------------------------------------------------
+
+
+def _iface_exists(name: str) -> bool:
+    return Path(f"/sys/class/net/{name}").exists()
+
+
+@pytest.fixture(scope="session")
+def veth_pair() -> Iterator[tuple[str, str]]:
+    """Ensure the SECC/EVCC veth pair is up; skip if it is not.
+
+    Slice 1 deliberately does NOT auto-run `setup_veth.sh` from the fixture —
+    that script needs `sudo` and there is no portable way to acquire it
+    non-interactively. CI environments (and developers) are expected to
+    provision the pair before invoking pytest. See README.md.
+    """
+    if not (_iface_exists(SECC_IFACE) and _iface_exists(EVCC_IFACE)):
+        pytest.skip(
+            f"veth pair {SECC_IFACE}/{EVCC_IFACE} not present — "
+            f"run setup_veth.sh (requires CAP_NET_ADMIN)"
+        )
+    yield SECC_IFACE, EVCC_IFACE
+
+
+# ---------------------------------------------------------------------------
+# Emulator subprocesses
+# ---------------------------------------------------------------------------
+
+
+def _personality_env(personality_path: Path) -> dict[str, str]:
+    """Translate a bootstrap test personality (key=value file) into env vars.
+
+    Bootstrap test personalities mirror the existing `.env.evcc` / `.env.secc`
+    format because Slice 1 predates the personality YAML rollout (#6). Once
+    Slice 2 lands, this helper goes away and `launch_emulator` loads a YAML
+    personality through the (future) loader.
+    """
+    env: dict[str, str] = {}
+    for line in personality_path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        env[key.strip()] = value.strip().strip('"').strip("'")
+    return env
+
+
+@pytest.fixture
+def launch_emulator(veth_pair):
+    """Factory that spawns `run_evcc.py` or `run_secc.py` with a personality.
+
+    Returns a callable `(role, personality_path, extra_args=None) -> Popen`.
+    All spawned processes are torn down at fixture teardown.
+    """
+    processes: list[subprocess.Popen] = []
+
+    def _spawn(
+        role: str,
+        personality_path: Path,
+        extra_args: Optional[Iterable[str]] = None,
+    ) -> subprocess.Popen:
+        if role not in ("evcc", "secc"):
+            raise ValueError(f"role must be 'evcc' or 'secc', got {role!r}")
+
+        env = os.environ.copy()
+        env.update(_personality_env(personality_path))
+
+        cmd = [sys.executable, f"run_{role}.py", *(list(extra_args) if extra_args else [])]
+        proc = subprocess.Popen(
+            cmd,
+            cwd=REPO_ROOT,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        processes.append(proc)
+        return proc
+
+    yield _spawn
+
+    for proc in processes:
+        if proc.poll() is None:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                proc.wait(timeout=5)
+            except (ProcessLookupError, subprocess.TimeoutExpired):
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+
+# Pytest-asyncio: each test gets its own event loop unless it opts into a wider
+# scope. The default is fine for everything we author in Slice 1.
+@pytest.fixture
+def event_loop_policy():
+    return asyncio.DefaultEventLoopPolicy()

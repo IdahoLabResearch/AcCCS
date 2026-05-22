@@ -1,0 +1,7 @@
+name: din-happy
+description: DIN 70121 DC happy path, no TLS
+evcc_personality: din-evcc
+secc_personality: din-secc
+expected_outcome: session_complete
+timeout_seconds: 60
+xfail: false

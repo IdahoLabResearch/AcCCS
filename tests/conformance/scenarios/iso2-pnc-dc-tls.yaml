@@ -1,0 +1,10 @@
+name: iso2-pnc-dc-tls
+description: ISO 15118-2 PnC DC TLS-on happy path
+evcc_personality: iso2-evcc
+secc_personality: iso2-secc
+expected_outcome: session_complete
+timeout_seconds: 90
+xfail: true
+xfail_reason: >-
+  Awaits ISO 15118-2 personality + state-machine wiring (#8) and EXPy ISO-2
+  codec fixtures (#13). Tracked in ADR-0003's per-slice gating table.
