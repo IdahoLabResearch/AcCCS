@@ -10,7 +10,6 @@ import base64
 import logging
 import time
 import os
-import environs
 from typing import Dict, List, Optional, Union
 
 from app.secc.controller.common import UnknownEnergyService
@@ -262,8 +261,18 @@ class SimEVSEController(EVSEControllerInterface):
     A simulated version of an EVSE controller
     """
 
-    def __init__(self):
+    def __init__(self, personality=None):
+        """Construct a sim controller.
+
+        `personality` is an optional `SECCPersonality` (ADR-0001). When
+        present, `get_evse_id()` reads the EVSEID from
+        `personality.identity` instead of the legacy `.env.secc` lookup.
+        The conformance state-machine harness keeps invoking
+        `SimEVSEController()` without arguments — the EVSEID falls back to
+        the historical default in that case.
+        """
         super().__init__()
+        self.personality = personality
         self.ev_data_context = EVDataContext()
         self.evse_data_context = get_evse_context()
 
@@ -295,19 +304,17 @@ class SimEVSEController(EVSEControllerInterface):
         # Example: The DIN SPEC 91286 EVSE ID “49*89*6360” is represented
         # as “0x49 0xA8 0x9A 0x63 0x60”.
         
-        WORK_DIR = os.getcwd()
-        ENV_PATH = WORK_DIR + "/.env.secc"
-        env = environs.Env(eager=False)
-        env.read_env(path=ENV_PATH)  # read .env file, if it exists
+        configured = self.personality.identity.evse_id if self.personality else None
         if protocol != Protocol.DIN_SPEC_70121:
-            evse_id = env.str("EVSEID", default="ZZ00000")
+            evse_id = configured or "ZZ00000"
         else:
-            evse_id = env.str("EVSEID", default="49A89A6360")
+            evse_id = configured or "49A89A6360"
             if not await self.is_valid_evse_id(evse_id):
-                logger.warning(f"Invalid EVSE ID {evse_id} provided for "
-                               f"protocol {protocol}. Using default EVSE ID.")
+                logger.warning(
+                    f"Invalid EVSE ID {evse_id} provided for protocol "
+                    f"{protocol}. Using default EVSE ID."
+                )
                 evse_id = "49A89A6360"
-        env.seal()  # raise all errors at once, if any
         return evse_id
 
     async def get_supported_energy_transfer_modes(

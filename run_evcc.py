@@ -1,25 +1,23 @@
 """
     Copyright 2025, Ford Motor Company
 
-    Script that runs the EVCC emulator
+    Script that runs the EVCC emulator.
+
+    Per ADR-0001 the EVCC is driven by a single personality YAML file plus an
+    optional runtime.yaml. Personality fields are not CLI-overridable; only
+    runtime knobs (logging, NMAP, virtual mode, source port) have flags.
 """
 
-import argparse, asyncio
+import argparse
+import asyncio
 
 from app.evcc.controller.pev import PEV
 from app.shared.EmulatorEnum import PEVState
+from app.shared.personality import add_runtime_cli_args
+
 
 parser = argparse.ArgumentParser(description="Emulator for EVCC/PEV")
-
-parser.add_argument("--source-port", nargs=1, type=int, help="Source port of packets (default: random port between 49152 and 65534)")
-
-parser.add_argument("--protocols", help="Comma separated, ordered list of protocols to use (default: ISO_15118_2, DIN_SPEC_70121)")
-parser.add_argument("--authmodes", help="Comma separated, ordered list of authentication modes to use (default: PNC, EIM)")
-parser.add_argument("--energymode", help="Energy transfer mode to use (default: DC)")
-parser.add_argument("--useTLS", help="Use TLS for communication (default: True)")
-
-parser.add_argument("--slacSoundTimeout", type=int, help="Timeout in milliseconds to wait for SLAC sound before restarting SLAC process (default: 1000)")
-
+add_runtime_cli_args(parser)
 args = parser.parse_args()
 
 pev = PEV(args)

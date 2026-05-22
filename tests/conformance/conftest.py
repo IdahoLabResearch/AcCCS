@@ -106,29 +106,14 @@ def veth_pair() -> Iterator[tuple[str, str]]:
 # ---------------------------------------------------------------------------
 
 
-def _personality_env(personality_path: Path) -> dict[str, str]:
-    """Translate a bootstrap test personality (key=value file) into env vars.
-
-    Bootstrap test personalities mirror the existing `.env.evcc` / `.env.secc`
-    format because Slice 1 predates the personality YAML rollout (#6). Once
-    Slice 2 lands, this helper goes away and `launch_emulator` loads a YAML
-    personality through the (future) loader.
-    """
-    env: dict[str, str] = {}
-    for line in personality_path.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        env[key.strip()] = value.strip().strip('"').strip("'")
-    return env
-
-
 @pytest.fixture
 def launch_emulator(veth_pair):
     """Factory that spawns `run_evcc.py` or `run_secc.py` with a personality.
+
+    Personality YAML lands in ADR-0001 Slice 1, so this fixture passes
+    `--config <path>` to the subprocess rather than a translated env. The
+    spawned process is launched in `--virtual` mode (no SMBus / I2C
+    relays); CI / dev environments do not have the EV harness PCB attached.
 
     Returns a callable `(role, personality_path, extra_args=None) -> Popen`.
     All spawned processes are torn down at fixture teardown.
@@ -143,14 +128,17 @@ def launch_emulator(veth_pair):
         if role not in ("evcc", "secc"):
             raise ValueError(f"role must be 'evcc' or 'secc', got {role!r}")
 
-        env = os.environ.copy()
-        env.update(_personality_env(personality_path))
-
-        cmd = [sys.executable, f"run_{role}.py", *(list(extra_args) if extra_args else [])]
+        cmd = [
+            sys.executable,
+            f"run_{role}.py",
+            "--config",
+            str(personality_path),
+            "--virtual",
+            *(list(extra_args) if extra_args else []),
+        ]
         proc = subprocess.Popen(
             cmd,
             cwd=REPO_ROOT,
-            env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             start_new_session=True,

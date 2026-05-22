@@ -1,18 +1,14 @@
-# Bootstrap test personalities
+# Test personalities
 
-These are **framework fixtures**, not operational personalities. Per ADR-0003
-Slice F0:
+These are **framework fixtures**, not operational personalities. Each file is
+a minimal YAML personality validated by the same Pydantic model the
+production loader uses (ADR-0001).
 
-> Bootstrap test personalities authored against the pre-rollout `.env` / JSON
-> config so smoke scenarios can run before personality Slice 1 (#6) lands.
+The conformance E2E runner passes a personality path to the spawned
+`run_evcc.py` / `run_secc.py` subprocess via `--config <path>`. The runner
+also adds `--virtual` so the subprocess never touches the SMBus / I2C relay
+hardware (CI / dev boxes don't have it attached).
 
-They mirror the existing `.env.evcc` / `.env.secc` format because that is the
-configuration shape that exists today. Once personality Slice 1 lands (#6)
-and the YAML loader is in place, F3 replaces these files with YAML
-personalities under the same directory.
-
-The conformance E2E runner reads a personality file, parses each `KEY=VALUE`
-line, and passes those values as environment variables to the spawned
-`run_evcc.py` / `run_secc.py` subprocess. That keeps the framework decoupled
-from the personality format — only the file extension changes when YAML
-arrives.
+ADR-0003's F3 step ("swap bootstrap test personalities for YAML once
+personality Slice 1 lands") is satisfied — these files are the YAML
+replacements. The DIN smoke scenario no longer wears an xfail.

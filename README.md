@@ -88,12 +88,48 @@ Below is a brief description of the scripts in this project. These scripts are p
 
 ## Running the emulators
 
-Only two scripts are expected to be run from command line: ```run_evcc.py``` and ```run_secc.py```. The other scripts and files serve as tools and utilities for these scripts to run. 
+Only two scripts are expected to be run from command line: ```run_evcc.py``` and ```run_secc.py```. The other scripts and files serve as tools and utilities for these scripts to run.
 
-These scripts run the ```EVSE.py``` and ```PEV.py``` scripts, respectively, in the background, which include some basic functionality to port scan (similar to NMAP) while the emulator is running. In our limited testing, the EVSEs stay connected to the emulator indefinitely, but the PEVs terminate the connection after a couple of minutes without any power transfer. For this reason a simple TCP syn scan is included in the script to pick up where the scan left off when the connection is reestablished.
+Both scripts take a required `--config <personality.yaml>` flag and an
+optional `--runtime <runtime.yaml>`. Stock personalities live in the
+[`personalities/`](personalities/) directory; the bundled defaults are a
+complete materialised dump of every field with its built-in value:
+
+```bash
+# Run the stock virtual SECC and EVCC over the acccs_secc/acccs_evcc veth pair
+sudo ./setup_veth.sh
+python run_secc.py --config default-secc --virtual
+python run_evcc.py --config default-evcc --virtual
+```
+
+Personality search order (per [ADR-0001](docs/adr/0001-personality-yaml-config.md)):
+
+1. explicit `--config <path>` (file path);
+2. `personalities/<name>.yaml` in the repo;
+3. `~/.acccs/personalities/<name>.yaml` (user-local).
+
+### CLI overrides
+
+Personality fields are **not** CLI-overridable — they describe *who* the
+emulated device is, and changing them mid-experiment is a different
+personality. Operational knobs are overridable:
+
+| Flag | Overrides |
+|---|---|
+| `--log-level <LEVEL>` | `runtime.log.console_level` |
+| `--file-log-level <LEVEL>` | `runtime.log.file_level` |
+| `--virtual` | `runtime.virtual` |
+| `--nmap` | `runtime.nmap.enabled` |
+| `--nmap-args <ARGS>` | `runtime.nmap.args` |
+| `--nmap-ports <SPEC>` | `runtime.nmap.ports` |
+| `--source-port <PORT>` | `runtime.source_port` |
+| `--modified-cordset` | `runtime.modified_cordset` (SECC only) |
+
+To customise a personality, copy `personalities/default-<role>.yaml` to a
+new file and edit. The Pydantic loader validates strictly — unknown keys
+are a hard error.
 
 ## Certificate Management
-Files ```.env.evcc``` and ```.env.secc``` are the config files for the EVCC and the SECC, respectively. For EVCC, however, there is another set of config files which control the parameters for the individual protocols. These files are located in the [examples](/app/shared/examples/evcc) folder. One of these files has to be specified in the ```.env.evcc``` file by setting the EVCC_CONFIG_PATH property. This is what determines what protocol the EV will use for charging.
 
 ### Plug and Charge (ISO 15118-2 and ISO 15118-20)
 For Plug and Charge, certificates and private keys have to be created at the beginning. Go to the [pki](/app/shared/pki) directory and run the ```create_certs.sh``` script like this:

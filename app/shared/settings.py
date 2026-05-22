@@ -4,9 +4,10 @@
 """
 
 import os
-from typing import Optional
+from typing import TYPE_CHECKING
 
-import environs
+if TYPE_CHECKING:
+    from app.shared.personality.model import Runtime, _PersonalityBase
 
 
 class SettingKey:
@@ -19,25 +20,42 @@ class SettingKey:
     NMAP_PORTS = "NMAP_PORTS"
 
 
-shared_settings = {}
+shared_settings: dict = {}
 SHARED_CWD = os.path.dirname(os.path.abspath(__file__))
 JAR_FILE_PATH = SHARED_CWD + "/EXICodec.jar"
 
 WORK_DIR = os.getcwd()
 
 
-def load_shared_settings(env_path: Optional[str] = None):
-    env = environs.Env(eager=False)
-    env.read_env(path=env_path)  # read .env file, if it exists
+def init_shared_settings(personality: "_PersonalityBase", runtime: "Runtime") -> None:
+    """Populate the shared-settings dict from a personality + runtime.
 
-    settings = {
-        SettingKey.PKI_PATH: env.str("PKI_PATH", default=SHARED_CWD + "/pki/"),
-        SettingKey.MESSAGE_LOG_JSON: env.bool("MESSAGE_LOG_JSON", default=True),
-        SettingKey.MESSAGE_LOG_EXI: env.bool("MESSAGE_LOG_EXI", default=False),
-        SettingKey.ENABLE_TLS_1_3: env.bool("ENABLE_TLS_1_3", default=False),
-        SettingKey.ENABLE_NMAP: env.bool("ENABLE_NMAP", default=False),
-        SettingKey.NMAP_ARGS: env.str("NMAP_ARGS", default="-sS -6"),
-        SettingKey.NMAP_PORTS: env.str("NMAP_PORTS", default="-"),
-    }
-    shared_settings.update(settings)
-    env.seal()  # raise all errors at once, if any
+    Per ADR-0001 there are no env-var sources of truth any more — the
+    personality YAML supplies persona fields and `runtime.yaml` / CLI flags
+    supply operational ones. This function is the single seam where those
+    typed models cross over into the legacy `shared_settings` dict that
+    older code (codec, NMAP scanner) still reads.
+    """
+    shared_settings.update(
+        {
+            SettingKey.PKI_PATH: personality.certificates.pki_path,
+            SettingKey.MESSAGE_LOG_JSON: runtime.log.message_log_json,
+            SettingKey.MESSAGE_LOG_EXI: runtime.log.message_log_exi,
+            SettingKey.ENABLE_TLS_1_3: personality.tls.enable_tls_1_3,
+            SettingKey.ENABLE_NMAP: runtime.nmap.enabled,
+            SettingKey.NMAP_ARGS: runtime.nmap.args,
+            SettingKey.NMAP_PORTS: runtime.nmap.ports,
+        }
+    )
+
+
+def load_shared_settings(*_args, **_kwargs) -> None:
+    """Back-compat shim: tests and the codec call this with no args to get
+    sane defaults. New code should call `init_shared_settings` with a real
+    personality + runtime."""
+    # Imported here to avoid a circular import at module load.
+    from app.shared.personality.model import EVCCPersonality, Runtime
+
+    if shared_settings:
+        return
+    init_shared_settings(EVCCPersonality(), Runtime())

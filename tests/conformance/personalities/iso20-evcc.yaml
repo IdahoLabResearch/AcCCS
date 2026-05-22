@@ -1,0 +1,16 @@
+role: evcc
+identity:
+  evcc_id: 1FMVAA45B63C47DD58Y6
+network:
+  interface: acccs_evcc
+tls:
+  enable_tls_1_3: true
+  use_tls: true
+capabilities:
+  supported_protocols:
+    - ISO_15118_20_DC
+  supported_auth_modes:
+    - PNC
+  supported_energy_services:
+    - DC
+  energy_transfer_mode: DC_extended

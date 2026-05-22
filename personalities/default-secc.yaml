@@ -1,0 +1,50 @@
+# Stock SECC personality.
+#
+# This file is *generated* from the Pydantic defaults in
+# `app/shared/personality/model.py` by
+# `scripts/regen_personality_defaults.py`. Edit the model, then rerun the
+# script. The drift test (tests/personality/test_drift.py) guards against
+# this file falling out of sync.
+#
+# See ADR-0001 for the personality concept and section breakdown.
+identity:
+  evcc_id: 1FMVAA45B63C47DD58Y6
+  evse_id: 49A89A6360
+network:
+  interface: acccs_secc
+slac:
+  sound_timeout_ms: 1000
+  nid_hex: 9cb0b2bbf56c0e
+  nmk_hex: 48fe5602dbaccde51edadc3e081a52d1
+tls:
+  enable_tls_1_3: true
+  use_tls: true
+  enforce_tls: false
+  sdp_retry_cycles: 1
+capabilities:
+  supported_protocols:
+  - DIN_SPEC_70121
+  - ISO_15118_2
+  - ISO_15118_20_AC
+  - ISO_15118_20_DC
+  supported_auth_modes:
+  - PNC
+  - EIM
+  supported_energy_services:
+  - DC
+  energy_transfer_mode: DC_extended
+  free_charging_service: false
+  free_cert_install_service: true
+  allow_cert_install_service: true
+  use_cpo_backend: false
+  standby_allowed: false
+  is_cert_install_needed: false
+  max_supporting_points: 1024
+power: {}
+charge_profile:
+  cycle: 10
+  delay_seconds: 0
+certificates:
+  pki_path: app/shared/pki/
+  max_contract_certs: 3
+role: secc

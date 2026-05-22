@@ -7,44 +7,56 @@
     and level 3 UDP and TCP communications to the charging station.
 """
 
-# need to do this to import the custom SECC and V2G scapy layer
-import time
-import json
 import logging
-
-from app.shared.EmulatorEnum import RunMode, PEVState
-
-from app.evcc.transport.slac import SLACHandler
+import time
 
 from app.evcc import Config, EVCCHandler
 from app.evcc.controller.simulator import SimEVController
-from app.evcc.evcc_config import load_from_file
+from app.evcc.evcc_config import EVCCConfig
+from app.evcc.transport.slac import SLACHandler
+from app.shared.EmulatorEnum import PEVState
 from app.shared.exificient_exi_codec import ExificientEXICodec
+from app.shared.logging import _init_logger
 from app.shared.network import (
     get_link_local_addr,
     get_nic_mac_address,
-    get_tcp_port
+    get_tcp_port,
 )
-from app.shared.logging import _init_logger
+from app.shared.personality import (
+    EVCCPersonality,
+    Runtime,
+    apply_runtime_overrides,
+    load_personality,
+    load_runtime,
+)
 
-_init_logger(source="EVCC")
 logger = logging.getLogger(__name__)
+
 
 class PEV:
 
     def __init__(self, args):
-        self.config = Config()
-        self.config.load_envs()
-        
+        # Load personality + runtime first so the logger can pick up the
+        # operator's chosen levels before we emit anything.
+        personality = load_personality(args.config, role="evcc")
+        assert isinstance(personality, EVCCPersonality)
+        runtime = apply_runtime_overrides(load_runtime(args.runtime), args)
+        _init_logger(
+            source="EVCC",
+            console_level=runtime.log.console_level,
+            file_level=runtime.log.file_level,
+        )
+
+        self.personality = personality
+        self.runtime = runtime
+        self.config = Config.from_personality(personality, runtime)
+        self.evcc_config = EVCCConfig.from_personality(personality)
+
         self.iface = self.config.iface
         self.sourceMAC = get_nic_mac_address(self.iface)
         self.sourceIP = str(get_link_local_addr(self.iface))
-        self.sourcePort = args.source_port[0] if args.source_port else get_tcp_port()
-        self.protocols = args.protocols.split(",") if args.protocols else None
-        self.authModes = args.authmodes.split(",") if args.authmodes else None
-        self.energyMode = args.energymode if args.energymode else None
-        self.useTLS = args.useTLS if args.useTLS else None
-        self.slacSoundTimeout = args.slacSoundTimeout if args.slacSoundTimeout else 1000
+        self.sourcePort = runtime.source_port if runtime.source_port else get_tcp_port()
+        self.slacSoundTimeout = personality.slac.sound_timeout_ms
 
         self.destinationMAC = None
         self.destinationIP = None
@@ -55,7 +67,7 @@ class PEV:
 
         if not self.virtual:
             from smbus import SMBus
-        
+
             # I2C bus for relays
             self.bus = SMBus(1)
 
@@ -72,41 +84,18 @@ class PEV:
             # Initialize the smbus for I2C commands
             self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00)
             self.toggleProximity()
-        
-        with open(self.config.ev_config_file_path, "r") as f:
-            evcc_config_data = json.load(f)
 
-        if self.protocols:
-            evcc_config_data["supportedProtocols"] = self.protocols
-        if self.authModes:
-            evcc_config_data["supportedAuthModes"] = self.authModes
-        if self.energyMode:
-            evcc_config_data["supportedEnergyServices"] = [self.energyMode]
-        if self.useTLS:
-            if self.useTLS.lower() == "true":
-                evcc_config_data["useTls"] = True
-            elif self.useTLS.lower() == "false":
-                evcc_config_data["useTls"] = False
-            else:
-                logger.warning(f"Invalid value for useTLS: {self.useTLS}. "
-                               f"Should be 'true' or 'false'. Defaulting to the .env value.")
-
-        self.config.ev_config_file_path = "app/shared/examples/evcc/evcc_settings.json"
-        with open(self.config.ev_config_file_path, "w") as f:
-            json.dump(evcc_config_data, f, indent=4)
-        
-        evcc_config = await load_from_file(self.config.ev_config_file_path)
         self.slac = SLACHandler(self)
 
         logger.info(f"EVCC MAC address: {self.sourceMAC}")
-        
+
         self.doSLAC()
-        
+
         await EVCCHandler(
-            evcc_config=evcc_config,
+            evcc_config=self.evcc_config,
             iface=self.config.iface,
             exi_codec=ExificientEXICodec(),
-            ev_controller=SimEVController(evcc_config),
+            ev_controller=SimEVController(self.evcc_config),
         ).start()
 
     def doSLAC(self):
@@ -132,13 +121,19 @@ class PEV:
             if self.virtual:
                 return
             else:
-                self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.PEV_PP | self.PEV_CP1)
+                self.bus.write_byte_data(
+                    self.I2C_ADDR, self.CONTROL_REG, self.PEV_PP | self.PEV_CP1
+                )
         elif state == PEVState.C:
             logger.info("Going to state C")
             if self.virtual:
                 return
             else:
-                self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.PEV_PP | self.PEV_CP1 | self.PEV_CP2)
+                self.bus.write_byte_data(
+                    self.I2C_ADDR,
+                    self.CONTROL_REG,
+                    self.PEV_PP | self.PEV_CP1 | self.PEV_CP2,
+                )
 
     def toggleProximity(self, t: int = 5):
         self.openProximity()

@@ -10,7 +10,6 @@ EVControllerInterface.
 import logging
 import random
 import os
-import environs
 from typing import List, Optional, Tuple, Union
 
 from app.evcc import EVCCConfig
@@ -181,14 +180,9 @@ class SimEVController(EVControllerInterface):
                 )
                 return "000000000000"
         elif protocol.ns.startswith(Namespace.ISO_V20_BASE):
-            # The check digit (last character) is not a correctly computed one
-            WORK_DIR = os.getcwd()
-            ENV_PATH = WORK_DIR + "/.env.evcc"
-            env = environs.Env(eager=False)
-            env.read_env(path=ENV_PATH)  # read .env file, if it exists
-            evcc_id = env.str("EVCCID", default="1FMVAA45B63C47DD58Y6")
-            env.seal()  # raise all errors at once, if any
-            return evcc_id
+            # ISO 15118-20 EVCCID is a VIN-shaped string sourced from the
+            # personality's identity section (ADR-0001).
+            return self.config.evcc_id or "1FMVAA45B63C47DD58Y6"
         else:
             logger.error(f"Invalid protocol '{protocol}', can't determine EVCCID")
             raise InvalidProtocolError

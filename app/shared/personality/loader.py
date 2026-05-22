@@ -1,0 +1,227 @@
+"""YAML loader + CLI override merger for personalities and runtime.
+
+Per ADR-0001 the personality search order is:
+
+1. Explicit `--config <path>` (or `--runtime <path>`).
+2. `personalities/<name>.yaml` in the repo (relative to CWD).
+3. `~/.acccs/personalities/<name>.yaml` user-local.
+
+That order lets proprietary device personalities live outside the repo
+without forking AcCCS, while keeping the repo's bundled defaults the obvious
+starting point.
+
+For runtime: defaults (from the model) → optional `runtime.yaml` →
+argparse-derived overrides. Personality fields are *not* CLI-overridable;
+the CLI builder simply never constructs flags for them.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+from pathlib import Path
+from typing import Optional, Type, TypeVar
+
+import yaml
+
+from app.shared.personality.model import (
+    EVCCPersonality,
+    Runtime,
+    SECCPersonality,
+    _PersonalityBase,
+)
+
+P = TypeVar("P", bound=_PersonalityBase)
+
+REPO_PERSONALITIES = Path("personalities")
+USER_PERSONALITIES = Path.home() / ".acccs" / "personalities"
+
+
+class PersonalityNotFoundError(FileNotFoundError):
+    """Raised when no personality file is found under the search order."""
+
+
+def _resolve(name_or_path: str) -> Path:
+    """Apply the three-tier search to `name_or_path`.
+
+    If `name_or_path` is an existing file path, return it as-is (tier 1).
+    Otherwise treat it as a bare name and look it up under
+    `personalities/` then `~/.acccs/personalities/`.
+    """
+    candidate = Path(name_or_path)
+    if candidate.is_file():
+        return candidate
+
+    # Tier 2: repo-local personalities/<name>.yaml. Accept either a bare
+    # name ("default-evcc") or a name with extension ("default-evcc.yaml")
+    # so the CLI is forgiving.
+    for suffix in ("", ".yaml", ".yml"):
+        repo_path = REPO_PERSONALITIES / f"{name_or_path}{suffix}"
+        if repo_path.is_file():
+            return repo_path
+
+    # Tier 3: user-local override.
+    for suffix in ("", ".yaml", ".yml"):
+        user_path = USER_PERSONALITIES / f"{name_or_path}{suffix}"
+        if user_path.is_file():
+            return user_path
+
+    raise PersonalityNotFoundError(
+        f"No personality file for {name_or_path!r}. Searched: "
+        f"explicit path, {REPO_PERSONALITIES}/, {USER_PERSONALITIES}/."
+    )
+
+
+def _load_yaml(path: Path) -> dict:
+    with path.open("r") as f:
+        data = yaml.safe_load(f) or {}
+    if not isinstance(data, dict):
+        raise ValueError(f"{path}: top-level YAML must be a mapping, got {type(data).__name__}")
+    return data
+
+
+def load_personality(name_or_path: str, role: str) -> _PersonalityBase:
+    """Resolve + parse a personality YAML for the given role.
+
+    `role` is the role of the run script invoking the loader (`"evcc"` or
+    `"secc"`). The YAML may or may not include a `role:` field — if it
+    does, it must match. This catches "loaded the SECC personality into the
+    EVCC by accident" mistakes early.
+    """
+    path = _resolve(name_or_path)
+    data = _load_yaml(path)
+
+    yaml_role = data.get("role")
+    if yaml_role is not None and yaml_role != role:
+        raise ValueError(
+            f"{path}: personality declares role={yaml_role!r} but this "
+            f"process is the {role!r} side"
+        )
+
+    model_cls: Type[_PersonalityBase]
+    if role == "evcc":
+        model_cls = EVCCPersonality
+    elif role == "secc":
+        model_cls = SECCPersonality
+    else:
+        raise ValueError(f"unknown role {role!r}; expected 'evcc' or 'secc'")
+
+    return model_cls.model_validate(data)
+
+
+def load_runtime(path_or_none: Optional[str]) -> Runtime:
+    """Load a runtime.yaml or return defaults.
+
+    Unlike personalities, runtime is fully optional — passing `None` is the
+    common case and just yields the model defaults.
+    """
+    if path_or_none is None:
+        return Runtime()
+    return Runtime.model_validate(_load_yaml(Path(path_or_none)))
+
+
+# ---------------------------------------------------------------------------
+# CLI override application
+# ---------------------------------------------------------------------------
+
+
+_CLI_FIELD_MAP = {
+    # argparse dest -> dotted Runtime field path
+    "virtual": "virtual",
+    "log_level": "log.console_level",
+    "file_log_level": "log.file_level",
+    "nmap_enabled": "nmap.enabled",
+    "nmap_args": "nmap.args",
+    "nmap_ports": "nmap.ports",
+    "source_port": "source_port",
+    "modified_cordset": "modified_cordset",
+    "message_log_json": "log.message_log_json",
+    "message_log_exi": "log.message_log_exi",
+}
+
+
+def apply_runtime_overrides(runtime: Runtime, args: argparse.Namespace) -> Runtime:
+    """Return a new Runtime with non-None argparse fields overlaid.
+
+    Builds a dict from the runtime, walks `_CLI_FIELD_MAP`, and overlays any
+    CLI value that the user actually supplied (i.e. not `None` — argparse
+    leaves unprovided fields as None when default=None). Re-validates so
+    the result is still strict-checked.
+    """
+    data = runtime.model_dump()
+    for dest, dotted in _CLI_FIELD_MAP.items():
+        value = getattr(args, dest, None)
+        if value is None:
+            continue
+        cursor = data
+        parts = dotted.split(".")
+        for part in parts[:-1]:
+            cursor = cursor.setdefault(part, {})
+        cursor[parts[-1]] = value
+    return Runtime.model_validate(data)
+
+
+def add_runtime_cli_args(parser: argparse.ArgumentParser) -> None:
+    """Attach the runtime-overriding flags to a parser.
+
+    Personality fields deliberately have no flags — ADR-0001 promises that
+    personality is not CLI-overridable. Any historical EVCC/SECC flag that
+    set a personality field (e.g. `--protocols`, `--useTLS`,
+    `--slacSoundTimeout`) has been removed; authoring a custom personality
+    file is the new path.
+    """
+    parser.add_argument("--config", required=True, help="Personality file (name or path)")
+    parser.add_argument("--runtime", default=None, help="Optional runtime.yaml path")
+
+    parser.add_argument(
+        "--log-level",
+        dest="log_level",
+        default=None,
+        help="Console log level (overrides runtime.log.console_level)",
+    )
+    parser.add_argument(
+        "--file-log-level",
+        dest="file_log_level",
+        default=None,
+        help="File log level (overrides runtime.log.file_level)",
+    )
+    parser.add_argument(
+        "--virtual",
+        dest="virtual",
+        action="store_true",
+        default=None,
+        help="Run in virtual mode (no SMBus / I2C relays)",
+    )
+    parser.add_argument(
+        "--nmap",
+        dest="nmap_enabled",
+        action="store_true",
+        default=None,
+        help="Enable NMAP probing",
+    )
+    parser.add_argument(
+        "--nmap-args",
+        dest="nmap_args",
+        default=None,
+        help="NMAP argument string",
+    )
+    parser.add_argument(
+        "--nmap-ports",
+        dest="nmap_ports",
+        default=None,
+        help="NMAP port spec",
+    )
+    parser.add_argument(
+        "--source-port",
+        dest="source_port",
+        type=int,
+        default=None,
+        help="Override TCP source port (operational)",
+    )
+    parser.add_argument(
+        "--modified-cordset",
+        dest="modified_cordset",
+        action="store_true",
+        default=None,
+        help="SECC: enable modified-cordset behaviour for hardware testing",
+    )

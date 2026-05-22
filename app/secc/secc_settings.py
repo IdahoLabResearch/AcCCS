@@ -4,22 +4,26 @@
 """
 
 import logging
-import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, Type
 
-import environs
-
 from app.secc.controller.interface import EVSEControllerInterface
-from app.shared.messages.enums import AuthEnum, Protocol, Namespace
-from app.shared.settings import load_shared_settings, shared_settings
-from app.shared.utils import load_requested_auth_modes, load_requested_protocols
+from app.shared.messages.enums import AuthEnum, Namespace, Protocol
+from app.shared.personality.model import Runtime, SECCPersonality
+from app.shared.settings import init_shared_settings, shared_settings
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class Config:
+    """Per-process configuration for the SECC.
+
+    Slice 1 of ADR-0001: this dataclass is now built from a personality +
+    runtime pair, not from a `.env` file. Field surface preserved so the
+    EVSE controller and SECCHandler keep working unchanged.
+    """
+
     iface: Optional[str] = None
     console_log_level: Optional[str] = None
     file_log_level: Optional[str] = None
@@ -33,99 +37,49 @@ class Config:
     supported_auth_options: Optional[List[AuthEnum]] = None
     standby_allowed: bool = False
     virtual: bool = False
-    default_protocols = [
-        "DIN_SPEC_70121",
-        "ISO_15118_2",
-        "ISO_15118_20_AC",
-        "ISO_15118_20_DC",
-    ]
-    # NOTE: ISO 15118 DC support is still under development
-    default_auth_modes = [
-        "EIM",
-        "PNC",
-    ]
-    env_dump: Optional[dict] = None
+    evse_id: Optional[str] = None
+    env_dump: Optional[dict] = field(default_factory=dict)
 
-    def load_envs(self, env_path: Optional[str] = None) -> None:
-        """
-        Tries to load the .env file containing all the project settings.
-        If `env_path` is not specified, it will get the .env on the current
-        working directory of the project
-        Args:
-            env_path (str): Absolute path to the location of the .env file
-        """
-        env = environs.Env(eager=False)
-        if not env_path:
-            env_path = os.getcwd() + "/.env.secc"
-        env.read_env(path=env_path)  # read .env file, if it exists
+    @classmethod
+    def from_personality(
+        cls, personality: SECCPersonality, runtime: Runtime
+    ) -> "Config":
+        init_shared_settings(personality, runtime)
+        caps = personality.capabilities
+        tls = personality.tls
 
-        self.iface = env.str("NETWORK_INTERFACE", default="eth0")
-
-        self.console_log_level = env.str("CONSOLE_LOG_LEVEL", default="INFO")
-        self.file_log_level = env.str("FILE_LOG_LEVEL", default="DEBUG")
-
-        # Indicates whether or not the SECC should always enforce a TLS-secured
-        # communication session. If True, the SECC will only fire up a TCP server
-        # with an SSL session context and ignore the Security byte value from the
-        # SDP request.
-        self.enforce_tls = env.bool("SECC_ENFORCE_TLS", default=False)
-
-        # Indicates whether or not the ChargeService (energy transfer) is free.
-        # Should be configurable via OCPP messages.
-        # Must be one of the bool values True or False
-        self.free_charging_service = env.bool("FREE_CHARGING_SERVICE", default=False)
-
-        # Indicates whether or not the installation of a contract certificate is free.
-        # Should be configurable via OCPP messages.
-        # Must be one of the bool values True or False
-        self.free_cert_install_service = env.bool(
-            "FREE_CERT_INSTALL_SERVICE", default=True
+        cfg = cls(
+            iface=personality.network.interface,
+            console_log_level=runtime.log.console_level,
+            file_log_level=runtime.log.file_level,
+            enforce_tls=tls.enforce_tls,
+            free_charging_service=caps.free_charging_service,
+            free_cert_install_service=caps.free_cert_install_service,
+            allow_cert_install_service=caps.allow_cert_install_service,
+            use_cpo_backend=caps.use_cpo_backend,
+            supported_protocols=caps.resolved_protocols(),
+            supported_auth_options=caps.resolved_auth_modes(),
+            standby_allowed=caps.standby_allowed,
+            virtual=runtime.virtual,
+            evse_id=personality.identity.evse_id,
         )
 
-        # Indicates if CPO integration is available to perform contract
-        # certificate installation.
-        self.use_cpo_backend = env.bool("USE_CPO_BACKEND", default=False)
-
-        # Indicates whether or not the installation/update of a contract certificate
-        # shall be offered to the EV. Should be configurable via OCPP messages.
-        # Must be one of the bool values True or False
-        self.allow_cert_install_service = env.bool(
-            "ALLOW_CERT_INSTALL_SERVICE", default=True
-        )
-
-        # Supported protocols, used for SupportedAppProtocol (SAP). The order in which
-        # the protocols are listed here determines the priority (i.e. first list entry
-        # has higher priority than second list entry). A list entry must be a member
-        # of the Protocol enum
-        protocols = env.list("PROTOCOLS", default=self.default_protocols)
-        self.supported_protocols = load_requested_protocols(protocols)
-
-        # Supported authentication options (named payment options in ISO 15118-2).
-        # Note: SECC will not offer 'pnc' if chosen transport protocol is not TLS
-        # Must be a list containing either AuthEnum members EIM (for External
-        # Identification Means), PNC (for Plug & Charge) or both
-        auth_modes = env.list("AUTH_MODES", default=self.default_auth_modes)
-        self.supported_auth_options = load_requested_auth_modes(auth_modes)
-
-        # Whether the charging station allows the EV to go into Standby (one of the
-        # enum values in PowerDeliveryReq's ChargeProgress field). In Standby, the
-        # EV can still use value-added services while not consuming any power.
-        self.standby_allowed = env.bool("STANDBY_ALLOWED", default=False)
-        
-        self.virtual = env.bool("VIRTUAL", default=False)
-        
-        load_shared_settings(env_path)
-        env.seal()  # raise all errors at once, if any
-        self.env_dump = dict(env.dump())
-        self.env_dump.update(shared_settings)
-        self.print_settings()
-        
-        if not self.env_dump["ENABLE_TLS_1_3"]:
-            for protocol in self.supported_protocols:
+        # ADR-0001's hard rule that ISO 15118-20 requires TLS 1.3 stays
+        # enforced: refuse to start if a -20 protocol is configured but
+        # TLS 1.3 is off.
+        if not personality.tls.enable_tls_1_3:
+            for protocol in cfg.supported_protocols or []:
                 if protocol.ns.startswith(Namespace.ISO_V20_BASE):
-                    raise Exception("ISO 15118-20 does not allow TLS version lower than 1.3. "
-                                    "Either set ENABLE_TLS_1_3 to True or remove ISO 15118-20 "
-                                    "protocols from the environment file.")
+                    raise Exception(
+                        "ISO 15118-20 does not allow TLS version lower than "
+                        "1.3. Either set tls.enable_tls_1_3 to true in the "
+                        "personality or remove ISO 15118-20 protocols from "
+                        "capabilities.supported_protocols."
+                    )
+
+        cfg.env_dump = dict(shared_settings)
+        cfg.print_settings()
+        return cfg
 
     def print_settings(self):
         logger.info("SECC settings:")

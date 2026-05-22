@@ -1,0 +1,13 @@
+# Conformance DIN 70121 SECC test personality.
+
+role: secc
+identity:
+  evse_id: 49A89A6360
+network:
+  interface: acccs_secc
+tls:
+  enable_tls_1_3: false
+  enforce_tls: false
+capabilities:
+  supported_protocols:
+    - DIN_SPEC_70121

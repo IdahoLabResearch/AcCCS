@@ -64,8 +64,8 @@ def _load_scenario(path: Path) -> Scenario:
     return Scenario(
         name=data["name"],
         description=data.get("description", ""),
-        evcc_personality=PERSONALITIES_DIR / f"{data['evcc_personality']}.env",
-        secc_personality=PERSONALITIES_DIR / f"{data['secc_personality']}.env",
+        evcc_personality=PERSONALITIES_DIR / f"{data['evcc_personality']}.yaml",
+        secc_personality=PERSONALITIES_DIR / f"{data['secc_personality']}.yaml",
         expected_outcome=data.get("expected_outcome", "session_complete"),
         timeout_seconds=int(data.get("timeout_seconds", 60)),
         xfail=xfail,
