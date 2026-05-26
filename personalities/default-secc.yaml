@@ -40,7 +40,26 @@ capabilities:
   standby_allowed: false
   is_cert_install_needed: false
   max_supporting_points: 1024
-power: {}
+power:
+  evse_dc:
+    max_voltage_v: 500.0
+    min_voltage_v: 0.0
+    max_current_a: 400.0
+    min_current_a: 0.0
+    max_power_w: 80000.0
+    peak_current_ripple_a: 5.0
+    nominal_voltage_v: 400.0
+    sa_schedule_pmax_w: 30000
+    sa_schedule_duration_s: 3600
+  ev_dc:
+    max_voltage_v: 500.0
+    max_current_a: 32.0
+    max_power_w: 80000.0
+    energy_capacity_wh: 70000.0
+    target_voltage_v: 500.0
+    target_current_a: 1.0
+    remaining_time_to_full_soc_s: 100
+    remaining_time_to_bulk_soc_s: 80
 charge_profile:
   cycle: 10
   delay_seconds: 0

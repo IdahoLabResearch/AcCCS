@@ -17,6 +17,7 @@ from app.evcc.controller.interface import ChargeParamsV2, EVControllerInterface
 from app.shared.exceptions import InvalidProtocolError, MACAddressNotFound
 from app.shared.messages.datatypes import (
     DCEVChargeParams,
+    PhysicalValue,
     PVEAmount,
     PVEVEnergyCapacity,
     PVEVEnergyRequest,
@@ -140,24 +141,85 @@ class SimEVController(EVControllerInterface):
         self.welding_detection_cycles: int = 0
         self._charging_is_completed = False
         self._soc = 10
-        self.dc_ev_charge_params: DCEVChargeParams = DCEVChargeParams(
+        self.dc_ev_charge_params: DCEVChargeParams = self._build_dc_ev_charge_params(
+            din=False
+        )
+
+    def _build_dc_ev_charge_params(self, din: bool) -> DCEVChargeParams:
+        """Construct a DCEVChargeParams from the personality-derived config.
+
+        Per ADR-0001 / issue #7 the EV DC envelope (max V/A/W, target V/A,
+        battery capacity) is a personality field surfaced through
+        `EVCCConfig.ev_dc_*`. DIN 70121 uses the *Din-suffixed PV classes
+        because the EXI schema is distinct from ISO 15118-2; everything
+        else uses the base PV classes.
+        """
+        cfg = self.config
+        max_c_mult, max_c_val = PhysicalValue.get_exponent_value_repr(
+            cfg.ev_dc_max_current_a
+        )
+        max_p_mult, max_p_val = PhysicalValue.get_exponent_value_repr(
+            cfg.ev_dc_max_power_w
+        )
+        max_v_mult, max_v_val = PhysicalValue.get_exponent_value_repr(
+            cfg.ev_dc_max_voltage_v
+        )
+        cap_mult, cap_val = PhysicalValue.get_exponent_value_repr(
+            cfg.ev_dc_energy_capacity_wh
+        )
+        target_c_mult, target_c_val = PhysicalValue.get_exponent_value_repr(
+            cfg.ev_dc_target_current_a
+        )
+        target_v_mult, target_v_val = PhysicalValue.get_exponent_value_repr(
+            cfg.ev_dc_target_voltage_v
+        )
+        if din:
+            return DCEVChargeParams(
+                dc_max_current_limit=PVEVMaxCurrentLimitDin(
+                    multiplier=max_c_mult, value=max_c_val, unit=UnitSymbol.AMPERE
+                ),
+                dc_max_power_limit=PVEVMaxPowerLimitDin(
+                    multiplier=max_p_mult, value=max_p_val, unit=UnitSymbol.WATT
+                ),
+                dc_max_voltage_limit=PVEVMaxVoltageLimitDin(
+                    multiplier=max_v_mult, value=max_v_val, unit=UnitSymbol.VOLTAGE
+                ),
+                dc_energy_capacity=PVEVEnergyCapacityDin(
+                    multiplier=cap_mult, value=cap_val, unit=UnitSymbol.WATT_HOURS
+                ),
+                dc_target_current=PVEVTargetCurrentDin(
+                    multiplier=target_c_mult,
+                    value=target_c_val,
+                    unit=UnitSymbol.AMPERE,
+                ),
+                dc_target_voltage=PVEVTargetVoltageDin(
+                    multiplier=target_v_mult,
+                    value=target_v_val,
+                    unit=UnitSymbol.VOLTAGE,
+                ),
+            )
+        return DCEVChargeParams(
             dc_max_current_limit=PVEVMaxCurrentLimit(
-                multiplier=-3, value=32000, unit=UnitSymbol.AMPERE
+                multiplier=max_c_mult, value=max_c_val, unit=UnitSymbol.AMPERE
             ),
             dc_max_power_limit=PVEVMaxPowerLimit(
-                multiplier=1, value=8000, unit=UnitSymbol.WATT
+                multiplier=max_p_mult, value=max_p_val, unit=UnitSymbol.WATT
             ),
             dc_max_voltage_limit=PVEVMaxVoltageLimit(
-                multiplier=1, value=50, unit=UnitSymbol.VOLTAGE
+                multiplier=max_v_mult, value=max_v_val, unit=UnitSymbol.VOLTAGE
             ),
             dc_energy_capacity=PVEVEnergyCapacity(
-                multiplier=1, value=7000, unit=UnitSymbol.WATT_HOURS
+                multiplier=cap_mult, value=cap_val, unit=UnitSymbol.WATT_HOURS
             ),
             dc_target_current=PVEVTargetCurrent(
-                multiplier=0, value=1, unit=UnitSymbol.AMPERE
+                multiplier=target_c_mult,
+                value=target_c_val,
+                unit=UnitSymbol.AMPERE,
             ),
             dc_target_voltage=PVEVTargetVoltage(
-                multiplier=1, value=50, unit=UnitSymbol.VOLTAGE
+                multiplier=target_v_mult,
+                value=target_v_val,
+                unit=UnitSymbol.VOLTAGE,
             ),
         )
 
@@ -619,17 +681,21 @@ class SimEVController(EVControllerInterface):
 
     async def get_remaining_time_to_full_soc(
             self, protocol: Protocol) -> PVRemainingTimeToFullSOC:
+        mult, val = PhysicalValue.get_exponent_value_repr(
+            self.config.ev_dc_remaining_time_to_full_soc_s
+        )
         if protocol == Protocol.DIN_SPEC_70121:
-            return PVRemainingTimeToFullSOCDin(multiplier=0, value=100, unit="s")
-        else:
-            return PVRemainingTimeToFullSOC(multiplier=0, value=100, unit="s")
+            return PVRemainingTimeToFullSOCDin(multiplier=mult, value=val, unit="s")
+        return PVRemainingTimeToFullSOC(multiplier=mult, value=val, unit="s")
 
     async def get_remaining_time_to_bulk_soc(
             self, protocol: Protocol) -> PVRemainingTimeToBulkSOC:
+        mult, val = PhysicalValue.get_exponent_value_repr(
+            self.config.ev_dc_remaining_time_to_bulk_soc_s
+        )
         if protocol == Protocol.DIN_SPEC_70121:
-            return PVRemainingTimeToBulkSOCDin(multiplier=0, value=80, unit="s")
-        else:
-            return PVRemainingTimeToBulkSOC(multiplier=0, value=80, unit="s")
+            return PVRemainingTimeToBulkSOCDin(multiplier=mult, value=val, unit="s")
+        return PVRemainingTimeToBulkSOC(multiplier=mult, value=val, unit="s")
 
     async def welding_detection_has_finished(self):
         if self.welding_detection_cycles == 3:
@@ -689,32 +755,16 @@ class SimEVController(EVControllerInterface):
     # ============================================================================
 
     async def get_dc_charge_params(self, protocol: Protocol) -> DCEVChargeParams:
-        """Applies to both DIN SPEC and 15118-2"""
+        """Applies to both DIN SPEC and 15118-2."""
         if protocol not in (Protocol.ISO_15118_2, Protocol.DIN_SPEC_70121):
             logger.error(
                 f"Invalid protocol '{protocol}' for DC charge params, "
                 "expected ISO 15118-2 or DIN SPEC 70121"
             )
             raise InvalidProtocolError
-        elif protocol == Protocol.DIN_SPEC_70121:
-            self.dc_ev_charge_params.dc_max_current_limit = PVEVMaxCurrentLimitDin(
-                multiplier=-3, value=32000, unit=UnitSymbol.AMPERE
-            )
-            self.dc_ev_charge_params.dc_max_power_limit = PVEVMaxPowerLimitDin(
-                multiplier=1, value=8000, unit=UnitSymbol.WATT
-            )
-            self.dc_ev_charge_params.dc_max_voltage_limit = PVEVMaxVoltageLimitDin(
-                multiplier=1, value=50, unit=UnitSymbol.VOLTAGE
-            )
-            self.dc_ev_charge_params.dc_energy_capacity = PVEVEnergyCapacityDin(
-                multiplier=1, value=7000, unit=UnitSymbol.WATT_HOURS
-            )
-            self.dc_ev_charge_params.dc_target_current = PVEVTargetCurrentDin(
-                multiplier=0, value=1, unit=UnitSymbol.AMPERE
-            )
-            self.dc_ev_charge_params.dc_target_voltage = PVEVTargetVoltageDin(
-                multiplier=1, value=50, unit=UnitSymbol.VOLTAGE
-            )
+        self.dc_ev_charge_params = self._build_dc_ev_charge_params(
+            din=(protocol == Protocol.DIN_SPEC_70121)
+        )
         return self.dc_ev_charge_params
 
     async def get_dc_ev_status_dinspec(self) -> DCEVStatusDINSPEC:

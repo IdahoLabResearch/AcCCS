@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Union
 
 from app.secc.controller.common import UnknownEnergyService
 from app.secc.controller.evse_data import (
+    CurrentType,
     EVSEACCLLimits,
     EVSEACCPDLimits,
     EVSEDataContext,
@@ -37,6 +38,7 @@ from app.shared.messages.datatypes import (
 )
 from app.shared.messages.datatypes import EVSENotification as EVSENotificationV2
 from app.shared.messages.datatypes import (
+    PhysicalValue,
     PVEVSEMaxCurrentLimit,
     PVEVSEMaxPowerLimit,
     PVEVSEMaxVoltageLimit,
@@ -48,6 +50,7 @@ from app.shared.messages.datatypes import (
     PVEVSEMaxVoltageLimitDin,
     PVEVSEMinCurrentLimitDin,
     PVEVSEMinVoltageLimitDin,
+    PVEVSEPeakCurrentRippleDin,
 )
 from app.shared.messages.din_spec.datatypes import (
     PMaxScheduleEntry as PMaxScheduleEntryDINSPEC,
@@ -322,12 +325,22 @@ class SimEVSEController(EVSEControllerInterface):
     ) -> List[EnergyTransferModeEnum]:
         """Overrides EVSEControllerInterface.get_supported_energy_transfer_modes()."""
         if protocol == Protocol.DIN_SPEC_70121:
-            """
-            For DIN SPEC, only DC_CORE and DC_EXTENDED are supported.
-            The other DC modes DC_COMBO_CORE and DC_DUAL are out of scope for DIN SPEC
-            """
-            dc_extended = EnergyTransferModeEnum.DC_EXTENDED
-            return [dc_extended]
+            # DIN SPEC permits only DC_CORE / DC_EXTENDED; the personality
+            # selects which one the SECC advertises. If a personality picks
+            # a non-DC mode (only possible by hand-editing — the model
+            # accepts the broader enum because ISO 15118-2/-20 reuse it),
+            # fall back to DC_EXTENDED.
+            configured = (
+                self.personality.capabilities.resolved_energy_transfer_mode()
+                if self.personality
+                else EnergyTransferModeEnum.DC_EXTENDED
+            )
+            if configured in (
+                EnergyTransferModeEnum.DC_CORE,
+                EnergyTransferModeEnum.DC_EXTENDED,
+            ):
+                return [configured]
+            return [EnergyTransferModeEnum.DC_EXTENDED]
 
         # It's not valid to have mixed energy transfer modes associated with
         # a single EVSE. Providing this here only for simulation purposes.
@@ -631,8 +644,14 @@ class SimEVSEController(EVSEControllerInterface):
     ) -> Optional[List[SAScheduleTupleEntryDINSPEC]]:
         """Overrides EVSEControllerInterface.get_sa_schedule_list_dinspec()."""
         sa_schedule_list: List[SAScheduleTupleEntryDINSPEC] = []
+        evse_dc = (
+            self.personality.power.evse_dc if self.personality else None
+        )
+        p_max = int(evse_dc.sa_schedule_pmax_w) if evse_dc else 200
+        duration = evse_dc.sa_schedule_duration_s if evse_dc else 3600
         entry_details = PMaxScheduleEntryDetailsDINSPEC(
-            p_max=200, time_interval=RelativeTimeIntervalDINSPEC(start=0, duration=3600)
+            p_max=p_max,
+            time_interval=RelativeTimeIntervalDINSPEC(start=0, duration=duration),
         )
         p_max_schedule_entries = [entry_details]
         pmax_schedule_entry = PMaxScheduleEntryDINSPEC(
@@ -880,7 +899,84 @@ class SimEVSEController(EVSEControllerInterface):
         )
 
     async def get_dc_charge_parameters(self) -> DCEVSEChargeParameter:
-        """Overrides EVSEControllerInterface.get_dc_evse_charge_parameter()."""
+        """Overrides EVSEControllerInterface.get_dc_evse_charge_parameter().
+
+        Sources the per-session DC envelope from `personality.power.evse_dc`
+        when a personality is attached. The legacy hardcoded placeholder
+        values are retained as the fallback so tests and call sites that
+        instantiate the simulator without a personality (state-machine
+        harness fixtures, conformance setup) still get a working DC
+        parameter set.
+        """
+        evse_dc = self.personality.power.evse_dc if self.personality else None
+        protocol = self.get_selected_protocol()
+
+        if evse_dc is not None:
+            max_p_mult, max_p_val = PhysicalValue.get_exponent_value_repr(
+                evse_dc.max_power_w
+            )
+            max_c_mult, max_c_val = PhysicalValue.get_exponent_value_repr(
+                evse_dc.max_current_a
+            )
+            max_v_mult, max_v_val = PhysicalValue.get_exponent_value_repr(
+                evse_dc.max_voltage_v
+            )
+            min_c_mult, min_c_val = PhysicalValue.get_exponent_value_repr(
+                evse_dc.min_current_a
+            )
+            min_v_mult, min_v_val = PhysicalValue.get_exponent_value_repr(
+                evse_dc.min_voltage_v
+            )
+            ripple_mult, ripple_val = PhysicalValue.get_exponent_value_repr(
+                evse_dc.peak_current_ripple_a
+            )
+        else:
+            (max_p_mult, max_p_val) = (1, 230)
+            (max_c_mult, max_c_val) = (1, 4)
+            (max_v_mult, max_v_val) = (1, 4)
+            (min_c_mult, min_c_val) = (1, 2)
+            (min_v_mult, min_v_val) = (1, 4)
+            (ripple_mult, ripple_val) = (1, 4)
+
+        if protocol == Protocol.DIN_SPEC_70121:
+            max_power = PVEVSEMaxPowerLimitDin(
+                multiplier=max_p_mult, value=max_p_val, unit="W"
+            )
+            max_current = PVEVSEMaxCurrentLimitDin(
+                multiplier=max_c_mult, value=max_c_val, unit="A"
+            )
+            max_voltage = PVEVSEMaxVoltageLimitDin(
+                multiplier=max_v_mult, value=max_v_val, unit="V"
+            )
+            min_current = PVEVSEMinCurrentLimitDin(
+                multiplier=min_c_mult, value=min_c_val, unit="A"
+            )
+            min_voltage = PVEVSEMinVoltageLimitDin(
+                multiplier=min_v_mult, value=min_v_val, unit="V"
+            )
+            ripple = PVEVSEPeakCurrentRippleDin(
+                multiplier=ripple_mult, value=ripple_val, unit="A"
+            )
+        else:
+            max_power = PVEVSEMaxPowerLimit(
+                multiplier=max_p_mult, value=max_p_val, unit="W"
+            )
+            max_current = PVEVSEMaxCurrentLimit(
+                multiplier=max_c_mult, value=max_c_val, unit="A"
+            )
+            max_voltage = PVEVSEMaxVoltageLimit(
+                multiplier=max_v_mult, value=max_v_val, unit="V"
+            )
+            min_current = PVEVSEMinCurrentLimit(
+                multiplier=min_c_mult, value=min_c_val, unit="A"
+            )
+            min_voltage = PVEVSEMinVoltageLimit(
+                multiplier=min_v_mult, value=min_v_val, unit="V"
+            )
+            ripple = PVEVSEPeakCurrentRipple(
+                multiplier=ripple_mult, value=ripple_val, unit="A"
+            )
+
         return DCEVSEChargeParameter(
             dc_evse_status=DCEVSEStatus(
                 notification_max_delay=100,
@@ -888,25 +984,21 @@ class SimEVSEController(EVSEControllerInterface):
                 evse_isolation_status=IsolationLevel.VALID,
                 evse_status_code=DCEVSEStatusCode.EVSE_READY,
             ),
-            evse_maximum_power_limit=PVEVSEMaxPowerLimit(
-                multiplier=1, value=230, unit="W"
-            ),
-            evse_maximum_current_limit=PVEVSEMaxCurrentLimit(
-                multiplier=1, value=4, unit="A"
-            ),
-            evse_maximum_voltage_limit=PVEVSEMaxVoltageLimit(
-                multiplier=1, value=4, unit="V"
-            ),
-            evse_minimum_current_limit=PVEVSEMinCurrentLimit(
-                multiplier=1, value=2, unit="A"
-            ),
-            evse_minimum_voltage_limit=PVEVSEMinVoltageLimit(
-                multiplier=1, value=4, unit="V"
-            ),
-            evse_peak_current_ripple=PVEVSEPeakCurrentRipple(
-                multiplier=1, value=4, unit="A"
-            ),
+            evse_maximum_power_limit=max_power,
+            evse_maximum_current_limit=max_current,
+            evse_maximum_voltage_limit=max_voltage,
+            evse_minimum_current_limit=min_current,
+            evse_minimum_voltage_limit=min_voltage,
+            evse_peak_current_ripple=ripple,
         )
+
+    async def get_dc_charge_parameters_dinspec(self) -> DCEVSEChargeParameter:
+        previous = self.get_selected_protocol()
+        self.set_selected_protocol(Protocol.DIN_SPEC_70121)
+        try:
+            return await self.get_dc_charge_parameters()
+        finally:
+            self.set_selected_protocol(previous)
 
     async def start_cable_check(self):
         """Overrides EVSEControllerInterface.start_cable_check()."""
@@ -941,10 +1033,54 @@ class SimEVSEController(EVSEControllerInterface):
     #     return PVEVSEMaxCurrentLimit(multiplier=0, value=300, unit="A")
 
     async def get_evse_max_power_limit(self, protocol: Protocol) -> PVEVSEMaxPowerLimit:
-        if protocol == Protocol.DIN_SPEC_70121:
-            return PVEVSEMaxPowerLimitDin(multiplier=1, value=1000, unit="W")
+        if self.personality is not None:
+            max_power_w = self.personality.power.evse_dc.max_power_w
         else:
-            return PVEVSEMaxPowerLimit(multiplier=1, value=1000, unit="W")
+            max_power_w = 10000.0
+        mult, val = PhysicalValue.get_exponent_value_repr(max_power_w)
+        if protocol == Protocol.DIN_SPEC_70121:
+            return PVEVSEMaxPowerLimitDin(multiplier=mult, value=val, unit="W")
+        else:
+            return PVEVSEMaxPowerLimit(multiplier=mult, value=val, unit="W")
+
+    async def get_evse_max_current_limit(
+        self,
+        protocol: Protocol,
+    ):
+        """Personality-driven override for the DC path.
+
+        The interface implementation reads from session_limits and depends
+        on `evse_data_context.current_type` being set by the CPD state. The
+        DIN slice surfaces this limit directly from the personality so the
+        wire value is stable across early-session calls. AC and ISO-15118-2
+        / -20 paths fall back to the inherited behaviour.
+        """
+        if (
+            self.personality is None
+            or self.evse_data_context.current_type != CurrentType.DC
+        ):
+            return await super().get_evse_max_current_limit(protocol)
+        mult, val = PhysicalValue.get_exponent_value_repr(
+            self.personality.power.evse_dc.max_current_a
+        )
+        if protocol == Protocol.DIN_SPEC_70121:
+            return PVEVSEMaxCurrentLimitDin(multiplier=mult, value=val, unit="A")
+        return PVEVSEMaxCurrentLimit(multiplier=mult, value=val, unit="A")
+
+    async def get_evse_max_voltage_limit(
+        self, protocol: Protocol
+    ) -> PVEVSEMaxVoltageLimit:
+        if (
+            self.personality is None
+            or self.evse_data_context.current_type != CurrentType.DC
+        ):
+            return await super().get_evse_max_voltage_limit(protocol)
+        mult, val = PhysicalValue.get_exponent_value_repr(
+            self.personality.power.evse_dc.max_voltage_v
+        )
+        if protocol == Protocol.DIN_SPEC_70121:
+            return PVEVSEMaxVoltageLimitDin(multiplier=mult, value=val, unit="V")
+        return PVEVSEMaxVoltageLimit(multiplier=mult, value=val, unit="V")
 
     async def get_dc_charge_params_v20(
         self, energy_service: ServiceV20

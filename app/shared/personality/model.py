@@ -150,14 +150,77 @@ class Capabilities(_StrictBase):
         return EnergyTransferModeEnum(self.energy_transfer_mode)
 
 
-class Power(_StrictBase):
-    """Power-limit advertisements.
+class EVSEDCLimits(_StrictBase):
+    """SECC-side DC power-electronics envelope.
 
-    Empty in Slice 1 — the limits are currently hardcoded inside
-    `app/secc/controller/simulator.get_evse_context()`. ADR-0001 calls out
-    that surfacing these "is the bulk of the work and is sliced by protocol
-    (DIN → ISO-15118-2 → ISO-15118-20)" in subsequent slices.
+    These fields go on the wire as the PVEVSE* physical values inside DIN
+    70121 ChargeParameterDiscoveryRes (the per-session maxima/minima and
+    peak ripple) and CurrentDemandRes (the max current/voltage/power
+    advertised during the charge loop). They describe what the EVSE *can*
+    deliver — not what it is presently delivering, which is a runtime-derived
+    measurement and remains computed at message-build time.
     """
+
+    # Voltage envelope advertised by the EVSE.
+    max_voltage_v: float = 500.0
+    min_voltage_v: float = 0.0
+    # Current envelope advertised by the EVSE.
+    max_current_a: float = 400.0
+    min_current_a: float = 0.0
+    # Maximum DC power the EVSE can source. The same value is reused for
+    # both ChargeParameterDiscoveryRes.evse_maximum_power_limit and the
+    # CurrentDemandRes.evse_max_power_limit field in DIN 70121.
+    max_power_w: float = 80000.0
+    # Peak ripple current the EVSE may emit on the DC bus.
+    peak_current_ripple_a: float = 5.0
+    # AC-side nominal voltage at the EVSE inlet — referenced by
+    # interface.get_evse_max_current_limit() when current_type is AC.
+    nominal_voltage_v: float = 400.0
+    # DIN SAScheduleList PMaxScheduleEntry — the EVSE-advertised power
+    # envelope for the charging schedule. Personality because it describes
+    # what the EVSE *would offer* before any per-session negotiation. DIN
+    # 70121's PMaxScheduleEntry.p_max is an XSD `int` clamped to int16
+    # (0..32767 W) so the schema enforces that range here too.
+    sa_schedule_pmax_w: int = Field(default=30000, ge=0, le=32767)
+    sa_schedule_duration_s: int = 3600
+
+
+class EVDCLimits(_StrictBase):
+    """EVCC-side DC charging envelope.
+
+    These fields go on the wire as the PVEVMax* physical values in DIN
+    70121 ChargeParameterDiscoveryReq (the EV's announced maxima) and
+    CurrentDemandReq (the same maxima resent each loop). The `target_*`
+    fields populate the EV's PreCharge and start-of-loop CurrentDemand
+    intent before the runtime charge controller substitutes real targets.
+    """
+
+    max_voltage_v: float = 500.0
+    max_current_a: float = 32.0
+    max_power_w: float = 80000.0
+    # EV battery nameplate energy capacity — DIN
+    # ChargeParameterDiscoveryReq.dc_energy_capacity.
+    energy_capacity_wh: float = 70000.0
+    # EV's initial target voltage/current used for the first PreCharge and
+    # CurrentDemand messages.
+    target_voltage_v: float = 500.0
+    target_current_a: float = 1.0
+    # DIN CurrentDemandReq's optional EV-supplied remaining-time estimates.
+    remaining_time_to_full_soc_s: int = 100
+    remaining_time_to_bulk_soc_s: int = 80
+
+
+class Power(_StrictBase):
+    """DC power envelopes for both roles (Slice 2: DIN 70121).
+
+    Both subsections exist on every personality so a single YAML shape
+    works for either role — the EVCC consumes `ev_dc`, the SECC consumes
+    `evse_dc`. ISO 15118-2 / -20 fields are out of scope and arrive in
+    later slices.
+    """
+
+    evse_dc: EVSEDCLimits = Field(default_factory=EVSEDCLimits)
+    ev_dc: EVDCLimits = Field(default_factory=EVDCLimits)
 
 
 class ChargeProfile(_StrictBase):

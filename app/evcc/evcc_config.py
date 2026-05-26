@@ -58,12 +58,25 @@ class EVCCConfig(BaseModel):
     # time (ISO 15118-20 EVCCID). Populated from `personality.identity`.
     evcc_id: Optional[str] = None
 
+    # DC charge envelope advertised in DIN ChargeParameterDiscoveryReq /
+    # CurrentDemandReq. Sourced from `personality.power.ev_dc`. See
+    # ADR-0001 / issue #7 (DIN personality slice).
+    ev_dc_max_voltage_v: float = 500.0
+    ev_dc_max_current_a: float = 32.0
+    ev_dc_max_power_w: float = 80000.0
+    ev_dc_energy_capacity_wh: float = 70000.0
+    ev_dc_target_voltage_v: float = 500.0
+    ev_dc_target_current_a: float = 1.0
+    ev_dc_remaining_time_to_full_soc_s: int = 100
+    ev_dc_remaining_time_to_bulk_soc_s: int = 80
+
     @classmethod
     def from_personality(cls, personality: EVCCPersonality) -> "EVCCConfig":
         caps = personality.capabilities
         tls = personality.tls
         certs = personality.certificates
         cp = personality.charge_profile
+        ev_dc = personality.power.ev_dc
 
         ev_config = cls(
             raw_supported_protocols=list(caps.supported_protocols),
@@ -82,6 +95,14 @@ class EVCCConfig(BaseModel):
             charge_loop_cycle=cp.cycle,
             charge_loop_delay_time=cp.delay_seconds,
             evcc_id=personality.identity.evcc_id,
+            ev_dc_max_voltage_v=ev_dc.max_voltage_v,
+            ev_dc_max_current_a=ev_dc.max_current_a,
+            ev_dc_max_power_w=ev_dc.max_power_w,
+            ev_dc_energy_capacity_wh=ev_dc.energy_capacity_wh,
+            ev_dc_target_voltage_v=ev_dc.target_voltage_v,
+            ev_dc_target_current_a=ev_dc.target_current_a,
+            ev_dc_remaining_time_to_full_soc_s=ev_dc.remaining_time_to_full_soc_s,
+            ev_dc_remaining_time_to_bulk_soc_s=ev_dc.remaining_time_to_bulk_soc_s,
         )
 
         logger.info("EVCC Settings (from personality):")

@@ -34,3 +34,34 @@ Emulator configuration follows [ADR-0001](docs/adr/0001-personality-yaml-config.
   `python scripts/regen_personality_defaults.py`. The drift test in
   `tests/personality/test_drift.py` guards against the YAML and the model
   diverging.
+
+## Running the virtual two-session demo
+
+Use this to verify end-to-end behaviour after touching the emulator,
+codec, transport, or config layers.
+
+Prerequisites (one-time):
+
+1. `bash app/shared/pki/create_certs.sh -v iso-2` — generates PKI certs
+   under `app/shared/pki/iso15118_2/certs/`. Stock personalities have TLS
+   on, so this is required for the demo to reach SDP/TLS.
+2. `sudo ./setup_veth.sh` — creates the `acccs_secc ↔ acccs_evcc` veth
+   pair with `fe80::1` / `fe80::2`.
+
+Run (each command needs `sudo` for raw sockets). `sudo` runs with root's
+PATH, which does *not* include the activated `AcCCS` conda env — invoke
+the env's interpreter by its full path, otherwise `import nmap` (and
+every other env-only dep) fails with `ModuleNotFoundError`:
+
+```bash
+# Terminal 1
+sudo /home/jake-inl/anaconda3/envs/AcCCS/bin/python run_secc.py --config default-secc --virtual
+
+# Terminal 2 (a couple seconds later)
+sudo /home/jake-inl/anaconda3/envs/AcCCS/bin/python run_evcc.py --config default-evcc --virtual
+```
+
+A clean session walks through: SLAC → SDP/TLS → SessionSetup →
+ServiceDiscovery → PowerDelivery → CurrentDemand loop → PowerDelivery →
+WeldingDetection → SessionStop, with the EVCC logging
+`Going to state A` at the end.

@@ -1,0 +1,12 @@
+name: din-variant
+description: >
+  DIN 70121 happy path with the variant personality from issue #7. Same
+  state-machine shape as `din-happy`, but the EVSE/EV advertise altered
+  power limits, EVSEID, and energy_transfer_mode. The success oracle is
+  identical (`Communication session stopped successfully`); this scenario
+  exists to guard against the personality-swap regressing the wire flow.
+evcc_personality: din-variant-evcc
+secc_personality: din-variant-secc
+expected_outcome: session_complete
+timeout_seconds: 60
+xfail: false
