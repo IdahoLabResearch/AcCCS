@@ -14,7 +14,10 @@ import asyncio
 from app.evcc.controller.pev import PEV
 from app.shared.EmulatorEnum import PEVState
 from app.shared.personality import add_runtime_cli_args
+from app.shared.process_lifecycle import die_with_parent
 
+
+die_with_parent()
 
 parser = argparse.ArgumentParser(description="Emulator for EVCC/PEV")
 add_runtime_cli_args(parser)
