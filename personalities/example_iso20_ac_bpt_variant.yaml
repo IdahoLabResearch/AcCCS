@@ -1,0 +1,74 @@
+# Example ISO 15118-20 AC-BPT (Bidirectional Power Transfer) variant personality.
+#
+# Showcases the AC-BPT discharge envelope landed in issue #9. The
+# `supported_energy_services` is set to `AC_BPT` so the EVCC selects the
+# bidirectional service, and the BPT discharge fields on both `evse_ac_v20`
+# and `ev_ac_v20` populate the wire-side BPT extensions.
+#
+# Run with:
+#
+#   python run_secc.py --config personalities/example_iso20_ac_bpt_variant.yaml --virtual
+#   python run_evcc.py --config personalities/example_iso20_ac_bpt_variant.yaml --virtual
+
+identity:
+  evse_id: USINL20ACBPT01
+  evcc_id: 1FATCISO20ACBPT00ABC3
+
+capabilities:
+  supported_protocols:
+    - ISO_15118_20_AC
+  supported_energy_services:
+    - AC_BPT
+
+power:
+  evse_ac_v20:
+    max_charge_power_w: 22000.0
+    min_charge_power_w: 100.0
+    nominal_frequency_hz: 50.0
+    max_power_asymmetry_w: 50.0
+    power_ramp_limit_w_per_s: 150.0
+    # Asymmetric discharge envelope — different from charge envelope
+    # so the BPT extension fields carry distinct on-wire values.
+    bpt_max_discharge_power_w: 15000.0
+    bpt_min_discharge_power_w: 50.0
+  ev_ac_v20:
+    max_charge_power_w: 11000.0
+    min_charge_power_w: 100.0
+    bpt_max_discharge_power_w: 7500.0
+    bpt_min_discharge_power_w: 50.0
+    scheduled_present_active_power_w: 100000.0
+    dynamic_max_charge_power_w: 200000.0
+    dynamic_min_charge_power_w: 150.0
+    dynamic_present_active_power_w: 100000.0
+    dynamic_present_reactive_power_w: 12000.0
+  schedule_exchange_v20:
+    departure_time_s: 14400
+    scheduled_target_energy_request_wh: 8000.0
+    scheduled_max_energy_request_wh: 12000.0
+    scheduled_min_energy_request_wh: 0.05
+    dynamic_min_soc_percent: 35
+    dynamic_target_soc_percent: 85
+    dynamic_target_energy_request_wh: 25000.0
+    dynamic_max_energy_request_wh: 45000.0
+    # Negative min = the EV is willing to discharge.
+    dynamic_min_energy_request_wh: -25000.0
+    dynamic_max_v2x_energy_request_wh: 10000.0
+    dynamic_min_v2x_energy_request_wh: 0.0
+    ac_dynamic_loop_departure_time_s: 3600
+    power_schedule_duration_s: 1800
+    power_schedule_power_w: -7500.0
+    price_currency: EUR
+    price_energy_fee: 0.10
+  evse_schedule_exchange_v20:
+    schedule_duration_s: 1800
+    charge_power_w: 12000.0
+    available_energy_wh: 180000.0
+    power_tolerance_w: 750.0
+    discharge_power_w: 7500.0
+    dynamic_departure_time_s: 14400
+    dynamic_min_soc_percent: 35
+    dynamic_target_soc_percent: 85
+
+meter:
+  meter_id: Switch-Meter-ISO20-ACBPT-001
+  starting_reading_wh: 412000

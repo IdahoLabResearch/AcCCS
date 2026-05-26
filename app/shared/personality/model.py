@@ -252,19 +252,211 @@ class EVACLimits(_StrictBase):
     min_current_a: float = 10.0
 
 
+class EVSEDCLimitsV20(_StrictBase):
+    """SECC-side DC envelope advertised in ISO 15118-20 sessions.
+
+    Goes on the wire as the EVSE* fields inside
+    `DCChargeParameterDiscoveryResParams` and (for DC-BPT) the
+    `BPTDCChargeParameterDiscoveryResParams` extension. ISO 15118-20's DC
+    envelope is distinct from the DIN/ISO-2 `evse_dc` block both in
+    XSD shape (RationalNumber rather than PhysicalValue) and in which
+    fields exist (min_charge_power, power_ramp_limit, BPT discharge).
+    Defaults preserve the historical placeholder values from the
+    simulator, so wire behaviour is unchanged when a personality is loaded
+    from `default-secc.yaml`.
+    """
+
+    max_charge_power_w: float = 1000.0
+    min_charge_power_w: float = 100.0
+    max_charge_current_a: float = 100.0
+    min_charge_current_a: float = 10.0
+    max_voltage_v: float = 500.0
+    min_voltage_v: float = 10.0
+    power_ramp_limit_w_per_s: float = 10.0
+    # ISO 15118-20 DC-BPT discharge envelope (BPTDCChargeParameterDiscoveryRes).
+    bpt_max_discharge_power_w: float = 1000.0
+    bpt_min_discharge_power_w: float = 100.0
+    bpt_max_discharge_current_a: float = 100.0
+    bpt_min_discharge_current_a: float = 10.0
+
+
+class EVDCLimitsV20(_StrictBase):
+    """EV-side DC envelope announced in ISO 15118-20 sessions.
+
+    Splits into three groups: `ChargeParameterDiscoveryReq` (the static
+    envelope), DC `PreCharge` + scheduled `ChargeLoop` targets, and the
+    `dynamic_*` set used by `DynamicDCChargeLoopReqParams` (which the
+    Tester simulator emits with smaller stub magnitudes — kept distinct
+    so a personality can sweep them independently of CPD).
+
+    All fields are EV-announced — the SECC is not expected to ever exceed
+    them. Defaults match the simulator stubs in
+    `SimEVController.get_charge_params_v20()` /
+    `get_dynamic_dc_charge_loop_params()` so existing wire behaviour is
+    preserved.
+    """
+
+    # DCChargeParameterDiscoveryReq (DC + DC-BPT).
+    max_charge_power_w: float = 300000.0
+    min_charge_power_w: float = 100.0
+    max_charge_current_a: float = 300.0
+    min_charge_current_a: float = 10.0
+    max_voltage_v: float = 1000.0
+    min_voltage_v: float = 10.0
+    # PreCharge + scheduled DC ChargeLoop target voltage/current.
+    target_voltage_v: float = 20000.0
+    target_current_a: float = 200.0
+    # Dynamic DC ChargeLoop stubs (kept distinct from CPD because the
+    # simulator emits very different magnitudes here).
+    dynamic_target_energy_request_wh: float = 200.0
+    dynamic_max_energy_request_wh: float = 200.0
+    dynamic_min_energy_request_wh: float = 20.0
+    dynamic_max_charge_power_w: float = 4000.0
+    dynamic_min_charge_power_w: float = 400.0
+    dynamic_max_charge_current_a: float = 40.0
+    dynamic_max_voltage_v: float = 400.0
+    dynamic_min_voltage_v: float = 40.0
+    # DC-BPT CPD discharge envelope.
+    bpt_max_discharge_power_w: float = 11000.0
+    bpt_min_discharge_power_w: float = 1000.0
+    bpt_max_discharge_current_a: float = 11.0
+    bpt_min_discharge_current_a: float = 0.0
+    # BPT dynamic DC ChargeLoop discharge (separate from CPD because the
+    # simulator emits 300 kW / 300 A here).
+    bpt_dynamic_max_discharge_power_w: float = 300000.0
+    bpt_dynamic_min_discharge_power_w: float = 300000.0
+    bpt_dynamic_max_discharge_current_a: float = 300000.0
+
+
+class EVSEACLimitsV20(_StrictBase):
+    """SECC-side AC envelope advertised in ISO 15118-20 sessions.
+
+    Distinct from the ISO-2 `evse_ac` block: ISO 15118-20 AC is
+    multiphase (L1/L2/L3), declares nominal frequency, power asymmetry
+    tolerance, and a power ramp limit. The per-phase values are modelled
+    here as a single magnitude that's replicated to L1/L2/L3 on the wire
+    — variant personalities that need asymmetric phases can be added
+    later without breaking this contract.
+    """
+
+    max_charge_power_w: float = 30000.0
+    min_charge_power_w: float = 100.0
+    nominal_frequency_hz: float = 50.0
+    max_power_asymmetry_w: float = 0.0
+    power_ramp_limit_w_per_s: float = 100.0
+    # ISO 15118-20 AC-BPT discharge envelope.
+    bpt_max_discharge_power_w: float = 30000.0
+    bpt_min_discharge_power_w: float = 100.0
+
+
+class EVACLimitsV20(_StrictBase):
+    """EV-side AC envelope announced in ISO 15118-20 sessions.
+
+    Splits into the static CPD envelope, the scheduled charge loop's
+    present-active-power stub, and the dynamic AC charge loop stubs.
+    The dynamic-loop fields are separate from the CPD envelope because
+    the simulator emits very different stub magnitudes there.
+    """
+
+    # ACChargeParameterDiscoveryReq (AC + AC-BPT).
+    max_charge_power_w: float = 11000.0
+    min_charge_power_w: float = 100.0
+    # AC-BPT discharge envelope (CPD).
+    bpt_max_discharge_power_w: float = 11000.0
+    bpt_min_discharge_power_w: float = 1.0
+    # ACChargeLoop simulator stubs (present-active-power in scheduled
+    # mode; full set of dynamic-mode magnitudes).
+    scheduled_present_active_power_w: float = 200000.0
+    dynamic_max_charge_power_w: float = 300000.0
+    dynamic_min_charge_power_w: float = 100.0
+    dynamic_present_active_power_w: float = 200000.0
+    dynamic_present_reactive_power_w: float = 20000.0
+
+
+class ScheduleExchangeV20(_StrictBase):
+    """EV-side ScheduleExchange announcement (ISO 15118-20 only).
+
+    Covers the values the EV declares in `ScheduledScheduleExchangeReq`,
+    `DynamicScheduleExchangeReq`, and the dynamic AC ChargeLoop (which
+    re-states a departure-time stub). The two "modes" — scheduled and
+    dynamic — carry different magnitudes in the simulator, so the model
+    splits them rather than collapsing.
+    """
+
+    departure_time_s: int = 7200
+    # ScheduledScheduleExchangeReq energy requests.
+    scheduled_target_energy_request_wh: float = 10000.0
+    scheduled_max_energy_request_wh: float = 20000.0
+    scheduled_min_energy_request_wh: float = 0.05
+    # DynamicScheduleExchangeReq SOC + energy + V2X-energy requests.
+    dynamic_min_soc_percent: int = Field(default=30, ge=0, le=100)
+    dynamic_target_soc_percent: int = Field(default=80, ge=0, le=100)
+    dynamic_target_energy_request_wh: float = 40000.0
+    dynamic_max_energy_request_wh: float = 60000.0
+    dynamic_min_energy_request_wh: float = -20000.0
+    dynamic_max_v2x_energy_request_wh: float = 5000.0
+    dynamic_min_v2x_energy_request_wh: float = 0.0
+    # Dynamic AC ChargeLoop carries its own departure-time stub distinct
+    # from the SE-level one (simulator emits 2000 s here).
+    ac_dynamic_loop_departure_time_s: int = 2000
+    # EVPowerScheduleEntry + EVPriceRule offered alongside the schedule.
+    power_schedule_duration_s: int = 3600
+    power_schedule_power_w: float = -10000.0
+    price_currency: str = "EUR"
+    price_energy_fee: float = 0.0
+
+
+class EVSEScheduleExchangeV20(_StrictBase):
+    """SECC-side ScheduleExchange schedule envelope (ISO 15118-20).
+
+    Mirrors the Slice 2 pattern (`EVSEDCLimits.sa_schedule_pmax_w` etc.) by
+    surfacing the *envelope* of the EVSE's offered schedule — power,
+    duration, available energy, tolerance — and the dynamic-mode SOC
+    targets. The pricing / tax / overstay meta-structures the simulator
+    embeds for protocol-interop completeness are deliberately left
+    hardcoded; they don't shape "who the EVSE is" the way an envelope does.
+    """
+
+    schedule_duration_s: int = 3600
+    charge_power_w: float = 10000.0
+    available_energy_wh: float = 300000.0
+    power_tolerance_w: float = 2000.0
+    discharge_power_w: float = 10000.0
+    # Dynamic SE response — the EVSE confirms the EV's departure + SOC
+    # ask. Defaults track `ScheduleExchangeV20.dynamic_*` so the simulator
+    # round-trips cleanly under stock personalities.
+    dynamic_departure_time_s: int = 7200
+    dynamic_min_soc_percent: int = Field(default=30, ge=0, le=100)
+    dynamic_target_soc_percent: int = Field(default=80, ge=0, le=100)
+
+
 class Power(_StrictBase):
     """Power envelopes for both roles.
 
-    Each role only reads its own side — the EVCC consumes `ev_dc` / `ev_ac`,
-    the SECC consumes `evse_dc` / `evse_ac`. The AC subsections are ISO
-    15118-2-only (DIN 70121 is DC-only). ISO 15118-20 envelope fields
-    arrive in Slice 4.
+    Each role only reads its own side — the EVCC consumes `ev_dc` / `ev_ac`
+    / `ev_dc_v20` / `ev_ac_v20` / `schedule_exchange_v20`; the SECC
+    consumes `evse_dc` / `evse_ac` / `evse_dc_v20` / `evse_ac_v20` /
+    `evse_schedule_exchange_v20`. The `*_v20` sub-blocks are ISO
+    15118-20-specific because the protocol's wire shape (RationalNumber,
+    multiphase AC, BPT discharge, schedule exchange) does not collapse
+    cleanly into the DIN/ISO-2 envelope.
     """
 
     evse_dc: EVSEDCLimits = Field(default_factory=EVSEDCLimits)
     ev_dc: EVDCLimits = Field(default_factory=EVDCLimits)
     evse_ac: EVSEACLimits = Field(default_factory=EVSEACLimits)
     ev_ac: EVACLimits = Field(default_factory=EVACLimits)
+    # ISO 15118-20 sub-blocks (Slice 4 / issue #9).
+    evse_dc_v20: EVSEDCLimitsV20 = Field(default_factory=EVSEDCLimitsV20)
+    ev_dc_v20: EVDCLimitsV20 = Field(default_factory=EVDCLimitsV20)
+    evse_ac_v20: EVSEACLimitsV20 = Field(default_factory=EVSEACLimitsV20)
+    ev_ac_v20: EVACLimitsV20 = Field(default_factory=EVACLimitsV20)
+    schedule_exchange_v20: ScheduleExchangeV20 = Field(
+        default_factory=ScheduleExchangeV20
+    )
+    evse_schedule_exchange_v20: EVSEScheduleExchangeV20 = Field(
+        default_factory=EVSEScheduleExchangeV20
+    )
 
 
 class ChargeProfile(_StrictBase):

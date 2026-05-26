@@ -361,36 +361,71 @@ class SimEVController(EVControllerInterface):
         DCChargeParameterDiscoveryReqParams,
         BPTDCChargeParameterDiscoveryReqParams,
     ]:
-        """Overrides EVControllerInterface.get_charge_params_v20()."""
+        """Overrides EVControllerInterface.get_charge_params_v20().
+
+        Per issue #9 / Slice 4, every advertised value is sourced from
+        `personality.power.ev_{ac,dc}_v20` so a personality file can sweep
+        the AC, DC, AC-BPT, and DC-BPT envelopes independently.
+        """
+        ev_ac_v20 = self.config.ev_ac_v20
+        ev_dc_v20 = self.config.ev_dc_v20
         ac_cpd_params = ACChargeParameterDiscoveryReqParams(
-            ev_max_charge_power=RationalNumber(exponent=3, value=11),
-            ev_min_charge_power=RationalNumber(exponent=0, value=100),
+            ev_max_charge_power=RationalNumber.get_rational_repr(
+                ev_ac_v20.max_charge_power_w if ev_ac_v20 else 11000
+            ),
+            ev_min_charge_power=RationalNumber.get_rational_repr(
+                ev_ac_v20.min_charge_power_w if ev_ac_v20 else 100
+            ),
         )
         dc_cpd_params = DCChargeParameterDiscoveryReqParams(
-            ev_max_charge_power=RationalNumber(exponent=3, value=300),
-            ev_min_charge_power=RationalNumber(exponent=0, value=100),
-            ev_max_charge_current=RationalNumber(exponent=0, value=300),
-            ev_min_charge_current=RationalNumber(exponent=0, value=10),
-            ev_max_voltage=RationalNumber(exponent=0, value=1000),
-            ev_min_voltage=RationalNumber(exponent=0, value=10),
+            ev_max_charge_power=RationalNumber.get_rational_repr(
+                ev_dc_v20.max_charge_power_w if ev_dc_v20 else 300000
+            ),
+            ev_min_charge_power=RationalNumber.get_rational_repr(
+                ev_dc_v20.min_charge_power_w if ev_dc_v20 else 100
+            ),
+            ev_max_charge_current=RationalNumber.get_rational_repr(
+                ev_dc_v20.max_charge_current_a if ev_dc_v20 else 300
+            ),
+            ev_min_charge_current=RationalNumber.get_rational_repr(
+                ev_dc_v20.min_charge_current_a if ev_dc_v20 else 10
+            ),
+            ev_max_voltage=RationalNumber.get_rational_repr(
+                ev_dc_v20.max_voltage_v if ev_dc_v20 else 1000
+            ),
+            ev_min_voltage=RationalNumber.get_rational_repr(
+                ev_dc_v20.min_voltage_v if ev_dc_v20 else 10
+            ),
         )
         if selected_service.service == ServiceV20.AC:
             return ac_cpd_params
         elif selected_service.service == ServiceV20.AC_BPT:
             return BPTACChargeParameterDiscoveryReqParams(
                 **(ac_cpd_params.model_dump()),
-                ev_max_discharge_power=RationalNumber(exponent=3, value=11),
-                ev_min_discharge_power=RationalNumber(exponent=0, value=100),
+                ev_max_discharge_power=RationalNumber.get_rational_repr(
+                    ev_ac_v20.bpt_max_discharge_power_w if ev_ac_v20 else 11000
+                ),
+                ev_min_discharge_power=RationalNumber.get_rational_repr(
+                    ev_ac_v20.bpt_min_discharge_power_w if ev_ac_v20 else 100
+                ),
             )
         elif selected_service.service == ServiceV20.DC:
             return dc_cpd_params
         elif selected_service.service == ServiceV20.DC_BPT:
             return BPTDCChargeParameterDiscoveryReqParams(
                 **(dc_cpd_params.model_dump()),
-                ev_max_discharge_power=RationalNumber(exponent=3, value=11),
-                ev_min_discharge_power=RationalNumber(exponent=3, value=1),
-                ev_max_discharge_current=RationalNumber(exponent=0, value=11),
-                ev_min_discharge_current=RationalNumber(exponent=0, value=0),
+                ev_max_discharge_power=RationalNumber.get_rational_repr(
+                    ev_dc_v20.bpt_max_discharge_power_w if ev_dc_v20 else 11000
+                ),
+                ev_min_discharge_power=RationalNumber.get_rational_repr(
+                    ev_dc_v20.bpt_min_discharge_power_w if ev_dc_v20 else 1000
+                ),
+                ev_max_discharge_current=RationalNumber.get_rational_repr(
+                    ev_dc_v20.bpt_max_discharge_current_a if ev_dc_v20 else 11
+                ),
+                ev_min_discharge_current=RationalNumber.get_rational_repr(
+                    ev_dc_v20.bpt_min_discharge_current_a if ev_dc_v20 else 0
+                ),
             )
         else:
             # TODO Implement the remaining energy transer services
@@ -402,9 +437,16 @@ class SimEVController(EVControllerInterface):
     async def get_scheduled_se_params(
         self, selected_energy_service: SelectedEnergyService
     ) -> ScheduledScheduleExchangeReqParams:
-        """Overrides EVControllerInterface.get_scheduled_se_params()."""
+        """Overrides EVControllerInterface.get_scheduled_se_params().
+
+        Per issue #9 / Slice 4 every ScheduleExchange announcement value is
+        sourced from `personality.power.schedule_exchange_v20`.
+        """
+        se = self.config.schedule_exchange_v20
         ev_price_rule = EVPriceRule(
-            energy_fee=RationalNumber(exponent=0, value=0),
+            energy_fee=RationalNumber.get_rational_repr(
+                se.price_energy_fee if se else 0
+            ),
             power_range_start=RationalNumber(exponent=0, value=0),
         )
 
@@ -418,13 +460,16 @@ class SimEVController(EVControllerInterface):
 
         ev_absolute_price_schedule = EVAbsolutePriceSchedule(
             time_anchor=0,
-            currency="EUR",
+            currency=se.price_currency if se else "EUR",
             price_algorithm=PriceAlgorithm.POWER,
             ev_price_rule_stacks=ev_price_rule_stack_list,
         )
 
         ev_power_schedule_entry = EVPowerScheduleEntry(
-            duration=3600, power=RationalNumber(exponent=3, value=-10)
+            duration=se.power_schedule_duration_s if se else 3600,
+            power=RationalNumber.get_rational_repr(
+                se.power_schedule_power_w if se else -10000
+            ),
         )
 
         ev_power_schedule_entries = EVPowerScheduleEntryList(
@@ -441,10 +486,16 @@ class SimEVController(EVControllerInterface):
         )
 
         scheduled_params = ScheduledScheduleExchangeReqParams(
-            departure_time=7200,
-            ev_target_energy_request=RationalNumber(exponent=3, value=10),
-            ev_max_energy_request=RationalNumber(exponent=3, value=20),
-            ev_min_energy_request=RationalNumber(exponent=-2, value=5),
+            departure_time=se.departure_time_s if se else 7200,
+            ev_target_energy_request=RationalNumber.get_rational_repr(
+                se.scheduled_target_energy_request_wh if se else 10000
+            ),
+            ev_max_energy_request=RationalNumber.get_rational_repr(
+                se.scheduled_max_energy_request_wh if se else 20000
+            ),
+            ev_min_energy_request=RationalNumber.get_rational_repr(
+                se.scheduled_min_energy_request_wh if se else 0.05
+            ),
             ev_energy_offer=energy_offer,
         )
 
@@ -453,16 +504,31 @@ class SimEVController(EVControllerInterface):
     async def get_dynamic_se_params(
         self, selected_energy_service: SelectedEnergyService
     ) -> DynamicScheduleExchangeReqParams:
-        """Overrides EVControllerInterface.get_dynamic_se_params()."""
+        """Overrides EVControllerInterface.get_dynamic_se_params().
+
+        Sources departure, SOC targets, and energy requests from
+        `personality.power.schedule_exchange_v20`.
+        """
+        se = self.config.schedule_exchange_v20
         dynamic_params = DynamicScheduleExchangeReqParams(
-            departure_time=7200,
-            min_soc=30,
-            target_soc=80,
-            ev_target_energy_request=RationalNumber(exponent=3, value=40),
-            ev_max_energy_request=RationalNumber(exponent=1, value=6000),
-            ev_min_energy_request=RationalNumber(exponent=0, value=-20000),
-            ev_max_v2x_energy_request=RationalNumber(exponent=0, value=5000),
-            ev_min_v2x_energy_request=RationalNumber(exponent=0, value=0),
+            departure_time=se.departure_time_s if se else 7200,
+            min_soc=se.dynamic_min_soc_percent if se else 30,
+            target_soc=se.dynamic_target_soc_percent if se else 80,
+            ev_target_energy_request=RationalNumber.get_rational_repr(
+                se.dynamic_target_energy_request_wh if se else 40000
+            ),
+            ev_max_energy_request=RationalNumber.get_rational_repr(
+                se.dynamic_max_energy_request_wh if se else 60000
+            ),
+            ev_min_energy_request=RationalNumber.get_rational_repr(
+                se.dynamic_min_energy_request_wh if se else -20000
+            ),
+            ev_max_v2x_energy_request=RationalNumber.get_rational_repr(
+                se.dynamic_max_v2x_energy_request_wh if se else 5000
+            ),
+            ev_min_v2x_energy_request=RationalNumber.get_rational_repr(
+                se.dynamic_min_v2x_energy_request_wh if se else 0
+            ),
         )
 
         return dynamic_params
@@ -734,38 +800,66 @@ class SimEVController(EVControllerInterface):
         DynamicACChargeLoopReqParams,
         BPTDynamicACChargeLoopReqParams,
     ]:
-        """Overrides EVSControllerInterface.get_ac_charge_loop_params_v20()."""
+        """Overrides EVSControllerInterface.get_ac_charge_loop_params_v20().
+
+        Sources scheduled/dynamic charge-loop magnitudes from
+        `personality.power.ev_ac_v20` + `schedule_exchange_v20`.
+        """
+        ev_ac_v20 = self.config.ev_ac_v20
+        se = self.config.schedule_exchange_v20
         if control_mode == ControlMode.SCHEDULED:
             scheduled_params = ScheduledACChargeLoopReqParams(
-                ev_present_active_power=RationalNumber(exponent=3, value=200),
-                # Add more optional fields if wanted
+                ev_present_active_power=RationalNumber.get_rational_repr(
+                    ev_ac_v20.scheduled_present_active_power_w
+                    if ev_ac_v20
+                    else 200000
+                ),
             )
             if selected_service == ServiceV20.AC_BPT:
                 bpt_scheduled_params = BPTScheduledACChargeLoopReqParams(
                     **(scheduled_params.model_dump()),
-                    # Add more optional fields if wanted
                 )
                 return bpt_scheduled_params
             return scheduled_params
         else:
             # Dynamic Mode
             dynamic_params = DynamicACChargeLoopReqParams(
-                departure_time=2000,
-                ev_target_energy_request=RationalNumber(exponent=3, value=40),
-                ev_max_energy_request=RationalNumber(exponent=3, value=60),
-                ev_min_energy_request=RationalNumber(exponent=3, value=-20),
-                ev_max_charge_power=RationalNumber(exponent=3, value=300),
-                ev_min_charge_power=RationalNumber(exponent=0, value=100),
-                ev_present_active_power=RationalNumber(exponent=3, value=200),
-                ev_present_reactive_power=RationalNumber(exponent=3, value=20),
-                # Add more optional fields if wanted
+                departure_time=se.ac_dynamic_loop_departure_time_s if se else 2000,
+                ev_target_energy_request=RationalNumber.get_rational_repr(
+                    se.dynamic_target_energy_request_wh if se else 40000
+                ),
+                ev_max_energy_request=RationalNumber.get_rational_repr(
+                    se.dynamic_max_energy_request_wh if se else 60000
+                ),
+                ev_min_energy_request=RationalNumber.get_rational_repr(
+                    se.dynamic_min_energy_request_wh if se else -20000
+                ),
+                ev_max_charge_power=RationalNumber.get_rational_repr(
+                    ev_ac_v20.dynamic_max_charge_power_w if ev_ac_v20 else 300000
+                ),
+                ev_min_charge_power=RationalNumber.get_rational_repr(
+                    ev_ac_v20.dynamic_min_charge_power_w if ev_ac_v20 else 100
+                ),
+                ev_present_active_power=RationalNumber.get_rational_repr(
+                    ev_ac_v20.dynamic_present_active_power_w
+                    if ev_ac_v20
+                    else 200000
+                ),
+                ev_present_reactive_power=RationalNumber.get_rational_repr(
+                    ev_ac_v20.dynamic_present_reactive_power_w
+                    if ev_ac_v20
+                    else 20000
+                ),
             )
             if selected_service == ServiceV20.AC_BPT:
                 bpt_dynamic_params = BPTDynamicACChargeLoopReqParams(
                     **(dynamic_params.model_dump()),
-                    ev_max_discharge_power=RationalNumber(exponent=3, value=11),
-                    ev_min_discharge_power=RationalNumber(exponent=-3, value=1),
-                    # Add more optional fields if wanted
+                    ev_max_discharge_power=RationalNumber.get_rational_repr(
+                        ev_ac_v20.bpt_max_discharge_power_w if ev_ac_v20 else 11000
+                    ),
+                    ev_min_discharge_power=RationalNumber.get_rational_repr(
+                        ev_ac_v20.bpt_min_discharge_power_w if ev_ac_v20 else 1
+                    ),
                 )
                 return bpt_dynamic_params
             return dynamic_params
@@ -804,23 +898,54 @@ class SimEVController(EVControllerInterface):
     async def get_scheduled_dc_charge_loop_params(
         self,
     ) -> ScheduledDCChargeLoopReqParams:
-        """Overrides EVControllerInterface.get_scheduled_dc_charge_loop_params()."""
+        """Overrides EVControllerInterface.get_scheduled_dc_charge_loop_params().
+
+        Sources `ev_target_current` / `ev_target_voltage` from
+        `personality.power.ev_dc_v20`.
+        """
+        ev_dc_v20 = self.config.ev_dc_v20
         return ScheduledDCChargeLoopReqParams(
-            ev_target_current=RationalNumber(exponent=1, value=20),
-            ev_target_voltage=RationalNumber(exponent=1, value=20),
+            ev_target_current=RationalNumber.get_rational_repr(
+                ev_dc_v20.target_current_a if ev_dc_v20 else 200
+            ),
+            ev_target_voltage=RationalNumber.get_rational_repr(
+                ev_dc_v20.target_voltage_v if ev_dc_v20 else 20000
+            ),
         )
 
     async def get_dynamic_dc_charge_loop_params(self) -> DynamicDCChargeLoopReqParams:
-        """Overrides EVControllerInterface.get_dynamic_dc_charge_loop_params()."""
+        """Overrides EVControllerInterface.get_dynamic_dc_charge_loop_params().
+
+        Sources every magnitude from `personality.power.ev_dc_v20` (`dynamic_*`
+        sub-set) — kept distinct from the CPD envelope because the simulator
+        emits much smaller stub values here.
+        """
+        ev_dc_v20 = self.config.ev_dc_v20
         return DynamicDCChargeLoopReqParams(
-            ev_target_energy_request=RationalNumber(exponent=1, value=20),
-            ev_max_energy_request=RationalNumber(exponent=1, value=20),
-            ev_min_energy_request=RationalNumber(exponent=0, value=20),
-            ev_max_charge_power=RationalNumber(exponent=2, value=40),
-            ev_min_charge_power=RationalNumber(exponent=1, value=40),
-            ev_max_charge_current=RationalNumber(exponent=0, value=40),
-            ev_max_voltage=RationalNumber(exponent=1, value=40),
-            ev_min_voltage=RationalNumber(exponent=0, value=40),
+            ev_target_energy_request=RationalNumber.get_rational_repr(
+                ev_dc_v20.dynamic_target_energy_request_wh if ev_dc_v20 else 200
+            ),
+            ev_max_energy_request=RationalNumber.get_rational_repr(
+                ev_dc_v20.dynamic_max_energy_request_wh if ev_dc_v20 else 200
+            ),
+            ev_min_energy_request=RationalNumber.get_rational_repr(
+                ev_dc_v20.dynamic_min_energy_request_wh if ev_dc_v20 else 20
+            ),
+            ev_max_charge_power=RationalNumber.get_rational_repr(
+                ev_dc_v20.dynamic_max_charge_power_w if ev_dc_v20 else 4000
+            ),
+            ev_min_charge_power=RationalNumber.get_rational_repr(
+                ev_dc_v20.dynamic_min_charge_power_w if ev_dc_v20 else 400
+            ),
+            ev_max_charge_current=RationalNumber.get_rational_repr(
+                ev_dc_v20.dynamic_max_charge_current_a if ev_dc_v20 else 40
+            ),
+            ev_max_voltage=RationalNumber.get_rational_repr(
+                ev_dc_v20.dynamic_max_voltage_v if ev_dc_v20 else 400
+            ),
+            ev_min_voltage=RationalNumber.get_rational_repr(
+                ev_dc_v20.dynamic_min_voltage_v if ev_dc_v20 else 40
+            ),
         )
 
     async def get_bpt_scheduled_dc_charge_loop_params(
@@ -837,24 +962,43 @@ class SimEVController(EVControllerInterface):
     async def get_bpt_dynamic_dc_charge_loop_params(
         self,
     ) -> BPTDynamicDCChargeLoopReqParams:
-        """Overrides EVControllerInterface.get_bpt_dynamic_dc_charge_loop_params()."""
+        """Overrides EVControllerInterface.get_bpt_dynamic_dc_charge_loop_params().
+
+        Sources BPT dynamic-mode discharge envelope from
+        `personality.power.ev_dc_v20` (`bpt_dynamic_*` sub-set).
+        """
+        ev_dc_v20 = self.config.ev_dc_v20
         dc_dynamic_dc_charge_loop_params_v20 = (
             await self.get_dynamic_dc_charge_loop_params()
         ).model_dump()
         return BPTDynamicDCChargeLoopReqParams(
             **dc_dynamic_dc_charge_loop_params_v20,
-            ev_max_discharge_power=RationalNumber(exponent=3, value=300),
-            ev_min_discharge_power=RationalNumber(exponent=3, value=300),
-            ev_max_discharge_current=RationalNumber(exponent=3, value=300),
+            ev_max_discharge_power=RationalNumber.get_rational_repr(
+                ev_dc_v20.bpt_dynamic_max_discharge_power_w if ev_dc_v20 else 300000
+            ),
+            ev_min_discharge_power=RationalNumber.get_rational_repr(
+                ev_dc_v20.bpt_dynamic_min_discharge_power_w if ev_dc_v20 else 300000
+            ),
+            ev_max_discharge_current=RationalNumber.get_rational_repr(
+                ev_dc_v20.bpt_dynamic_max_discharge_current_a
+                if ev_dc_v20
+                else 300000
+            ),
         )
 
     async def get_present_voltage(self) -> RationalNumber:
         """Overrides EVControllerInterface.get_present_voltage()."""
-        return RationalNumber(exponent=3, value=20)
+        ev_dc_v20 = self.config.ev_dc_v20
+        return RationalNumber.get_rational_repr(
+            ev_dc_v20.target_voltage_v if ev_dc_v20 else 20000
+        )
 
     async def get_target_voltage(self) -> RationalNumber:
         """Overrides EVControllerInterface.get_target_voltage()."""
-        return RationalNumber(exponent=3, value=20)
+        ev_dc_v20 = self.config.ev_dc_v20
+        return RationalNumber.get_rational_repr(
+            ev_dc_v20.target_voltage_v if ev_dc_v20 else 20000
+        )
 
     async def enable_charging(self, enabled: bool) -> None:
         """Overrides EVControllerInterface.enable_charging()."""

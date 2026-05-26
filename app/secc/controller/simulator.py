@@ -369,18 +369,33 @@ class SimEVSEController(EVSEControllerInterface):
         selected_energy_service: SelectedEnergyService,
         schedule_exchange_req: ScheduleExchangeReq,
     ) -> ScheduledScheduleExchangeResParams:
-        """Overrides EVSEControllerInterface.get_scheduled_se_params()."""
+        """Overrides EVSEControllerInterface.get_scheduled_se_params().
+
+        Per issue #9 / Slice 4 the schedule envelope (durations + power +
+        available energy + tolerance) is sourced from
+        `personality.power.evse_schedule_exchange_v20`. The pricing /
+        tax / overstay meta-structures stay hardcoded — they are
+        protocol-interop stubs, not personality.
+        """
+        evse_se = (
+            self.personality.power.evse_schedule_exchange_v20
+            if self.personality
+            else None
+        )
+        schedule_duration = evse_se.schedule_duration_s if evse_se else 3600
+        charge_power_w = evse_se.charge_power_w if evse_se else 10000
+        discharge_power_w = evse_se.discharge_power_w if evse_se else 10000
+        available_energy_wh = evse_se.available_energy_wh if evse_se else 300000
+        power_tolerance_w = evse_se.power_tolerance_w if evse_se else 2000
         charging_power_schedule_entry = PowerScheduleEntry(
-            duration=3600,
-            power=RationalNumber(exponent=3, value=10),
-            # Check if AC ThreePhase applies (Connector parameter within parameter set
-            # of SelectedEnergyService) if you want to add power_l2 and power_l3 values
+            duration=schedule_duration,
+            power=RationalNumber.get_rational_repr(charge_power_w),
         )
 
         charging_power_schedule = PowerSchedule(
             time_anchor=0,
-            available_energy=RationalNumber(exponent=3, value=300),
-            power_tolerance=RationalNumber(exponent=0, value=2000),
+            available_energy=RationalNumber.get_rational_repr(available_energy_wh),
+            power_tolerance=RationalNumber.get_rational_repr(power_tolerance_w),
             schedule_entry_list=PowerScheduleEntryList(
                 entries=[charging_power_schedule_entry]
             ),
@@ -449,10 +464,8 @@ class SimEVSEController(EVSEControllerInterface):
         )
 
         discharging_power_schedule_entry = PowerScheduleEntry(
-            duration=3600,
-            power=RationalNumber(exponent=3, value=10),
-            # Check if AC ThreePhase applies (Connector parameter within parameter set
-            # of SelectedEnergyService) if you want to add power_l2 and power_l3 values
+            duration=schedule_duration,
+            power=RationalNumber.get_rational_repr(discharge_power_w),
         )
 
         discharging_power_schedule = PowerSchedule(
@@ -565,9 +578,19 @@ class SimEVSEController(EVSEControllerInterface):
         selected_energy_service: SelectedEnergyService,
         schedule_exchange_req: ScheduleExchangeReq,
     ) -> DynamicScheduleExchangeResParams:
-        """Overrides EVSEControllerInterface.get_dynamic_se_params()."""
+        """Overrides EVSEControllerInterface.get_dynamic_se_params().
+
+        Sources `departure_time`, `min_soc`, `target_soc`, and the price
+        schedule duration from `personality.power.evse_schedule_exchange_v20`.
+        """
+        evse_se = (
+            self.personality.power.evse_schedule_exchange_v20
+            if self.personality
+            else None
+        )
         price_level_schedule_entry = PriceLevelScheduleEntry(
-            duration=3600, price_level=1
+            duration=evse_se.schedule_duration_s if evse_se else 3600,
+            price_level=1,
         )
 
         schedule_entries = PriceLevelScheduleEntryList(
@@ -584,9 +607,9 @@ class SimEVSEController(EVSEControllerInterface):
         )
 
         dynamic_params = DynamicScheduleExchangeResParams(
-            departure_time=7200,
-            min_soc=30,
-            target_soc=80,
+            departure_time=evse_se.dynamic_departure_time_s if evse_se else 7200,
+            min_soc=evse_se.dynamic_min_soc_percent if evse_se else 30,
+            target_soc=evse_se.dynamic_target_soc_percent if evse_se else 80,
             price_level_schedule=price_level_schedule,
         )
 
@@ -794,14 +817,15 @@ class SimEVSEController(EVSEControllerInterface):
     async def get_meter_info_v20(self) -> MeterInfoV20:
         """Overrides EVSEControllerInterface.get_meter_info_v20().
 
-        `meter_id` is a personality field; the v20 wire reading
-        (`charged_energy_reading_wh`) stays at its legacy ISO-20 hardcode
-        until Slice 4 covers ISO 15118-20 fields.
+        Both `meter_id` and `charged_energy_reading_wh` are personality
+        fields — the latter sourced from `meter.starting_reading_wh`
+        (same field that seeds the ISO-2 / DIN meter reading) so the
+        per-protocol wire values stay consistent for a given personality.
         """
         meter = self.personality.meter if self.personality else None
         return MeterInfoV20(
             meter_id=meter.meter_id if meter else "Switch-Meter-123",
-            charged_energy_reading_wh=10,
+            charged_energy_reading_wh=meter.starting_reading_wh if meter else 12345,
             meter_timestamp=int(time.time()),
         )
 
@@ -906,17 +930,48 @@ class SimEVSEController(EVSEControllerInterface):
             ACChargeParameterDiscoveryResParams, BPTACChargeParameterDiscoveryResParams
         ]
     ]:
-        """Overrides EVSEControllerInterface.get_ac_charge_params_v20()."""
+        """Overrides EVSEControllerInterface.get_ac_charge_params_v20().
+
+        Per issue #9 / Slice 4 every AC envelope value comes from
+        `personality.power.evse_ac_v20`. The phase-symmetric model holds
+        a single magnitude per concept and the wire echoes it to L1/L2/L3.
+        """
+        evse_ac_v20 = (
+            self.personality.power.evse_ac_v20 if self.personality else None
+        )
+        max_charge_power = evse_ac_v20.max_charge_power_w if evse_ac_v20 else 30000
+        min_charge_power = evse_ac_v20.min_charge_power_w if evse_ac_v20 else 100
+        nominal_frequency = (
+            evse_ac_v20.nominal_frequency_hz if evse_ac_v20 else 50
+        )
+        max_power_asymmetry = (
+            evse_ac_v20.max_power_asymmetry_w if evse_ac_v20 else 0
+        )
+        power_ramp_limit = (
+            evse_ac_v20.power_ramp_limit_w_per_s if evse_ac_v20 else 100
+        )
         ac_charge_parameter_discovery_res_params = ACChargeParameterDiscoveryResParams(
-            evse_max_charge_power=RationalNumber.get_rational_repr(30000),
-            evse_max_charge_power_l2=RationalNumber.get_rational_repr(30000),
-            evse_max_charge_power_l3=RationalNumber.get_rational_repr(30000),
-            evse_min_charge_power=RationalNumber.get_rational_repr(100),
-            evse_min_charge_power_l2=RationalNumber.get_rational_repr(100),
-            evse_min_charge_power_l3=RationalNumber.get_rational_repr(100),
-            evse_nominal_frequency=RationalNumber.get_rational_repr(50),
-            max_power_asymmetry=RationalNumber.get_rational_repr(0),
-            evse_power_ramp_limit=RationalNumber.get_rational_repr(100),
+            evse_max_charge_power=RationalNumber.get_rational_repr(max_charge_power),
+            evse_max_charge_power_l2=RationalNumber.get_rational_repr(
+                max_charge_power
+            ),
+            evse_max_charge_power_l3=RationalNumber.get_rational_repr(
+                max_charge_power
+            ),
+            evse_min_charge_power=RationalNumber.get_rational_repr(min_charge_power),
+            evse_min_charge_power_l2=RationalNumber.get_rational_repr(
+                min_charge_power
+            ),
+            evse_min_charge_power_l3=RationalNumber.get_rational_repr(
+                min_charge_power
+            ),
+            evse_nominal_frequency=RationalNumber.get_rational_repr(
+                nominal_frequency
+            ),
+            max_power_asymmetry=RationalNumber.get_rational_repr(
+                max_power_asymmetry
+            ),
+            evse_power_ramp_limit=RationalNumber.get_rational_repr(power_ramp_limit),
             evse_present_active_power=RationalNumber.get_rational_repr(0),
             evse_present_active_power_l2=RationalNumber.get_rational_repr(0),
             evse_present_active_power_l3=RationalNumber.get_rational_repr(0),
@@ -924,14 +979,32 @@ class SimEVSEController(EVSEControllerInterface):
         if energy_service == ServiceV20.AC:
             return ac_charge_parameter_discovery_res_params
         elif energy_service == ServiceV20.AC_BPT:
+            bpt_max_discharge = (
+                evse_ac_v20.bpt_max_discharge_power_w if evse_ac_v20 else 30000
+            )
+            bpt_min_discharge = (
+                evse_ac_v20.bpt_min_discharge_power_w if evse_ac_v20 else 100
+            )
             return BPTACChargeParameterDiscoveryResParams(
                 **(ac_charge_parameter_discovery_res_params.model_dump()),
-                evse_max_discharge_power=RationalNumber.get_rational_repr(30000),
-                evse_max_discharge_power_l2=RationalNumber.get_rational_repr(30000),
-                evse_max_discharge_power_l3=RationalNumber.get_rational_repr(30000),
-                evse_min_discharge_power=RationalNumber.get_rational_repr(100),
-                evse_min_discharge_power_l2=RationalNumber.get_rational_repr(100),
-                evse_min_discharge_power_l3=RationalNumber.get_rational_repr(100),
+                evse_max_discharge_power=RationalNumber.get_rational_repr(
+                    bpt_max_discharge
+                ),
+                evse_max_discharge_power_l2=RationalNumber.get_rational_repr(
+                    bpt_max_discharge
+                ),
+                evse_max_discharge_power_l3=RationalNumber.get_rational_repr(
+                    bpt_max_discharge
+                ),
+                evse_min_discharge_power=RationalNumber.get_rational_repr(
+                    bpt_min_discharge
+                ),
+                evse_min_discharge_power_l2=RationalNumber.get_rational_repr(
+                    bpt_min_discharge
+                ),
+                evse_min_discharge_power_l3=RationalNumber.get_rational_repr(
+                    bpt_min_discharge
+                ),
             )
         else:
             raise UnknownEnergyService(f"Unknown Service {energy_service}")
@@ -1138,25 +1211,56 @@ class SimEVSEController(EVSEControllerInterface):
     ) -> Union[
         DCChargeParameterDiscoveryResParams, BPTDCChargeParameterDiscoveryResParams
     ]:
-        """Override EVSEControllerInterface.get_dc_charge_params_v20()."""
+        """Override EVSEControllerInterface.get_dc_charge_params_v20().
+
+        Per issue #9 / Slice 4 the DC envelope (and DC-BPT discharge
+        envelope) is sourced from `personality.power.evse_dc_v20` — kept
+        distinct from the DIN/ISO-2 `evse_dc` block because the ISO-20
+        DC wire encoding and field set are different.
+        """
+        evse_dc_v20 = (
+            self.personality.power.evse_dc_v20 if self.personality else None
+        )
         dc_charge_parameter_discovery_res = DCChargeParameterDiscoveryResParams(
-            evse_max_charge_power=RationalNumber.get_rational_repr(1000),
-            evse_min_charge_power=RationalNumber.get_rational_repr(100),
-            evse_max_charge_current=RationalNumber.get_rational_repr(100),
-            evse_min_charge_current=RationalNumber.get_rational_repr(10),
-            evse_max_voltage=RationalNumber.get_rational_repr(500),
-            evse_min_voltage=RationalNumber.get_rational_repr(10),
-            evse_power_ramp_limit=RationalNumber.get_rational_repr(10),
+            evse_max_charge_power=RationalNumber.get_rational_repr(
+                evse_dc_v20.max_charge_power_w if evse_dc_v20 else 1000
+            ),
+            evse_min_charge_power=RationalNumber.get_rational_repr(
+                evse_dc_v20.min_charge_power_w if evse_dc_v20 else 100
+            ),
+            evse_max_charge_current=RationalNumber.get_rational_repr(
+                evse_dc_v20.max_charge_current_a if evse_dc_v20 else 100
+            ),
+            evse_min_charge_current=RationalNumber.get_rational_repr(
+                evse_dc_v20.min_charge_current_a if evse_dc_v20 else 10
+            ),
+            evse_max_voltage=RationalNumber.get_rational_repr(
+                evse_dc_v20.max_voltage_v if evse_dc_v20 else 500
+            ),
+            evse_min_voltage=RationalNumber.get_rational_repr(
+                evse_dc_v20.min_voltage_v if evse_dc_v20 else 10
+            ),
+            evse_power_ramp_limit=RationalNumber.get_rational_repr(
+                evse_dc_v20.power_ramp_limit_w_per_s if evse_dc_v20 else 10
+            ),
         )
         if energy_service == ServiceV20.DC:
             return dc_charge_parameter_discovery_res
         elif energy_service == ServiceV20.DC_BPT:
             return BPTDCChargeParameterDiscoveryResParams(
                 **(dc_charge_parameter_discovery_res.model_dump()),
-                evse_max_discharge_power=RationalNumber.get_rational_repr(1000),
-                evse_min_discharge_power=RationalNumber.get_rational_repr(100),
-                evse_max_discharge_current=RationalNumber.get_rational_repr(100),
-                evse_min_discharge_current=RationalNumber.get_rational_repr(10),
+                evse_max_discharge_power=RationalNumber.get_rational_repr(
+                    evse_dc_v20.bpt_max_discharge_power_w if evse_dc_v20 else 1000
+                ),
+                evse_min_discharge_power=RationalNumber.get_rational_repr(
+                    evse_dc_v20.bpt_min_discharge_power_w if evse_dc_v20 else 100
+                ),
+                evse_max_discharge_current=RationalNumber.get_rational_repr(
+                    evse_dc_v20.bpt_max_discharge_current_a if evse_dc_v20 else 100
+                ),
+                evse_min_discharge_current=RationalNumber.get_rational_repr(
+                    evse_dc_v20.bpt_min_discharge_current_a if evse_dc_v20 else 10
+                ),
             )
         else:
             raise UnknownEnergyService(f"Unknown Service {energy_service}")

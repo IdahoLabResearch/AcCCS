@@ -15,7 +15,12 @@ from app.shared.messages.enums import (
     Protocol,
     ServiceV20,
 )
-from app.shared.personality.model import EVCCPersonality
+from app.shared.personality.model import (
+    EVACLimitsV20,
+    EVCCPersonality,
+    EVDCLimitsV20,
+    ScheduleExchangeV20,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +87,15 @@ class EVCCConfig(BaseModel):
     ev_ac_max_current_a: float = 32.0
     ev_ac_min_current_a: float = 10.0
 
+    # ISO 15118-20 EV-side envelopes + ScheduleExchange announcement.
+    # Carried as nested sub-blocks rather than flattened fields because the
+    # ISO-20 surface area is too large to inline (see issue #9 / Slice 4).
+    ev_dc_v20: Optional[EVDCLimitsV20] = None
+    ev_ac_v20: Optional[EVACLimitsV20] = None
+    schedule_exchange_v20: Optional[ScheduleExchangeV20] = None
+
+    model_config = {"arbitrary_types_allowed": True}
+
     @classmethod
     def from_personality(cls, personality: EVCCPersonality) -> "EVCCConfig":
         caps = personality.capabilities
@@ -123,6 +137,9 @@ class EVCCConfig(BaseModel):
             ev_ac_max_voltage_v=ev_ac.max_voltage_v,
             ev_ac_max_current_a=ev_ac.max_current_a,
             ev_ac_min_current_a=ev_ac.min_current_a,
+            ev_dc_v20=personality.power.ev_dc_v20,
+            ev_ac_v20=personality.power.ev_ac_v20,
+            schedule_exchange_v20=personality.power.schedule_exchange_v20,
         )
 
         logger.info("EVCC Settings (from personality):")
