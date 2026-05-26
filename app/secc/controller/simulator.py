@@ -681,7 +681,17 @@ class SimEVSEController(EVSEControllerInterface):
             # time intervals shall be greater than or equal to 24 hours.
             departure_time = 86400
 
-        # PMaxSchedule entries
+        # PMaxSchedule entries. Per issue #8, the PMax value is sourced from
+        # `personality.power.evse_dc.iso2_sa_schedule_pmax_w`. The legacy
+        # alternation between 7000 W and 11000 W is preserved as the
+        # personality-less fallback for call sites that drive the simulator
+        # without a personality.
+        evse_dc_pers = (
+            self.personality.power.evse_dc if self.personality else None
+        )
+        configured_pmax_w = (
+            evse_dc_pers.iso2_sa_schedule_pmax_w if evse_dc_pers else None
+        )
         schedule_entries = []
         # SalesTariff
         sales_tariff_entries: List[SalesTariffEntry] = []
@@ -690,7 +700,14 @@ class SimEVSEController(EVSEControllerInterface):
         start = 0
         current_pmax_val = 7000
         while remaining_charge_duration > 0:
-            if current_pmax_val == 7000:
+            if configured_pmax_w is not None:
+                pmax_mult, pmax_val = PhysicalValue.get_exponent_value_repr(
+                    configured_pmax_w
+                )
+                p_max = PVPMax(
+                    multiplier=pmax_mult, value=pmax_val, unit=UnitSymbol.WATT
+                )
+            elif current_pmax_val == 7000:
                 p_max = PVPMax(multiplier=0, value=11000, unit=UnitSymbol.WATT)
                 current_pmax_val = 11000
             else:
@@ -731,7 +748,9 @@ class SimEVSEController(EVSEControllerInterface):
 
         sales_tariff = SalesTariff(
             id="id1",
-            sales_tariff_id=10,  # a random id
+            sales_tariff_id=(
+                evse_dc_pers.iso2_sales_tariff_id if evse_dc_pers else 10
+            ),
             sales_tariff_entry=sales_tariff_entries,
             num_e_price_levels=len(sales_tariff_entries),
         )
@@ -757,15 +776,31 @@ class SimEVSEController(EVSEControllerInterface):
         return sa_schedule_list
 
     async def get_meter_info_v2(self) -> MeterInfoV2:
-        """Overrides EVSEControllerInterface.get_meter_info_v2()."""
+        """Overrides EVSEControllerInterface.get_meter_info_v2().
+
+        Per issue #8: `meter_id` and `meter_reading` are sourced from
+        `personality.meter` when a personality is attached. The reading
+        itself is the personality's `starting_reading_wh` baseline — the
+        per-message live reading remains runtime-derived and is layered
+        in by the wire codec on top of the baseline.
+        """
+        meter = self.personality.meter if self.personality else None
         return MeterInfoV2(
-            meter_id="Switch-Meter-123", meter_reading=12345, t_meter=int(time.time())
+            meter_id=meter.meter_id if meter else "Switch-Meter-123",
+            meter_reading=meter.starting_reading_wh if meter else 12345,
+            t_meter=int(time.time()),
         )
 
     async def get_meter_info_v20(self) -> MeterInfoV20:
-        """Overrides EVSEControllerInterface.get_meter_info_v20()."""
+        """Overrides EVSEControllerInterface.get_meter_info_v20().
+
+        `meter_id` is a personality field; the v20 wire reading
+        (`charged_energy_reading_wh`) stays at its legacy ISO-20 hardcode
+        until Slice 4 covers ISO 15118-20 fields.
+        """
+        meter = self.personality.meter if self.personality else None
         return MeterInfoV20(
-            meter_id="Switch-Meter-123",
+            meter_id=meter.meter_id if meter else "Switch-Meter-123",
             charged_energy_reading_wh=10,
             meter_timestamp=int(time.time()),
         )
@@ -835,12 +870,28 @@ class SimEVSEController(EVSEControllerInterface):
         )
 
     async def get_ac_charge_params_v2(self) -> ACEVSEChargeParameter:
-        """Overrides EVSEControllerInterface.get_ac_evse_charge_parameter()."""
+        """Overrides EVSEControllerInterface.get_ac_evse_charge_parameter().
+
+        Per issue #8: sources the AC envelope from `personality.power.evse_ac`
+        when a personality is attached, with the legacy 400 V / 32 A
+        hardcodes as the fallback for personality-less call sites.
+        """
+        evse_ac = self.personality.power.evse_ac if self.personality else None
+        if evse_ac is not None:
+            v_mult, v_val = PhysicalValue.get_exponent_value_repr(
+                evse_ac.nominal_voltage_v
+            )
+            c_mult, c_val = PhysicalValue.get_exponent_value_repr(
+                evse_ac.max_current_a
+            )
+        else:
+            v_mult, v_val = 0, 400
+            c_mult, c_val = 0, 32
         evse_nominal_voltage = PVEVSENominalVoltage(
-            multiplier=0, value=400, unit=UnitSymbol.VOLTAGE
+            multiplier=v_mult, value=v_val, unit=UnitSymbol.VOLTAGE
         )
         evse_max_current = PVEVSEMaxCurrent(
-            multiplier=0, value=32, unit=UnitSymbol.AMPERE
+            multiplier=c_mult, value=c_val, unit=UnitSymbol.AMPERE
         )
         return ACEVSEChargeParameter(
             ac_evse_status=await self.get_ac_evse_status(),

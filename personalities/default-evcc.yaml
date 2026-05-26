@@ -51,6 +51,8 @@ power:
     nominal_voltage_v: 400.0
     sa_schedule_pmax_w: 30000
     sa_schedule_duration_s: 3600
+    iso2_sa_schedule_pmax_w: 11000
+    iso2_sales_tariff_id: 10
   ev_dc:
     max_voltage_v: 500.0
     max_current_a: 32.0
@@ -60,10 +62,24 @@ power:
     target_current_a: 1.0
     remaining_time_to_full_soc_s: 100
     remaining_time_to_bulk_soc_s: 80
+    iso2_energy_request_wh: 6000.0
+    iso2_full_soc_percent: 90
+    iso2_bulk_soc_percent: 80
+  evse_ac:
+    nominal_voltage_v: 400.0
+    max_current_a: 32.0
+  ev_ac:
+    e_amount_wh: 60.0
+    max_voltage_v: 400.0
+    max_current_a: 32.0
+    min_current_a: 10.0
 charge_profile:
   cycle: 10
   delay_seconds: 0
 certificates:
   pki_path: app/shared/pki/
   max_contract_certs: 3
+meter:
+  meter_id: Switch-Meter-123
+  starting_reading_wh: 12345
 role: evcc

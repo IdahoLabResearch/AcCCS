@@ -1,0 +1,38 @@
+# Conformance ISO 15118-2 PnC EVCC variant test personality.
+
+role: evcc
+identity:
+  evse_id: USFRDE9002
+  evcc_id: 1FATCBFLAGSHIPDC0002
+network:
+  interface: acccs_evcc
+tls:
+  enable_tls_1_3: true
+  use_tls: true
+  enforce_tls: true
+  sdp_retry_cycles: 2
+capabilities:
+  supported_protocols:
+    - ISO_15118_2
+  supported_auth_modes:
+    - PNC
+  supported_energy_services:
+    - DC
+  energy_transfer_mode: DC_extended
+  is_cert_install_needed: false
+power:
+  ev_dc:
+    max_voltage_v: 950.0
+    max_current_a: 280.0
+    max_power_w: 250000.0
+    energy_capacity_wh: 120000.0
+    target_voltage_v: 850.0
+    target_current_a: 1.7
+    remaining_time_to_full_soc_s: 3000
+    remaining_time_to_bulk_soc_s: 1500
+    iso2_energy_request_wh: 25000.0
+    iso2_full_soc_percent: 100
+    iso2_bulk_soc_percent: 85
+certificates:
+  pki_path: app/shared/pki/
+  max_contract_certs: 5

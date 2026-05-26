@@ -183,6 +183,14 @@ class EVSEDCLimits(_StrictBase):
     # (0..32767 W) so the schema enforces that range here too.
     sa_schedule_pmax_w: int = Field(default=30000, ge=0, le=32767)
     sa_schedule_duration_s: int = 3600
+    # ISO 15118-2 SAScheduleList PMaxScheduleEntry — the EVSE-advertised
+    # power envelope for the ISO-2 charging schedule. Distinct from DIN's
+    # field because ISO-2's PMax goes on the wire as a PVPMax (PhysicalValue
+    # with multiplier) so the XSD does not pin it to int16.
+    iso2_sa_schedule_pmax_w: int = Field(default=11000, ge=0)
+    # SalesTariff.sales_tariff_id advertised alongside the PMax schedule.
+    # The XSD constrains this to xs:unsignedByte (1..255).
+    iso2_sales_tariff_id: int = Field(default=10, ge=1, le=255)
 
 
 class EVDCLimits(_StrictBase):
@@ -208,19 +216,55 @@ class EVDCLimits(_StrictBase):
     # DIN CurrentDemandReq's optional EV-supplied remaining-time estimates.
     remaining_time_to_full_soc_s: int = 100
     remaining_time_to_bulk_soc_s: int = 80
+    # ISO 15118-2 DCEVChargeParameter additions (no DIN equivalent on the
+    # wire). EnergyRequest is what the EV asks the EVSE to deliver this
+    # session; the full_soc / bulk_soc fields are EV-side battery targets.
+    iso2_energy_request_wh: float = 6000.0
+    iso2_full_soc_percent: int = Field(default=90, ge=0, le=100)
+    iso2_bulk_soc_percent: int = Field(default=80, ge=0, le=100)
+
+
+class EVSEACLimits(_StrictBase):
+    """SECC-side AC charging envelope (ISO 15118-2 AC mode).
+
+    Goes on the wire as ACEVSEChargeParameter.evse_nominal_voltage and
+    evse_max_current advertised during ChargeParameterDiscoveryRes when
+    the negotiated energy mode is AC.
+    """
+
+    nominal_voltage_v: float = 400.0
+    max_current_a: float = 32.0
+
+
+class EVACLimits(_StrictBase):
+    """EVCC-side AC charging envelope (ISO 15118-2 AC mode).
+
+    Goes on the wire as ACEVChargeParameter fields in
+    ChargeParameterDiscoveryReq: e_amount (energy requested),
+    ev_max_voltage / ev_max_current / ev_min_current.
+    """
+
+    # ISO-2 sends e_amount in Wh; the wire field uses PVEAmount with a
+    # multiplier so the value here is the plain Wh number.
+    e_amount_wh: float = 60.0
+    max_voltage_v: float = 400.0
+    max_current_a: float = 32.0
+    min_current_a: float = 10.0
 
 
 class Power(_StrictBase):
-    """DC power envelopes for both roles (Slice 2: DIN 70121).
+    """Power envelopes for both roles.
 
-    Both subsections exist on every personality so a single YAML shape
-    works for either role — the EVCC consumes `ev_dc`, the SECC consumes
-    `evse_dc`. ISO 15118-2 / -20 fields are out of scope and arrive in
-    later slices.
+    Each role only reads its own side — the EVCC consumes `ev_dc` / `ev_ac`,
+    the SECC consumes `evse_dc` / `evse_ac`. The AC subsections are ISO
+    15118-2-only (DIN 70121 is DC-only). ISO 15118-20 envelope fields
+    arrive in Slice 4.
     """
 
     evse_dc: EVSEDCLimits = Field(default_factory=EVSEDCLimits)
     ev_dc: EVDCLimits = Field(default_factory=EVDCLimits)
+    evse_ac: EVSEACLimits = Field(default_factory=EVSEACLimits)
+    ev_ac: EVACLimits = Field(default_factory=EVACLimits)
 
 
 class ChargeProfile(_StrictBase):
@@ -235,6 +279,20 @@ class Certificates(_StrictBase):
 
     pki_path: str = "app/shared/pki/"
     max_contract_certs: int = 3
+
+
+class Meter(_StrictBase):
+    """Meter identity advertised by the SECC.
+
+    `meter_id` rides every MeterInfo block emitted by the SECC (ISO 15118-2
+    MeteringReceipt, ChargingStatus, CurrentDemand, etc.). `starting_reading_wh`
+    is the seed value the simulator advertises before runtime accumulation —
+    the per-message reading itself is runtime-derived and not a personality
+    field.
+    """
+
+    meter_id: str = "Switch-Meter-123"
+    starting_reading_wh: int = 12345
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +318,7 @@ class _PersonalityBase(_StrictBase):
     power: Power = Field(default_factory=Power)
     charge_profile: ChargeProfile = Field(default_factory=ChargeProfile)
     certificates: Certificates = Field(default_factory=Certificates)
+    meter: Meter = Field(default_factory=Meter)
 
 
 class EVCCPersonality(_PersonalityBase):

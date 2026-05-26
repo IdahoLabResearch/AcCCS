@@ -69,6 +69,18 @@ class EVCCConfig(BaseModel):
     ev_dc_target_current_a: float = 1.0
     ev_dc_remaining_time_to_full_soc_s: int = 100
     ev_dc_remaining_time_to_bulk_soc_s: int = 80
+    # ISO 15118-2 DCEVChargeParameter (no DIN equivalent on the wire).
+    # See issue #8 (ISO-2 personality slice).
+    ev_dc_iso2_energy_request_wh: float = 6000.0
+    ev_dc_iso2_full_soc_percent: int = 90
+    ev_dc_iso2_bulk_soc_percent: int = 80
+
+    # AC charge envelope advertised in ISO 15118-2 ACEVChargeParameter.
+    # Sourced from `personality.power.ev_ac`.
+    ev_ac_e_amount_wh: float = 60.0
+    ev_ac_max_voltage_v: float = 400.0
+    ev_ac_max_current_a: float = 32.0
+    ev_ac_min_current_a: float = 10.0
 
     @classmethod
     def from_personality(cls, personality: EVCCPersonality) -> "EVCCConfig":
@@ -77,6 +89,7 @@ class EVCCConfig(BaseModel):
         certs = personality.certificates
         cp = personality.charge_profile
         ev_dc = personality.power.ev_dc
+        ev_ac = personality.power.ev_ac
 
         ev_config = cls(
             raw_supported_protocols=list(caps.supported_protocols),
@@ -103,6 +116,13 @@ class EVCCConfig(BaseModel):
             ev_dc_target_current_a=ev_dc.target_current_a,
             ev_dc_remaining_time_to_full_soc_s=ev_dc.remaining_time_to_full_soc_s,
             ev_dc_remaining_time_to_bulk_soc_s=ev_dc.remaining_time_to_bulk_soc_s,
+            ev_dc_iso2_energy_request_wh=ev_dc.iso2_energy_request_wh,
+            ev_dc_iso2_full_soc_percent=ev_dc.iso2_full_soc_percent,
+            ev_dc_iso2_bulk_soc_percent=ev_dc.iso2_bulk_soc_percent,
+            ev_ac_e_amount_wh=ev_ac.e_amount_wh,
+            ev_ac_max_voltage_v=ev_ac.max_voltage_v,
+            ev_ac_max_current_a=ev_ac.max_current_a,
+            ev_ac_min_current_a=ev_ac.min_current_a,
         )
 
         logger.info("EVCC Settings (from personality):")

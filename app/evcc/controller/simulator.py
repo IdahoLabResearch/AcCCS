@@ -290,31 +290,51 @@ class SimEVController(EVControllerInterface):
         return selected_vas_services
 
     async def get_charge_params_v2(self, protocol: Protocol) -> ChargeParamsV2:
-        """Overrides EVControllerInterface.get_charge_params_v2()."""
+        """Overrides EVControllerInterface.get_charge_params_v2().
+
+        Per ADR-0001 / issue #8 the AC envelope (e_amount, max voltage,
+        max/min current) and the ISO 15118-2-specific DC announcements
+        (ev_energy_request, full_soc, bulk_soc) are sourced from the
+        personality via `EVCCConfig`.
+        """
+        cfg = self.config
         ac_charge_params = None
         dc_charge_params = None
 
         if (await self.get_energy_transfer_mode(protocol)).startswith("AC"):
-            e_amount = PVEAmount(multiplier=0, value=60, unit=UnitSymbol.WATT_HOURS)
-            ev_max_voltage = PVEVMaxVoltage(
-                multiplier=0, value=400, unit=UnitSymbol.VOLTAGE
+            e_mult, e_val = PhysicalValue.get_exponent_value_repr(
+                cfg.ev_ac_e_amount_wh
             )
-            ev_max_current = PVEVMaxCurrent(
-                multiplier=-3, value=32000, unit=UnitSymbol.AMPERE
+            v_mult, v_val = PhysicalValue.get_exponent_value_repr(
+                cfg.ev_ac_max_voltage_v
             )
-            ev_min_current = PVEVMinCurrent(
-                multiplier=0, value=10, unit=UnitSymbol.AMPERE
+            max_c_mult, max_c_val = PhysicalValue.get_exponent_value_repr(
+                cfg.ev_ac_max_current_a
+            )
+            min_c_mult, min_c_val = PhysicalValue.get_exponent_value_repr(
+                cfg.ev_ac_min_current_a
             )
             ac_charge_params = ACEVChargeParameter(
                 departure_time=0,
-                e_amount=e_amount,
-                ev_max_voltage=ev_max_voltage,
-                ev_max_current=ev_max_current,
-                ev_min_current=ev_min_current,
+                e_amount=PVEAmount(
+                    multiplier=e_mult, value=e_val, unit=UnitSymbol.WATT_HOURS
+                ),
+                ev_max_voltage=PVEVMaxVoltage(
+                    multiplier=v_mult, value=v_val, unit=UnitSymbol.VOLTAGE
+                ),
+                ev_max_current=PVEVMaxCurrent(
+                    multiplier=max_c_mult, value=max_c_val, unit=UnitSymbol.AMPERE
+                ),
+                ev_min_current=PVEVMinCurrent(
+                    multiplier=min_c_mult, value=min_c_val, unit=UnitSymbol.AMPERE
+                ),
             )
         else:
+            req_mult, req_val = PhysicalValue.get_exponent_value_repr(
+                cfg.ev_dc_iso2_energy_request_wh
+            )
             ev_energy_request = PVEVEnergyRequest(
-                multiplier=1, value=6000, unit=UnitSymbol.WATT_HOURS
+                multiplier=req_mult, value=req_val, unit=UnitSymbol.WATT_HOURS
             )
             dc_charge_params = DCEVChargeParameter(
                 departure_time=0,
@@ -324,8 +344,8 @@ class SimEVController(EVControllerInterface):
                 ev_maximum_voltage_limit=self.dc_ev_charge_params.dc_max_voltage_limit,
                 ev_energy_capacity=self.dc_ev_charge_params.dc_energy_capacity,
                 ev_energy_request=ev_energy_request,
-                full_soc=90,
-                bulk_soc=80,
+                full_soc=cfg.ev_dc_iso2_full_soc_percent,
+                bulk_soc=cfg.ev_dc_iso2_bulk_soc_percent,
             )
         return ChargeParamsV2(
             await self.get_energy_transfer_mode(protocol),
