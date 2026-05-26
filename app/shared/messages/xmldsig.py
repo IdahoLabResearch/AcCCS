@@ -24,7 +24,7 @@ class Transforms(BaseModel):
     indicated.
     """
 
-    transform: List[Transform] = Field(..., max_items=1, alias="Transform")
+    transform: List[Transform] = Field(..., max_length=1, alias="Transform")
 
 
 class DigestMethod(BaseModel):
@@ -103,7 +103,7 @@ class SignedInfo(BaseModel):
         ..., alias="CanonicalizationMethod"
     )
     signature_method: SignatureMethod = Field(..., alias="SignatureMethod")
-    reference: List[Reference] = Field(..., max_items=4, alias="Reference")
+    reference: List[Reference] = Field(..., max_length=4, alias="Reference")
 
     def __str__(self):
         return type(self).__name__

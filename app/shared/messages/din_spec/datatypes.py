@@ -209,13 +209,13 @@ class ParameterSet(BaseModel):
     """TODO: NO description found in spec"""
 
     parameter_set_id: int = Field(..., ge=0, le=65535, alias="ParameterSetID")
-    parameter: List[Parameter] = Field(..., max_items=16, alias="Parameter")
+    parameter: List[Parameter] = Field(..., max_length=16, alias="Parameter")
 
 
 class ServiceParameterList(BaseModel):
     """TODO: NO description found in spec"""
 
-    parameter_set: List[ParameterSet] = Field(..., max_items=255, alias="ParameterSet")
+    parameter_set: List[ParameterSet] = Field(..., max_length=255, alias="ParameterSet")
 
 
 class CostKind(str, Enum):
@@ -252,7 +252,7 @@ class PMaxScheduleEntry(BaseModel):
 
     p_max_schedule_id: int = Field(..., ge=0, le=32767, alias="PMaxScheduleID")
     entry_details: List[PMaxScheduleEntryDetails] = Field(
-        ..., max_items=12, alias="PMaxScheduleEntry"
+        ..., max_length=12, alias="PMaxScheduleEntry"
     )
 
 
@@ -282,7 +282,7 @@ class SAScheduleTupleEntry(BaseModel):
 
 class SAScheduleList(BaseModel):
     values: List[SAScheduleTupleEntry] = Field(
-        ..., max_items=3, alias="SAScheduleTuple"
+        ..., max_length=3, alias="SAScheduleTuple"
     )
 
 
@@ -298,7 +298,7 @@ class ChargingProfile(BaseModel):
 
     sa_schedule_tuple_id: int = Field(..., ge=0, le=65535, alias="SAScheduleTupleID")
     profile_entries: List[ProfileEntryDetails] = Field(
-        ..., max_items=24, alias="ProfileEntry"
+        ..., max_length=24, alias="ProfileEntry"
     )
 
 
@@ -391,7 +391,7 @@ class AuthOptionList(BaseModel):
     """
 
     auth_options: List[AuthEnum] = Field(
-        ..., min_items=1, max_items=2, alias="PaymentOption"
+        ..., min_length=1, max_length=2, alias="PaymentOption"
     )
 
 

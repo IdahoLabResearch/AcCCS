@@ -293,7 +293,7 @@ class Receipt(BaseModel):
     )
     overstay_costs: Optional[DetailedCost] = Field(None, alias="OverstayCosts")
     tax_costs: Optional[List[DetailedTax]] = Field(
-        None, min_items=0, max_items=10, alias="TaxCosts"
+        None, min_length=0, max_length=10, alias="TaxCosts"
     )
 
 
@@ -391,5 +391,5 @@ class RootCertificateIDList(BaseModel):
     """See section 8.3.5.3.27 in ISO 15118-20"""
 
     root_cert_ids: List[X509IssuerSerial] = Field(
-        ..., max_items=20, alias="RootCertificateID"
+        ..., max_length=20, alias="RootCertificateID"
     )

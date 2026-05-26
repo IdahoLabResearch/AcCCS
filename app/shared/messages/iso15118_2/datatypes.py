@@ -99,7 +99,7 @@ class SubCertificates(BaseModel):
     So, we set it here to 2, the max number of certificates allowed.
     """
 
-    certificates: List[Certificate] = Field(..., max_items=2, alias="Certificate")
+    certificates: List[Certificate] = Field(..., max_length=2, alias="Certificate")
 
 
 class CertificateChain(BaseModel):
@@ -125,7 +125,7 @@ class EnergyTransferModeList(BaseModel):
     """See section 8.5.2.4 in ISO 15118-2"""
 
     energy_modes: List[EnergyTransferModeEnum] = Field(
-        ..., max_items=6, alias="EnergyTransferMode"
+        ..., max_length=6, alias="EnergyTransferMode"
     )
 
 
@@ -194,7 +194,7 @@ class ChargingProfile(BaseModel):
     """See section 8.5.2.10 in ISO 15118-2"""
 
     profile_entries: List[ProfileEntryDetails] = Field(
-        ..., max_items=24, alias="ProfileEntry"
+        ..., max_length=24, alias="ProfileEntry"
     )
 
 
@@ -226,7 +226,7 @@ class ConsumptionCost(BaseModel):
     """See section 8.5.2.19 in ISO 15118-2"""
 
     start_value: PVStartValue = Field(..., alias="startValue")
-    cost: List[Cost] = Field(..., max_items=3, alias="Cost")
+    cost: List[Cost] = Field(..., max_length=3, alias="Cost")
 
 
 class EncryptedPrivateKey(BaseModel):
@@ -315,7 +315,7 @@ class RootCertificateIDList(BaseModel):
     """See section 8.5.2.27 in ISO 15118-2"""
 
     x509_issuer_serials: List[X509IssuerSerial] = Field(
-        ..., max_items=20, alias="RootCertificateID"
+        ..., max_length=20, alias="RootCertificateID"
     )
 
 
@@ -399,7 +399,7 @@ class ParameterSet(BaseModel):
     # Table 87 says short, Table 106 says unsignedShort. We go with
     # unsignedShort as it makes more sense (no negative values).
     parameter_set_id: int = Field(..., ge=0, le=65535, alias="ParameterSetID")
-    parameters: List[Parameter] = Field(..., max_items=16, alias="Parameter")
+    parameters: List[Parameter] = Field(..., max_length=16, alias="Parameter")
 
 
 class AuthOptionList(BaseModel):
@@ -411,7 +411,7 @@ class AuthOptionList(BaseModel):
     """
 
     auth_options: List[AuthEnum] = Field(
-        ..., min_items=1, max_items=2, alias="PaymentOption"
+        ..., min_length=1, max_length=2, alias="PaymentOption"
     )
 
 
@@ -433,7 +433,7 @@ class PMaxSchedule(BaseModel):
     """See section 8.5.2.14 in ISO 15118-2"""
 
     schedule_entries: List[PMaxScheduleEntry] = Field(
-        ..., max_items=1024, alias="PMaxScheduleEntry"
+        ..., max_length=1024, alias="PMaxScheduleEntry"
     )
 
 
@@ -475,13 +475,13 @@ class ServiceList(BaseModel):
 
     """See section 8.5.2.2 in ISO 15118-2"""
 
-    services: List[ServiceDetails] = Field(..., max_items=8, alias="Service")
+    services: List[ServiceDetails] = Field(..., max_length=8, alias="Service")
 
 
 class ServiceParameterList(BaseModel):
     """See section 8.5.2.21 in ISO 15118-2"""
 
-    parameter_set: List[ParameterSet] = Field(..., max_items=255, alias="ParameterSet")
+    parameter_set: List[ParameterSet] = Field(..., max_length=255, alias="ParameterSet")
 
 
 class SalesTariffEntry(BaseModel):
@@ -491,7 +491,7 @@ class SalesTariffEntry(BaseModel):
     e_price_level: Optional[int] = Field(None, ge=0, le=255, alias="EPriceLevel")
     time_interval: RelativeTimeInterval = Field(..., alias="RelativeTimeInterval")
     consumption_cost: Optional[List[ConsumptionCost]] = Field(
-        None, max_items=3, alias="ConsumptionCost"
+        None, max_length=3, alias="ConsumptionCost"
     )
 
     @field_validator("consumption_cost")
@@ -529,7 +529,7 @@ class SalesTariff(BaseModel):
     # XSD type unsignedByte with value range [0..255]
     num_e_price_levels: Optional[int] = Field(None, ge=0, le=255, alias="NumEPriceLevels")
     sales_tariff_entry: List[SalesTariffEntry] = Field(
-        ..., max_items=102, alias="SalesTariffEntry"
+        ..., max_length=102, alias="SalesTariffEntry"
     )
 
     @field_validator("sales_tariff_entry")
@@ -598,7 +598,7 @@ class SAScheduleTuple(BaseModel):
 
 class SAScheduleList(BaseModel):
     schedule_tuples: List[SAScheduleTuple] = Field(
-        ..., max_items=3, alias="SAScheduleTuple"
+        ..., max_length=3, alias="SAScheduleTuple"
     )
 
 

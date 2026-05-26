@@ -638,7 +638,7 @@ class SelectedServiceList(BaseModel):
     """See section 8.5.2.24 in ISO 15118-2"""
 
     selected_service: List[SelectedService] = Field(
-        ..., max_items=16, alias="SelectedService"
+        ..., max_length=16, alias="SelectedService"
     )
 
 

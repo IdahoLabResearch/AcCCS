@@ -60,13 +60,13 @@ class ECDHCurve(str, Enum):
 class EMAIDList(BaseModel):
     """See Annex C.1 in ISO 15118-20"""
 
-    emaids: List[Identifier] = Field(..., max_items=8, alias="EMAID")
+    emaids: List[Identifier] = Field(..., max_length=8, alias="EMAID")
 
 
 class SubCertificates(BaseModel):
     """A list of DER encoded X.509 certificates"""
 
-    certificates: List[Certificate] = Field(..., max_items=3, alias="Certificate")
+    certificates: List[Certificate] = Field(..., max_length=3, alias="Certificate")
 
 
 class CertificateChain(BaseModel):
@@ -129,7 +129,7 @@ class PnCAuthSetupResParams(BaseModel):
         ..., min_length=16, max_length=16, alias="GenChallenge"
     )
     supported_providers: Optional[List[ProviderID]] = Field(
-        None, max_items=128, alias="SupportedProviders"
+        None, max_length=128, alias="SupportedProviders"
     )
 
 
@@ -141,7 +141,7 @@ class AuthorizationSetupRes(V2GResponse):
     """See section 8.3.4.3.2.2 in ISO 15118-20"""
 
     auth_services: List[AuthEnum] = Field(
-        ..., max_items=2, alias="AuthorizationServices"
+        ..., max_length=2, alias="AuthorizationServices"
     )
     cert_install_service: bool = Field(..., alias="CertificateInstallationService")
     pnc_as_res: Optional[PnCAuthSetupResParams] = Field(None, alias="PnC_ASResAuthorizationMode")
@@ -242,7 +242,7 @@ class AuthorizationRes(V2GResponse):
 class ServiceIDList(BaseModel):
     """See section 8.3.5.3.29 in ISO 15118-20"""
 
-    service_ids: List[int] = Field(..., max_items=16, alias="ServiceID")
+    service_ids: List[int] = Field(..., max_length=16, alias="ServiceID")
 
 
 class ServiceDiscoveryReq(V2GRequest):
@@ -261,7 +261,7 @@ class Service(BaseModel):
 class ServiceList(BaseModel):
     """See section 8.3.5.3.2 in ISO 15118-20"""
 
-    services: List[Service] = Field(..., max_items=8, alias="Service")
+    services: List[Service] = Field(..., max_length=8, alias="Service")
 
 
 class ServiceDiscoveryRes(V2GResponse):
@@ -331,13 +331,13 @@ class ParameterSet(BaseModel):
     """See section 8.3.5.3.22 in ISO 15118-20"""
 
     id: int = Field(..., alias="ParameterSetID")
-    parameters: List[Parameter] = Field(..., max_items=32, alias="Parameter")
+    parameters: List[Parameter] = Field(..., max_length=32, alias="Parameter")
 
 
 class ServiceParameterList(BaseModel):
     """See section 8.3.5.3.21 in ISO 15118-20"""
 
-    parameter_sets: List[ParameterSet] = Field(..., max_items=32, alias="ParameterSet")
+    parameter_sets: List[ParameterSet] = Field(..., max_length=32, alias="ParameterSet")
 
 
 class ServiceDetailRes(V2GResponse):
@@ -360,7 +360,7 @@ class SelectedServiceList(BaseModel):
     """See section 8.3.5.3.24 in ISO 15118-20"""
 
     selected_services: List[SelectedService] = Field(
-        ..., max_items=16, alias="SelectedService"
+        ..., max_length=16, alias="SelectedService"
     )
 
 
@@ -388,7 +388,7 @@ class EVPowerScheduleEntryList(BaseModel):
     """See section 8.3.5.3.43 in ISO 15118-20"""
 
     entries: List[EVPowerScheduleEntry] = Field(
-        ..., max_items=1024, alias="EVPowerScheduleEntry"
+        ..., max_length=1024, alias="EVPowerScheduleEntry"
     )
 
 
@@ -412,14 +412,14 @@ class EVPriceRuleStack(BaseModel):
     """See section 8.3.5.3.47 in ISO 15118-20"""
 
     duration: int = Field(..., alias="Duration")
-    ev_price_rules: List[EVPriceRule] = Field(..., max_items=8, alias="EVPriceRule")
+    ev_price_rules: List[EVPriceRule] = Field(..., max_length=8, alias="EVPriceRule")
 
 
 class EVPriceRuleStackList(BaseModel):
     """See section 8.3.5.3.46 in ISO 15118-20"""
 
     ev_price_rule_stacks: List[EVPriceRuleStack] = Field(
-        ..., max_items=1024, alias="EVPriceRuleStack"
+        ..., max_length=1024, alias="EVPriceRuleStack"
     )
 
 
@@ -546,7 +546,7 @@ class PowerScheduleEntryList(BaseModel):
     """See section 8.3.5.3.19 in ISO 15118-20"""
 
     entries: List[PowerScheduleEntry] = Field(
-        ..., max_items=1024, alias="PowerScheduleEntry"
+        ..., max_length=1024, alias="PowerScheduleEntry"
     )
 
 
@@ -581,7 +581,7 @@ class PriceLevelScheduleEntryList(BaseModel):
     """See section 8.3.5.3.63 in ISO 15118-20"""
 
     entries: List[PriceLevelScheduleEntry] = Field(
-        ..., max_items=1024, alias="PriceLevelScheduleEntry"
+        ..., max_length=1024, alias="PriceLevelScheduleEntry"
     )
 
 
@@ -614,7 +614,7 @@ class TaxRule(BaseModel):
 class TaxRuleList(BaseModel):
     """See section 8.3.5.3.50 in ISO 15118-20"""
 
-    tax_rule: List[TaxRule] = Field(..., max_items=10, alias="TaxRule")
+    tax_rule: List[TaxRule] = Field(..., max_length=10, alias="TaxRule")
 
 
 class PriceRule(BaseModel):
@@ -637,14 +637,14 @@ class PriceRuleStack(BaseModel):
     """See section 8.3.5.3.53 in ISO 15118-20"""
 
     duration: int = Field(..., ge=0, le=UINT_32_MAX, alias="Duration")
-    price_rules: List[PriceRule] = Field(..., max_items=8, alias="PriceRule")
+    price_rules: List[PriceRule] = Field(..., max_length=8, alias="PriceRule")
 
 
 class PriceRuleStackList(BaseModel):
     """See section 8.3.5.3.52 in ISO 15118-20"""
 
     price_rule_stacks: List[PriceRuleStack] = Field(
-        ..., max_items=1024, alias="PriceRuleStack"
+        ..., max_length=1024, alias="PriceRuleStack"
     )
 
 
@@ -666,7 +666,7 @@ class OverstayRuleList(BaseModel):
     power_threshold: Optional[RationalNumber] = Field(
         None, alias="OverstayPowerThreshold"
     )
-    rules: List[OverstayRule] = Field(..., max_items=5, alias="OverstayRule")
+    rules: List[OverstayRule] = Field(..., max_length=5, alias="OverstayRule")
 
 
 class AdditionalService(BaseModel):
@@ -680,7 +680,7 @@ class AdditionalServiceList(BaseModel):
     """See section 8.3.5.3.57 in ISO 15118-20"""
 
     additional_services: List[AdditionalService] = Field(
-        ..., max_items=5, alias="AdditionalService"
+        ..., max_length=5, alias="AdditionalService"
     )
 
 
@@ -796,7 +796,7 @@ class ScheduledScheduleExchangeResParams(BaseModel):
     """See section 8.3.5.3.16 in ISO 15118-20"""
 
     schedule_tuples: List[ScheduleTuple] = Field(
-        ..., max_items=3, alias="ScheduleTuple"
+        ..., max_length=3, alias="ScheduleTuple"
     )
 
 
@@ -892,7 +892,7 @@ class EVPowerProfileEntryList(BaseModel):
     """See section 8.3.5.3.10 in ISO 15118-20"""
 
     entries: List[PowerScheduleEntry] = Field(
-        ..., max_items=2048, alias="EVPowerProfileEntry"
+        ..., max_length=2048, alias="EVPowerProfileEntry"
     )
 
 
