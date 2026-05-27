@@ -16,10 +16,10 @@ is visible to ``/audit-issue`` and Slice 5.
 
 Run as the unprivileged user — the script invokes the emulator
 subprocesses through ``sudo`` (the dev-box NOPASSWD entry allows the
-specific ``run_secc.py`` / ``run_evcc.py`` command lines). It writes the
-capture path to ``/tmp/acccs_exi_capture_path`` because sudo strips
-custom env vars; the capture tap in ``app/shared/exi_capture.py`` reads
-that sentinel file as a fallback:
+specific ``run_secc.py`` / ``run_evcc.py`` command lines). The capture
+path is passed via the ``--capture <path>`` runner flag (rather than the
+``ACCCS_EXI_CAPTURE`` env var) because the dev box's NOPASSWD sudoers
+entry strips custom env vars, but CLI args survive sudo intact:
 
     /home/jake-inl/anaconda3/envs/AcCCS/bin/python \\
         scripts/capture_replay_corpus.py
@@ -44,7 +44,6 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CAPTURE_DIR = REPO_ROOT / "tests" / "conformance" / "captures" / "veth"
 PYTHON = "/home/jake-inl/anaconda3/envs/AcCCS/bin/python"
-SENTINEL_PATH = Path("/tmp/acccs_exi_capture_path")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -126,7 +125,12 @@ def _spawn(role: str, config: str, capture_path: Path) -> subprocess.Popen:
     log_path = capture_path.with_suffix(f".{role}.log")
     log_fh = open(log_path, "w")
     proc = subprocess.Popen(
-        ["sudo", "-n", PYTHON, str(REPO_ROOT / runner), "--config", config, "--virtual"],
+        [
+            "sudo", "-n", PYTHON, str(REPO_ROOT / runner),
+            "--config", config,
+            "--virtual",
+            "--capture", str(capture_path),
+        ],
         cwd=REPO_ROOT,
         stdout=log_fh,
         stderr=subprocess.STDOUT,
@@ -175,9 +179,6 @@ def _run_combo(combo: Combo, *, secc_first_pause: float = 2.0) -> bool:
     if capture_path.exists():
         capture_path.unlink()
 
-    # The emulator subprocess reads this file (see app/shared/exi_capture.py).
-    SENTINEL_PATH.write_text(str(capture_path) + "\n")
-
     print(f"[capture] {combo.name}: starting SECC", flush=True)
     secc = _spawn("secc", combo.secc_config, capture_path)
     time.sleep(secc_first_pause)
@@ -197,13 +198,6 @@ def _run_combo(combo: Combo, *, secc_first_pause: float = 2.0) -> bool:
 
     _kill_tree(evcc)
     _kill_tree(secc)
-
-    # Clear the sentinel so a stray emulator run doesn't accidentally
-    # write to a stale capture path.
-    try:
-        SENTINEL_PATH.unlink()
-    except FileNotFoundError:
-        pass
 
     if not capture_path.exists():
         print(f"[capture] {combo.name}: NO capture file written", flush=True)

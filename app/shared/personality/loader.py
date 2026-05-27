@@ -219,6 +219,16 @@ def add_runtime_cli_args(parser: argparse.ArgumentParser) -> None:
         help="Override TCP source port (operational)",
     )
     parser.add_argument(
+        "--capture",
+        dest="capture",
+        default=None,
+        help=(
+            "Append EXI codec records to this JSONL path. Off by default. "
+            "Use this (not env vars) when running under sudo, which strips "
+            "ACCCS_EXI_CAPTURE on the dev box."
+        ),
+    )
+    parser.add_argument(
         "--modified-cordset",
         dest="modified_cordset",
         action="store_true",

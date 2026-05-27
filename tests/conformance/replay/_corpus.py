@@ -15,10 +15,14 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
+import warnings
 from pathlib import Path
 from typing import Dict, Iterator, List, Tuple, Type
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 CAPTURES_ROOT = Path(__file__).resolve().parent.parent / "captures"
 
@@ -44,10 +48,31 @@ class ReplayRecord:
 
 
 def _load_capture(jsonl_path: Path, meta: dict) -> Iterator[ReplayRecord]:
+    """Yield ``ReplayRecord``s from a JSONL capture file.
+
+    Tolerates malformed lines: a torn ``json.loads`` (e.g. a write that
+    crossed processes before the fcntl-flock fix landed, or a re-capture
+    that was interrupted mid-line) is logged with file+line context and
+    skipped, so one bad line does not crash the entire replay-test
+    collection. The empty trailing newline at end-of-file is silently
+    skipped.
+    """
     name = jsonl_path.stem
     with jsonl_path.open() as fh:
-        for line in fh:
-            r = json.loads(line)
+        for lineno, line in enumerate(fh, start=1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                r = json.loads(stripped)
+            except json.JSONDecodeError as exc:
+                msg = (
+                    f"replay corpus: skipping malformed JSONL line "
+                    f"{jsonl_path}:{lineno} ({exc.__class__.__name__}: {exc})"
+                )
+                logger.warning(msg)
+                warnings.warn(msg, RuntimeWarning, stacklevel=2)
+                continue
             yield ReplayRecord(
                 capture=name,
                 source=meta.get("source", "unknown"),

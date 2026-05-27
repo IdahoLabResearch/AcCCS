@@ -1,9 +1,33 @@
 """Opt-in capture tap for the EXI codec boundary.
 
-When the ``ACCCS_EXI_CAPTURE`` environment variable is set to a writable
-file path, every ``EXI().to_exi`` and ``EXI().from_exi`` call appends a
-single JSONL record to that path. The records form the input corpus for
-the replay layer (``tests/conformance/replay/``).
+Capture is **off by default**. When enabled, every ``EXI().to_exi`` and
+``EXI().from_exi`` call appends a single JSONL record to the capture
+file. The records form the input corpus for the replay layer
+(``tests/conformance/replay/``).
+
+Enabling capture
+----------------
+
+Capture is enabled at process start, in exactly one of two ways:
+
+1. **Environment variable.** ``ACCCS_EXI_CAPTURE=<path>`` set in the
+   environment at module import time. Used by tests and ad-hoc local
+   runs where the runner inherits a shell env.
+2. **Explicit CLI flag.** ``run_secc.py --capture <path>`` /
+   ``run_evcc.py --capture <path>`` calls :func:`enable_capture` before
+   the codec is exercised. This is the production-suitable path because
+   ``sudo`` strips ``ACCCS_EXI_CAPTURE`` on this project's dev box
+   (NOPASSWD entry does not preserve custom env vars), and we do **not**
+   want a sentinel file under ``/tmp`` that production code paths
+   consult on every codec call.
+
+The hot path when capture is off is a single ``if`` against a cached
+module-level variable — **zero syscalls**. No env lookup, no ``open()``,
+no ``stat()``. This is a hard requirement for Slice 5 where the codec is
+on every CCS session's hot path.
+
+Record schema
+-------------
 
 Each record has the following keys:
 
@@ -18,41 +42,68 @@ Each record has the following keys:
                 to call the matching EXPy variant once Slice 5 lands.
 - ``hex``     — the wire bytes, hex-encoded.
 
-Capture is **off by default**. The codec calls :func:`record`
-unconditionally; ``record`` short-circuits when neither the env var nor
-the sentinel file is set. With capture off, the hot path costs one
-``os.environ.get`` plus one failing ``open`` on the sentinel per codec
-call.
+Cross-process append safety
+---------------------------
+
+The SECC and EVCC are independent root processes that may both append to
+the same capture target during a veth session. POSIX ``O_APPEND`` is
+only atomic up to ``PIPE_BUF`` (4096 bytes); a record carrying large hex
+payloads (certs, signed sales tariffs in a hardware capture) can exceed
+that and tear across writes. To make concurrent appends safe regardless
+of payload size, :func:`record` takes an advisory ``fcntl.LOCK_EX`` on
+the open file descriptor across the ``write()``. The
+lock is per-file, held only while capture is active, and only matters
+when two processes target the same path.
 """
 
 from __future__ import annotations
 
+import fcntl
 import json
+import logging
 import os
 import threading
 import time
 from typing import Literal, Optional
 
+logger = logging.getLogger(__name__)
+
 _ENV_VAR = "ACCCS_EXI_CAPTURE"
-# Sentinel file: lets a non-root capture driver script point the
-# privileged emulator subprocess at a capture path even when sudo strips
-# the environment (the AcCCS dev box's NOPASSWD sudoers entry forbids
-# preserving custom env vars). The capture script writes the file before
-# launching the emulators; the file is read once per ``record`` call.
-_SENTINEL_PATH = "/tmp/acccs_exi_capture_path"
 _lock = threading.Lock()
+
+# Resolved exactly once: at module import (env var) or at the first
+# successful ``enable_capture()`` call. The off-path check is a single
+# Python ``is None`` test — no syscalls.
+_capture_path: Optional[str] = os.environ.get(_ENV_VAR) or None
+
+
+def enable_capture(path: str) -> None:
+    """Turn capture on, pointing at ``path``.
+
+    Called from the runners' ``--capture`` flag handler. Idempotent on
+    the same path; raises if a different path is already active (so a
+    stray double-enable is surfaced rather than silently overwriting).
+    """
+    global _capture_path
+    if not path:
+        raise ValueError("enable_capture requires a non-empty path")
+    if _capture_path is not None and _capture_path != path:
+        raise RuntimeError(
+            f"EXI capture already enabled for {_capture_path!r}; "
+            f"refusing to switch to {path!r}"
+        )
+    _capture_path = path
+
+
+def disable_capture() -> None:
+    """Turn capture off. Intended for tests; restores zero-syscall hot path."""
+    global _capture_path
+    _capture_path = None
 
 
 def capture_path() -> Optional[str]:
-    env_val = os.environ.get(_ENV_VAR)
-    if env_val:
-        return env_val
-    try:
-        with open(_SENTINEL_PATH, "r", encoding="utf-8") as fh:
-            line = fh.readline().strip()
-    except OSError:
-        return None
-    return line or None
+    """Return the active capture path, or ``None`` if capture is off."""
+    return _capture_path
 
 
 def classify_root(msg_element_or_name) -> Literal["document", "fragment", "xmldsig"]:
@@ -123,8 +174,8 @@ def record(
     ``model`` may be a Pydantic instance (encode) or a string (decode);
     the wire bytes are the raw EXI stream.
     """
-    path = capture_path()
-    if not path:
+    path = _capture_path
+    if path is None:
         return
 
     record_dict = {
@@ -137,11 +188,23 @@ def record(
         "root": classify_root(model),
         "hex": payload.hex(),
     }
-    line = json.dumps(record_dict, separators=(",", ":"))
+    line = json.dumps(record_dict, separators=(",", ":")) + "\n"
+    data = line.encode("utf-8")
     with _lock:
         existed = os.path.exists(path)
-        with open(path, "a", encoding="utf-8") as fh:
-            fh.write(line + "\n")
+        # Open with O_APPEND + flock for cross-process safety. O_APPEND
+        # guarantees atomic seek-to-end per write call; flock serialises
+        # the write() itself so payloads larger than PIPE_BUF (4096 B)
+        # cannot tear across concurrent appenders.
+        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o666)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            try:
+                os.write(fd, data)
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
         # The emulator typically runs as root via sudo while the capture
         # script that ingests these files runs as the unprivileged user.
         # Mark the file world-writable on first create so the user can

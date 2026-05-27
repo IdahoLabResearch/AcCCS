@@ -34,9 +34,20 @@ python scripts/capture_replay_corpus.py
 ```
 
 The script writes each combo's JSONL + YAML under `veth/`. The capture
-tap (`app/shared/exi_capture.py`) reads the path from
-`/tmp/acccs_exi_capture_path` because the emulators run via sudo and the
-sudoers entry strips custom env vars on the dev box.
+tap (`app/shared/exi_capture.py`) is enabled per-process via the
+`--capture <path>` flag the script passes to `run_secc.py` /
+`run_evcc.py`. CLI args survive `sudo`, where custom env vars do not, so
+this replaces the older `/tmp/acccs_exi_capture_path` sentinel
+mechanism. With no `--capture` and no `ACCCS_EXI_CAPTURE` env var, the
+codec's hot path is zero syscalls — production runs never consult a
+sentinel file.
+
+Concurrent appenders (SECC + EVCC root processes writing the same JSONL)
+are serialised by `fcntl.LOCK_EX` per record, so a large payload
+exceeding `PIPE_BUF` (4096 B) cannot tear across writes. The loader
+(`tests/conformance/replay/_corpus.py`) additionally tolerates malformed
+JSONL lines: it skips them with a logged warning naming the file and
+line, so a re-capture mishap does not crash the replay suite.
 
 ## Coverage policy
 
@@ -57,6 +68,14 @@ Per ADR-0003:
 | `iso2-pnc-dc`      | iso15118-2   | dc          | `iso2_pnc_dc`                     | 130     |
 | `iso20-ac`         | iso15118-20  | ac          | `example_iso20_ac_variant`        | 92      |
 | `iso20-dc`         | iso15118-20  | dc          | `iso20_dc`                        | 144     |
+
+Record counts are the JSONL line count per capture. The deduplicated
+replay test count fluctuates by ±a few between re-captures because some
+fields are session-randomised (challenges, IDs, nonces) and produce
+distinct `(ns, root, hex)` keys each run. The post-#25 re-capture moved
+the headline numbers from 167 passed / 24 skipped to **165 passed / 24
+skipped** in the replay suite; the delta is a natural consequence of the
+session-randomised fields and is not a behavioural regression.
 
 ### Known gaps (deferred to follow-up issues)
 
