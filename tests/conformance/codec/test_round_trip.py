@@ -20,8 +20,14 @@ import pytest
 
 from tests.conformance.codec.fixtures import FIXTURES, CodecFixture
 
+# The legacy ``EXI()`` wrapper only handles full ``V2GMessage`` documents on
+# decode (it unwraps a ``V2G_Message`` key). Fragment / XmldsigFragment
+# payloads added in ADR-0002 Slice 2+ are exercised by the dedicated EXPy
+# tests under ``tests/expy/`` instead.
+_DOCUMENT_FIXTURES = [f for f in FIXTURES if f.root_kind == "document"]
 
-@pytest.mark.parametrize("fixture", FIXTURES, ids=lambda f: f.id)
+
+@pytest.mark.parametrize("fixture", _DOCUMENT_FIXTURES, ids=lambda f: f.id)
 def test_codec_round_trip(fixture: CodecFixture, exi_codec):
     from app.shared.exi_codec import EXI
 

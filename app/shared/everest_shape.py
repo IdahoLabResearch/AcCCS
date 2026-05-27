@@ -10,8 +10,10 @@ Public entry points:
 - :func:`pydantic_to_everest` — Pydantic model → EVerest dict ready for EXPy.
 - :func:`everest_to_pydantic` — EVerest dict → Pydantic model instance.
 
-This slice (#12) wires up DIN only. The translation module is **not** plugged
-into the production ``EXI`` wrapper yet (that happens in Slice 5).
+DIN landed in Slice 1 (#12). Slice 2 (#13) extends coverage to ISO 15118-2 and
+adds the Fragment / XmldsigFragment helpers needed for PnC sub-element and
+signature payloads. The translation module is **not** plugged into the
+production ``EXI`` wrapper yet (that happens in Slice 5).
 """
 from __future__ import annotations
 
@@ -53,6 +55,14 @@ def _shape_from_annotation(ann: Any) -> FieldShape:
     """Translate a v2gjson parameter annotation into a :class:`FieldShape`."""
     if ann is inspect.Parameter.empty:
         return FieldShape(FieldKind.SCALAR)
+
+    # ``Annotated[T, ...]`` — used by Pydantic for length/range constraints
+    # on bytes/str — has origin ``T`` but isinstance checks need ``T``
+    # itself. Strip the metadata.
+    if get_origin(ann) is typing.Annotated or hasattr(ann, "__metadata__"):
+        args = get_args(ann)
+        if args:
+            return _shape_from_annotation(args[0])
 
     origin = get_origin(ann)
     if _is_union(origin):
@@ -106,6 +116,30 @@ def _build_alias_shape_map(v2gjson_module) -> Dict[str, FieldShape]:
     return shape_map
 
 
+def _build_type_shape_maps(v2gjson_module) -> Dict[str, Dict[str, FieldShape]]:
+    """Per-``*Type`` builder shape maps for unambiguous per-context lookup.
+
+    Lookups are case-insensitive on the key, since v2gjson normalises the
+    leading character of XSD type names (``eMAIDType`` becomes ``EMAIDType``,
+    ``DHpublickeyType`` becomes ``DiffieHellmanPublickeyType``) while the
+    Pydantic ``__str__`` overrides preserve the spec spelling.
+    """
+    out: Dict[str, Dict[str, FieldShape]] = {}
+    for name, obj in inspect.getmembers(v2gjson_module, inspect.isfunction):
+        if not name.endswith("Type"):
+            continue
+        try:
+            sig = inspect.signature(obj)
+        except (TypeError, ValueError):
+            continue
+        key = name[:-4].lower()
+        out[key] = {
+            pname: _shape_from_annotation(param.annotation)
+            for pname, param in sig.parameters.items()
+        }
+    return out
+
+
 def _collect_v2gjson_enums(v2gjson_module) -> Dict[str, Type[Enum]]:
     out: Dict[str, Type[Enum]] = {}
     for name, obj in inspect.getmembers(v2gjson_module, inspect.isclass):
@@ -144,6 +178,21 @@ class _NamespaceConfig:
     adapter: EnvelopeAdapter
     shape_map: Dict[str, FieldShape]
     enum_classes: Dict[str, Type[Enum]]
+    alias_renames: Dict[str, str]
+    v2gjson_module: Any
+    # ``<XSDname>Type`` builders → ``{param: FieldShape}``. Lets the walker
+    # resolve shapes per parent model when the global ``shape_map`` is
+    # ambiguous (e.g. ``eMAID`` is ``str`` in ``PaymentDetailsReqType`` but
+    # a wrapper element in ``CertificateInstallationResType``).
+    type_shape_maps: Dict[str, Dict[str, FieldShape]]
+    """Encode-side renames: Pydantic alias → v2gjson alias.
+
+    Used for the handful of XSD elements that EVerest's libcbv2g flattens
+    into a single ``CONTENT`` parameter alongside attributes (notably
+    ``EMAID``, ``ContractSignatureEncryptedPrivateKey``,
+    ``DiffieHellmanPublickey``, ``SignatureValue``). AcCCS Pydantic models
+    represent the text content as a field aliased ``value``.
+    """
 
 
 _REGISTRY: Dict[str, _NamespaceConfig] = {}
@@ -153,6 +202,7 @@ def register_namespace(
     namespace: str,
     v2gjson_module,
     adapter: Optional[EnvelopeAdapter] = None,
+    alias_renames: Optional[Dict[str, str]] = None,
 ) -> None:
     """Register a translation namespace.
 
@@ -164,6 +214,9 @@ def register_namespace(
         adapter=adapter or _IdentityAdapter(),
         shape_map=_build_alias_shape_map(v2gjson_module),
         enum_classes=_collect_v2gjson_enums(v2gjson_module),
+        alias_renames=dict(alias_renames or {}),
+        v2gjson_module=v2gjson_module,
+        type_shape_maps=_build_type_shape_maps(v2gjson_module),
     )
 
 
@@ -176,23 +229,122 @@ class _Walker:
     # ---- encode (Pydantic -> EVerest) ----
 
     def encode_model(self, model: BaseModel) -> dict:
+        # Prefer per-type shape lookup (unambiguous) and fall back to the
+        # global alias map for models that don't have a matching v2gjson
+        # ``*Type`` builder (e.g. the synthetic ``Body``/``V2GMessage``).
+        type_shape_map = self._config.type_shape_maps.get(str(model).lower())
         out: Dict[str, Any] = {}
         for field_name, field in type(model).model_fields.items():
             alias = field.alias or field_name
             value = getattr(model, field_name)
             if value is None:
                 continue
-            out[alias] = self._encode_value(alias, value)
+            out_alias = self._config.alias_renames.get(alias, alias)
+            pydantic_shape = _shape_from_annotation(field.annotation)
+            if type_shape_map is not None and out_alias in type_shape_map:
+                registry_shape = type_shape_map[out_alias]
+            else:
+                registry_shape = self._config.shape_map.get(out_alias)
+            # The Pydantic annotation drives the kind: it's per-field, not
+            # per-alias, so it stays unambiguous when the same alias appears
+            # with different shapes in different parent types
+            # (``eMAID`` is ``str`` in PaymentDetailsReq but a wrapper element
+            # ``EMAIDType`` in CertificateInstallationRes; ``Certificate`` is
+            # bytes in CertificateChain but a list of bytes in
+            # SubCertificates). The registry contributes enum-class metadata
+            # the annotation alone can't supply.
+            shape = pydantic_shape
+            # The Pydantic annotation gives us the *Pydantic* enum class.
+            # ``_encode_value`` needs the v2gjson enum class (whose members
+            # carry libcbv2g's integer values) to translate.
+            if registry_shape is not None and registry_shape.enum_cls is not None:
+                shape = FieldShape(
+                    kind=shape.kind,
+                    enum_cls=registry_shape.enum_cls,
+                    list_kind=shape.list_kind,
+                    list_enum_cls=shape.list_enum_cls or registry_shape.list_enum_cls,
+                )
+            elif registry_shape is not None and registry_shape.list_enum_cls is not None:
+                shape = FieldShape(
+                    kind=shape.kind,
+                    enum_cls=shape.enum_cls,
+                    list_kind=shape.list_kind,
+                    list_enum_cls=registry_shape.list_enum_cls,
+                )
+            # Pydantic ``str``-Enums (e.g. ``ServiceName``) and hexBinary
+            # ``str`` fields (e.g. ``SessionID``) don't reveal their wire
+            # shape on the annotation alone — the registry does. Promote
+            # SCALAR / CHARACTERS Pydantic shapes when the registry says
+            # BYTES or CHARACTERS.
+            if (
+                registry_shape is not None
+                and registry_shape.kind is FieldKind.NESTED
+                and shape.kind is FieldKind.LIST
+                and isinstance(value, list)
+                and len(value) == 1
+            ):
+                # v2gjson treats cardinality-1 wrappers as single dicts
+                # (``Transforms.Transform``). Unwrap the lone element so the
+                # encoder sees the expected shape; the symmetrical decode
+                # path re-lists it.
+                value = value[0]
+                shape = pydantic_shape.list_kind and FieldShape(
+                    kind=pydantic_shape.list_kind,
+                    enum_cls=pydantic_shape.list_enum_cls,
+                ) or FieldShape(FieldKind.SCALAR)
+            if registry_shape is not None and registry_shape.kind in (
+                FieldKind.BYTES,
+                FieldKind.CHARACTERS,
+                FieldKind.NESTED,
+            ) and shape.kind in (FieldKind.CHARACTERS, FieldKind.SCALAR):
+                # NESTED on a Pydantic int means the v2gjson side expects an
+                # ``exi_signed_t`` JSON object (``X509SerialNumber``); see
+                # :func:`_to_signed_shape`.
+                shape = FieldShape(
+                    kind=registry_shape.kind,
+                    enum_cls=shape.enum_cls,
+                    list_kind=shape.list_kind,
+                    list_enum_cls=shape.list_enum_cls,
+                )
+            out[out_alias] = self._encode_value(out_alias, value, shape)
         return out
 
-    def _encode_value(self, alias: str, value: Any) -> Any:
+    def _encode_value(
+        self,
+        alias: str,
+        value: Any,
+        shape_override: Optional[FieldShape] = None,
+    ) -> Any:
         if isinstance(value, BaseModel):
+            # When the surrounding parent's v2gjson signature flattens this
+            # element to a simple type (e.g. ``CertificateUpdateReqType.eMAID``
+            # is ``str`` while the Pydantic side wraps the value in an EMAID
+            # model), extract the text content and re-encode it under the
+            # parent's shape.
+            if shape_override is not None and shape_override.kind in (
+                FieldKind.CHARACTERS,
+                FieldKind.BYTES,
+            ):
+                for field_name, field in type(value).model_fields.items():
+                    if (field.alias or field_name) == "value":
+                        return self._encode_value(
+                            alias, getattr(value, field_name), shape_override
+                        )
             return self.encode_model(value)
 
-        shape = self._config.shape_map.get(alias, FieldShape(FieldKind.SCALAR))
+        shape = shape_override or self._config.shape_map.get(
+            alias, FieldShape(FieldKind.SCALAR)
+        )
 
         if isinstance(value, list):
             items = [self._encode_list_element(shape, alias, item) for item in value]
+            # A handful of xmldsig fields (notably ``Transforms.Transform``) are
+            # modelled as ``List[X]`` on the Pydantic side but appear as a
+            # single ``dict`` parameter in v2gjson because cbv2g flattens the
+            # cardinality-1 wrapper. Emit the lone element directly so the
+            # libcbv2g JSON validator accepts it.
+            if shape.kind is not FieldKind.LIST and len(items) == 1:
+                return items[0]
             return {"array": items, "arrayLen": len(items)}
 
         if shape.kind is FieldKind.CHARACTERS and isinstance(value, Enum):
@@ -208,27 +360,54 @@ class _Walker:
         if shape.kind is FieldKind.BYTES:
             return self._to_bytes_shape(value)
         if shape.kind is FieldKind.CHARACTERS:
-            if isinstance(value, str):
-                data = value.encode("utf-8")
-                return {"characters": list(data), "charactersLen": len(data)}
+            # Pydantic-typed string fields (HttpUrl, constrained str) aren't
+            # ``str`` subclasses in v2 but render losslessly via ``str()``.
+            if not isinstance(value, str):
+                value = str(value)
+            data = value.encode("utf-8")
+            return {"characters": list(data), "charactersLen": len(data)}
 
         if isinstance(value, bool):
             return int(value)
-        return value
+        if isinstance(value, int) and shape.kind is FieldKind.NESTED:
+            # libcbv2g represents ``xs:integer`` (arbitrary-precision) as
+            # ``exi_signed_t``, which v2gjson surfaces as a nested ``dict``
+            # parameter — currently only ``X509SerialNumber``. Encode via the
+            # magnitude-octets-plus-sign shape.
+            return _to_signed_shape(value)
+        if isinstance(value, (str, int, float)) or value is None:
+            return value
+        # Pydantic-specific types like ``HttpUrl`` (used in xmldsig Algorithm
+        # fields) aren't JSON-serializable. They render losslessly as their
+        # string form, which is what libcbv2g expects on the wire.
+        return str(value)
 
     def _encode_list_element(self, shape: FieldShape, alias: str, item: Any) -> Any:
         if isinstance(item, BaseModel):
             return self.encode_model(item)
         if isinstance(item, Enum):
             return self._enum_to_int(item, shape.list_enum_cls)
-        if shape.list_kind is FieldKind.BYTES:
+        # ``shape`` may report a non-LIST kind (e.g. ``Certificate`` in
+        # CertificateChain is bytes, but ``SubCertificates.Certificate`` is a
+        # list of bytes — the alias→shape map picks one). Fall back to the
+        # element-level kind when ``shape.list_kind`` is unset.
+        elem_kind = shape.list_kind or shape.kind
+        if elem_kind is FieldKind.BYTES:
             return self._to_bytes_shape(item)
-        if shape.list_kind is FieldKind.CHARACTERS and isinstance(item, str):
+        if elem_kind is FieldKind.CHARACTERS and isinstance(item, str):
             data = item.encode("utf-8")
             return {"characters": list(data), "charactersLen": len(data)}
         if isinstance(item, bool):
             return int(item)
         return item
+
+    def _from_signed_shape(self, value: dict) -> int:
+        data = value["data"]
+        octets = data["octets"]
+        magnitude = 0
+        for shift, octet in enumerate(octets):
+            magnitude |= octet << (8 * shift)
+        return -magnitude if value.get("is_negative") else magnitude
 
     def _to_bytes_shape(self, value: Any) -> dict:
         if isinstance(value, (bytes, bytearray)):
@@ -270,21 +449,44 @@ class _Walker:
         kwargs: Dict[str, Any] = {}
         for field_name, field in model_cls.model_fields.items():
             alias = field.alias or field_name
-            if alias not in data:
+            data_alias = self._config.alias_renames.get(alias, alias)
+            if data_alias not in data:
                 continue
-            kwargs[alias] = self._decode_value(field.annotation, alias, data[alias])
+            kwargs[alias] = self._decode_value(
+                field.annotation, alias, data[data_alias]
+            )
         return model_cls.model_validate(kwargs)
 
     def _decode_value(self, annotation: Any, alias: str, value: Any) -> Any:
         py_type, list_inner = _unwrap_annotation(annotation)
 
+        if (
+            isinstance(value, dict)
+            and "data" in value
+            and isinstance(value["data"], dict)
+            and "octets" in value["data"]
+        ):
+            return self._from_signed_shape(value)
+
         if list_inner is not None:
-            items = value
             if isinstance(value, dict) and "array" in value:
                 items = value["array"]
+            elif isinstance(value, list):
+                items = value
+            else:
+                # Pydantic expects List[X] but EVerest gave a single dict
+                # (cardinality-1 flattening — e.g. ``Transforms.Transform``).
+                items = [value]
             return [self._decode_value(list_inner, alias, item) for item in items]
 
         if isinstance(py_type, type) and issubclass(py_type, BaseModel):
+            # When the v2gjson signature flattens an element to a simple
+            # type but the Pydantic model wraps it (the inverse of the
+            # encode-side handling for ``CertificateUpdateReq.eMAID``),
+            # synthesize the missing wrapper layer so ``model_validate``
+            # accepts the flattened value.
+            if isinstance(value, dict) and ("bytes" in value or "characters" in value):
+                value = {"value": value}
             return self.decode_model(value, py_type)
 
         if isinstance(py_type, type) and issubclass(py_type, Enum):
@@ -335,7 +537,33 @@ class _Walker:
         )
 
 
+def _to_signed_shape(value: int) -> dict:
+    """Encode an integer using libcbv2g's ``exi_signed_t`` JSON shape.
+
+    Pydantic models hold ``xs:integer`` fields (currently just
+    ``X509SerialNumber``) as plain ``int``. libcbv2g expects them as
+    magnitude-octets little-endian plus a sign byte.
+    """
+    is_negative = 1 if value < 0 else 0
+    magnitude = abs(value)
+    if magnitude == 0:
+        octets = [0]
+    else:
+        octets = []
+        while magnitude:
+            octets.append(magnitude & 0xFF)
+            magnitude >>= 8
+    return {
+        "data": {"octets": octets, "octets_count": len(octets)},
+        "is_negative": is_negative,
+    }
+
+
 def _unwrap_annotation(ann: Any) -> Tuple[Any, Optional[Any]]:
+    if get_origin(ann) is typing.Annotated or hasattr(ann, "__metadata__"):
+        args = get_args(ann)
+        if args:
+            return _unwrap_annotation(args[0])
     """Return ``(effective_type, inner_list_type_or_None)``.
 
     Strips ``Optional``/``Union[..., None]`` and ``Literal[X]``; detects
@@ -381,6 +609,81 @@ def everest_to_pydantic(
     return config.adapter.unwrap(_Walker(config), data, model_cls)
 
 
+def _fragment_root_name(model: BaseModel, root_name: Optional[str]) -> str:
+    if root_name is not None:
+        return root_name
+    # Fall back to ``str(model)``, which the existing AcCCS codec already
+    # relies on (see ``app/shared/exi_codec.py``): sub-element models
+    # override ``__str__`` to emit the XSD-conformant element name.
+    return str(model)
+
+
+def pydantic_to_everest_fragment(
+    model: BaseModel,
+    namespace: str,
+    root_name: Optional[str] = None,
+) -> dict:
+    """Wrap *model* as an EXPy ``encode_fragment``-ready dict.
+
+    Fragment payloads in libcbv2g are encoded as
+    ``{"<RootElementName>": <element-body-dict>}``. *root_name* overrides the
+    default ``str(model)`` lookup for cases where the same Pydantic class
+    surfaces under different XSD element names in different contexts (e.g.
+    :class:`CertificateChain` → ``ContractSignatureCertChain`` /
+    ``SAProvisioningCertificateChain``).
+    """
+    config = _REGISTRY[namespace]
+    walker = _Walker(config)
+    return {_fragment_root_name(model, root_name): walker.encode_model(model)}
+
+
+def everest_to_pydantic_fragment(
+    data: dict,
+    model_cls: Type[BaseModel],
+    namespace: str,
+    root_name: Optional[str] = None,
+) -> BaseModel:
+    """Reverse of :func:`pydantic_to_everest_fragment`.
+
+    If *root_name* is omitted, the single top-level key of *data* is used.
+    """
+    config = _REGISTRY[namespace]
+    walker = _Walker(config)
+    if root_name is None:
+        if len(data) != 1:
+            raise ValueError(
+                "Fragment decode requires either an explicit root_name or "
+                f"single-key data; got keys {list(data)!r}"
+            )
+        (root_name,) = data.keys()
+    return walker.decode_model(data[root_name], model_cls)
+
+
+def pydantic_to_everest_xmldsig(
+    model: BaseModel,
+    namespace: str,
+    root_name: Optional[str] = None,
+) -> dict:
+    """Wrap *model* as an EXPy ``encode_xmldsig``-ready dict.
+
+    The shape is identical to :func:`pydantic_to_everest_fragment` — a single
+    top-level ``{"<RootElementName>": ...}`` pair — but the namespace's
+    xmldsig processor is the consumer. Default *root_name* is ``str(model)``
+    (which is ``"SignedInfo"`` for :class:`SignedInfo`).
+    """
+    return pydantic_to_everest_fragment(model, namespace, root_name=root_name)
+
+
+def everest_to_pydantic_xmldsig(
+    data: dict,
+    model_cls: Type[BaseModel],
+    namespace: str,
+    root_name: Optional[str] = None,
+) -> BaseModel:
+    """Reverse of :func:`pydantic_to_everest_xmldsig`."""
+    return everest_to_pydantic_fragment(data, model_cls, namespace, root_name=root_name)
+
+
 # ---- namespace registrations ----
 
 # DIN — identity envelope (V2GMessage Pydantic model already has
@@ -388,3 +691,22 @@ def everest_to_pydantic(
 from expy.v2gjson import din as _din_v2gjson  # noqa: E402
 
 register_namespace(Namespace.DIN_MSG_DEF, _din_v2gjson)
+
+# ISO 15118-2 — identity envelope, same shape contract as DIN. Fragment and
+# XmldsigFragment payloads (PnC sub-elements, cert install pieces, SignedInfo)
+# go through the dedicated helpers above.
+from expy.v2gjson import iso2 as _iso2_v2gjson  # noqa: E402
+
+register_namespace(
+    Namespace.ISO_V2_MSG_DEF,
+    _iso2_v2gjson,
+    alias_renames={
+        # libcbv2g flattens simple-typed elements with XML attributes (notably
+        # ``eMAID``, ``ContractSignatureEncryptedPrivateKey``,
+        # ``DiffieHellmanPublickey``, ``SignatureValue``) into ``CONTENT`` +
+        # attributes. Every Pydantic field aliased ``value`` in ISO-2 / xmldsig
+        # corresponds to one of these four — see
+        # ``app/shared/messages/iso15118_2/datatypes.py`` and ``xmldsig.py``.
+        "value": "CONTENT",
+    },
+)
