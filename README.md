@@ -69,10 +69,27 @@ The DIN and ISO standards define that the TCP/IP communication between EVCC and 
 ### Python Module Dependencies
 * scapy
 * smbus
+* expy
 
 **Scapy** is used for all of the packet activities such as crafting, manipulation, sending, and receiving packets. 
 
 **Smbus** is used for I2C communications with the PCB to operate the relays found on the PWM PCB.
+
+**EXPy** is the Python binding over LF Energy EVerest's `libcbv2g` used for EXI
+encode/decode (see [ADR-0002](docs/adr/0002-expy-codec-replacement.md)). EXPy is
+installed from source and builds a C/C++ extension during `pip install`, which
+adds the following install-time prerequisites on every target (dev machine and
+Raspberry Pi alike):
+
+* **CMake** ≥ 3.20
+* **Ninja** ≥ 1.10
+* A C/C++ toolchain (gcc/clang and the matching standard libraries)
+
+On Debian/Raspberry Pi OS:
+
+```bash
+sudo apt install cmake ninja-build build-essential
+```
 
 ### EVSE and EV Python Scripts
 Below is a brief description of the scripts in this project. These scripts are provided as examples of how you might utilize this hardware in your own testing environment. This is not intended to be a finished product with all desired functionality. Some functionality is still a work in progress.
