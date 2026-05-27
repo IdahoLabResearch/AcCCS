@@ -16,7 +16,7 @@ This is a **separate, sequential upgrade** that begins only after the [[personal
 - Eight `Namespace` selectors covering AcCCS's full namespace surface: `SAP`, `DIN`, `ISO2`, `ISO20_COMMON`, `ISO20_AC`, `ISO20_DC`, `ISO20_WPT`, `ISO20_ACDP`.
 - Three root types per Processor, feature-gated: Document (`encode`/`decode`, all eight Namespaces), Fragment (`encode_fragment`/`decode_fragment`, six Namespaces excluding `SAP` and `DIN`), XmldsigFragment (`encode_xmldsig`/`decode_xmldsig`, same six). Direct attribute access raises `AttributeError` on Namespaces lacking a given root.
 - EVerest JSON shape on the wire to/from EXPy: bytes fields as `{"bytes": [...], "bytesLen": N}`, character fields as `{"characters": [...], "charactersLen": N}`, optionals signaled by JSON key presence/absence (no `isUsed` marker).
-- Top-level envelope shape varies per Namespace: DIN/ISO-2 wrap in `V2G_Message(Header, Body)`; ISO-20 top-level is `{"Body": {"<MessageName>": ...}}` with no `V2G_Message`; `SAP` has its own shape.
+- Top-level envelope shape varies per Namespace: DIN/ISO-2 wrap in `V2G_Message(Header, Body)`; ISO-20 top-level is `{"<MessageName>": {Header, …body fields…}}` with no `V2G_Message` or `Body` key (the per-message Header is part of each ISO-20 message body); `SAP` has its own shape.
 - Errors raised as `EncodeError` / `DecodeError` with structured attributes `rc: int`, `namespace: str`, `root: Literal["exiDocument", "exiFragment", "xmldsigFragment"]`.
 
 ## Consequences

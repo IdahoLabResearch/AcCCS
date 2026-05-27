@@ -1460,3 +1460,608 @@ FIXTURES.extend(
         ),
     ]
 )
+
+
+# --- ISO 15118-20 builders -------------------------------------------------
+#
+# ISO-20 splits across five sub-namespaces (`ISO20_COMMON`, `ISO20_AC`,
+# `ISO20_DC`, `ISO20_WPT`, `ISO20_ACDP`). Every fixture here is flagged
+# ``expy_authoritative=True`` — Exificient and EXPy diverge on ISO-20 today
+# (signed-info canonicalisation, optional-key encoding) and ADR-0002 Slice 5
+# rebaselines the whole corpus on EXPy anyway. Roots: every namespace gets
+# Document coverage; ``ISO20_COMMON`` adds Fragment + XmldsigFragment because
+# only the three signed-element namespaces (COMMON/AC/DC) expose those roots
+# in EXPy v1.0.
+
+
+def _iso20_namespaces():
+    from app.shared.messages.enums import Namespace
+
+    return Namespace
+
+
+def _iso20_header(session_id: str = "0011223344556677"):
+    from app.shared.messages.iso15118_20.common_types import MessageHeader
+
+    return MessageHeader(session_id=session_id, timestamp=1700000000)
+
+
+def _iso20_rn(value: int, exponent: int = 0):
+    from app.shared.messages.iso15118_20.common_types import RationalNumber
+
+    return RationalNumber(exponent=exponent, value=value)
+
+
+# --- ISO-20 common (sub-namespace ISO20_COMMON) ---------------------------
+
+
+def _iso20_session_setup_req():
+    from app.shared.messages.iso15118_20.common_messages import SessionSetupReq
+
+    return SessionSetupReq(header=_iso20_header(), evcc_id="VEHICLE_001")
+
+
+def _iso20_session_setup_res():
+    from app.shared.messages.iso15118_20.common_messages import SessionSetupRes
+    from app.shared.messages.iso15118_20.common_types import ResponseCode
+
+    return SessionSetupRes(
+        header=_iso20_header(),
+        response_code=ResponseCode.OK_NEW_SESSION_ESTABLISHED,
+        evse_id="DE*ICE*E1234",
+    )
+
+
+def _iso20_authorization_setup_req():
+    from app.shared.messages.iso15118_20.common_messages import AuthorizationSetupReq
+
+    return AuthorizationSetupReq(header=_iso20_header())
+
+
+def _iso20_authorization_setup_res():
+    from app.shared.messages.enums import AuthEnum
+    from app.shared.messages.iso15118_20.common_messages import (
+        AuthorizationSetupRes,
+        EIMAuthSetupResParams,
+    )
+    from app.shared.messages.iso15118_20.common_types import ResponseCode
+
+    return AuthorizationSetupRes(
+        header=_iso20_header(),
+        response_code=ResponseCode.OK,
+        # ISO-20 uses the bare ``EIM`` / ``PnC`` enum values (see
+        # :class:`AuthEnum`); the ``_V2`` variants are ISO-15118-2-specific.
+        auth_services=[AuthEnum.EIM],
+        cert_install_service=False,
+        eim_as_res=EIMAuthSetupResParams(),
+    )
+
+
+def _iso20_service_discovery_req():
+    from app.shared.messages.iso15118_20.common_messages import ServiceDiscoveryReq
+
+    return ServiceDiscoveryReq(header=_iso20_header())
+
+
+def _iso20_service_discovery_res():
+    from app.shared.messages.iso15118_20.common_messages import (
+        Service,
+        ServiceDiscoveryRes,
+        ServiceList,
+    )
+    from app.shared.messages.iso15118_20.common_types import ResponseCode
+
+    return ServiceDiscoveryRes(
+        header=_iso20_header(),
+        response_code=ResponseCode.OK,
+        service_renegotiation_supported=False,
+        energy_service_list=ServiceList(
+            services=[Service(service_id=1, free_service=True)]
+        ),
+    )
+
+
+def _iso20_power_delivery_req():
+    from app.shared.messages.iso15118_20.common_messages import (
+        ChargeProgress,
+        PowerDeliveryReq,
+    )
+    from app.shared.messages.iso15118_20.common_types import Processing
+
+    return PowerDeliveryReq(
+        header=_iso20_header(),
+        ev_processing=Processing.ONGOING,
+        charge_progress=ChargeProgress.STOP,
+    )
+
+
+def _iso20_power_delivery_res():
+    from app.shared.messages.iso15118_20.common_messages import PowerDeliveryRes
+    from app.shared.messages.iso15118_20.common_types import ResponseCode
+
+    return PowerDeliveryRes(
+        header=_iso20_header(),
+        response_code=ResponseCode.OK,
+    )
+
+
+def _iso20_session_stop_req():
+    from app.shared.messages.iso15118_20.common_messages import (
+        ChargingSession,
+        SessionStopReq,
+    )
+
+    return SessionStopReq(
+        header=_iso20_header(),
+        charging_session=ChargingSession.TERMINATE,
+    )
+
+
+def _iso20_session_stop_res():
+    from app.shared.messages.iso15118_20.common_messages import SessionStopRes
+    from app.shared.messages.iso15118_20.common_types import ResponseCode
+
+    return SessionStopRes(
+        header=_iso20_header(),
+        response_code=ResponseCode.OK,
+    )
+
+
+# --- ISO-20 fragment / xmldsig -------------------------------------------
+
+
+def _iso20_frag_pnc_auth_req_params():
+    from app.shared.messages.iso15118_20.common_messages import (
+        CertificateChain,
+        PnCAuthReqParams,
+        SubCertificates,
+    )
+
+    return PnCAuthReqParams(
+        id="id1",
+        gen_challenge=b"0123456789012345",
+        contract_cert_chain=CertificateChain(
+            certificate=b"\x30" + b"\x01" * 30,
+            sub_certificates=SubCertificates(
+                certificates=[b"\x30" + b"\x02" * 20]
+            ),
+        ),
+    )
+
+
+def _iso20_xmldsig_signed_info():
+    # Same SignedInfo as the ISO-2 fixture; the xmldsig schema is shared
+    # between ISO-2 and ISO-20.
+    from app.shared.messages.xmldsig import (
+        CanonicalizationMethod,
+        DigestMethod,
+        Reference,
+        SignatureMethod,
+        SignedInfo,
+        Transform,
+        Transforms,
+    )
+
+    return SignedInfo(
+        canonicalization_method=CanonicalizationMethod(
+            algorithm="http://www.w3.org/TR/canonical-exi/"
+        ),
+        signature_method=SignatureMethod(
+            algorithm="http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256"
+        ),
+        reference=[
+            Reference(
+                uri="#id1",
+                transforms=Transforms(
+                    transform=[
+                        Transform(algorithm="http://www.w3.org/TR/canonical-exi/")
+                    ]
+                ),
+                digest_method=DigestMethod(
+                    algorithm="http://www.w3.org/2001/04/xmlenc#sha256"
+                ),
+                digest_value=b"\x00" * 32,
+            )
+        ],
+    )
+
+
+# --- ISO-20 AC (sub-namespace ISO20_AC) -----------------------------------
+
+
+def _iso20_ac_charge_parameter_discovery_req():
+    from app.shared.messages.iso15118_20.ac import (
+        ACChargeParameterDiscoveryReq,
+        ACChargeParameterDiscoveryReqParams,
+    )
+
+    return ACChargeParameterDiscoveryReq(
+        header=_iso20_header(),
+        ac_params=ACChargeParameterDiscoveryReqParams(
+            ev_max_charge_power=_iso20_rn(7400),
+            ev_min_charge_power=_iso20_rn(100),
+        ),
+    )
+
+
+def _iso20_ac_charge_parameter_discovery_res():
+    from app.shared.messages.iso15118_20.ac import (
+        ACChargeParameterDiscoveryRes,
+        ACChargeParameterDiscoveryResParams,
+    )
+    from app.shared.messages.iso15118_20.common_types import ResponseCode
+
+    return ACChargeParameterDiscoveryRes(
+        header=_iso20_header(),
+        response_code=ResponseCode.OK,
+        ac_params=ACChargeParameterDiscoveryResParams(
+            evse_max_charge_power=_iso20_rn(22000),
+            evse_min_charge_power=_iso20_rn(200),
+            evse_nominal_frequency=_iso20_rn(50),
+        ),
+    )
+
+
+def _iso20_ac_bpt_charge_parameter_discovery_req():
+    from app.shared.messages.iso15118_20.ac import (
+        ACChargeParameterDiscoveryReq,
+        BPTACChargeParameterDiscoveryReqParams,
+    )
+
+    return ACChargeParameterDiscoveryReq(
+        header=_iso20_header(),
+        bpt_ac_params=BPTACChargeParameterDiscoveryReqParams(
+            ev_max_charge_power=_iso20_rn(7400),
+            ev_min_charge_power=_iso20_rn(100),
+            ev_max_discharge_power=_iso20_rn(5000),
+            ev_min_discharge_power=_iso20_rn(100),
+        ),
+    )
+
+
+def _iso20_ac_bpt_charge_parameter_discovery_res():
+    from app.shared.messages.iso15118_20.ac import (
+        ACChargeParameterDiscoveryRes,
+        BPTACChargeParameterDiscoveryResParams,
+    )
+    from app.shared.messages.iso15118_20.common_types import ResponseCode
+
+    return ACChargeParameterDiscoveryRes(
+        header=_iso20_header(),
+        response_code=ResponseCode.OK,
+        bpt_ac_params=BPTACChargeParameterDiscoveryResParams(
+            evse_max_charge_power=_iso20_rn(22000),
+            evse_min_charge_power=_iso20_rn(200),
+            evse_nominal_frequency=_iso20_rn(50),
+            evse_max_discharge_power=_iso20_rn(11000),
+            evse_min_discharge_power=_iso20_rn(200),
+        ),
+    )
+
+
+# --- ISO-20 DC (sub-namespace ISO20_DC) -----------------------------------
+
+
+def _iso20_dc_charge_parameter_discovery_req():
+    from app.shared.messages.iso15118_20.dc import (
+        DCChargeParameterDiscoveryReq,
+        DCChargeParameterDiscoveryReqParams,
+    )
+
+    return DCChargeParameterDiscoveryReq(
+        header=_iso20_header(),
+        dc_params=DCChargeParameterDiscoveryReqParams(
+            # values exceeding 32767 must use exponent to stay within the
+            # XSD ``xs:short`` Value range (see ``RationalNumber``).
+            ev_max_charge_power=_iso20_rn(50, exponent=3),
+            ev_min_charge_power=_iso20_rn(100),
+            ev_max_charge_current=_iso20_rn(125),
+            ev_min_charge_current=_iso20_rn(1),
+            ev_max_voltage=_iso20_rn(500),
+            ev_min_voltage=_iso20_rn(200),
+        ),
+    )
+
+
+def _iso20_dc_charge_parameter_discovery_res():
+    from app.shared.messages.iso15118_20.dc import (
+        DCChargeParameterDiscoveryRes,
+        DCChargeParameterDiscoveryResParams,
+    )
+    from app.shared.messages.iso15118_20.common_types import ResponseCode
+
+    return DCChargeParameterDiscoveryRes(
+        header=_iso20_header(),
+        response_code=ResponseCode.OK,
+        dc_params=DCChargeParameterDiscoveryResParams(
+            evse_max_charge_power=_iso20_rn(80, exponent=3),
+            evse_min_charge_power=_iso20_rn(200),
+            evse_max_charge_current=_iso20_rn(200),
+            evse_min_charge_current=_iso20_rn(1),
+            evse_max_voltage=_iso20_rn(900),
+            evse_min_voltage=_iso20_rn(200),
+            evse_power_ramp_limit=_iso20_rn(5000),
+        ),
+    )
+
+
+def _iso20_dc_bpt_charge_parameter_discovery_req():
+    from app.shared.messages.iso15118_20.dc import (
+        BPTDCChargeParameterDiscoveryReqParams,
+        DCChargeParameterDiscoveryReq,
+    )
+
+    return DCChargeParameterDiscoveryReq(
+        header=_iso20_header(),
+        bpt_dc_params=BPTDCChargeParameterDiscoveryReqParams(
+            # values exceeding 32767 must use exponent to stay within the
+            # XSD ``xs:short`` Value range (see ``RationalNumber``).
+            ev_max_charge_power=_iso20_rn(50, exponent=3),
+            ev_min_charge_power=_iso20_rn(100),
+            ev_max_charge_current=_iso20_rn(125),
+            ev_min_charge_current=_iso20_rn(1),
+            ev_max_voltage=_iso20_rn(500),
+            ev_min_voltage=_iso20_rn(200),
+            ev_max_discharge_power=_iso20_rn(40, exponent=3),
+            ev_min_discharge_power=_iso20_rn(100),
+            ev_max_discharge_current=_iso20_rn(100),
+            ev_min_discharge_current=_iso20_rn(1),
+        ),
+    )
+
+
+def _iso20_dc_bpt_charge_parameter_discovery_res():
+    from app.shared.messages.iso15118_20.dc import (
+        BPTDCChargeParameterDiscoveryResParams,
+        DCChargeParameterDiscoveryRes,
+    )
+    from app.shared.messages.iso15118_20.common_types import ResponseCode
+
+    return DCChargeParameterDiscoveryRes(
+        header=_iso20_header(),
+        response_code=ResponseCode.OK,
+        bpt_dc_params=BPTDCChargeParameterDiscoveryResParams(
+            evse_max_charge_power=_iso20_rn(80, exponent=3),
+            evse_min_charge_power=_iso20_rn(200),
+            evse_max_charge_current=_iso20_rn(200),
+            evse_min_charge_current=_iso20_rn(1),
+            evse_max_voltage=_iso20_rn(900),
+            evse_min_voltage=_iso20_rn(200),
+            evse_power_ramp_limit=_iso20_rn(5000),
+            evse_max_discharge_power=_iso20_rn(60, exponent=3),
+            evse_min_discharge_power=_iso20_rn(200),
+            evse_max_discharge_current=_iso20_rn(150),
+            evse_min_discharge_current=_iso20_rn(1),
+        ),
+    )
+
+
+def _iso20_dc_cable_check_req():
+    from app.shared.messages.iso15118_20.dc import DCCableCheckReq
+
+    return DCCableCheckReq(header=_iso20_header())
+
+
+def _iso20_dc_cable_check_res():
+    from app.shared.messages.iso15118_20.dc import DCCableCheckRes
+    from app.shared.messages.iso15118_20.common_types import Processing, ResponseCode
+
+    return DCCableCheckRes(
+        header=_iso20_header(),
+        response_code=ResponseCode.OK,
+        evse_processing=Processing.FINISHED,
+    )
+
+
+def _iso20_dc_pre_charge_req():
+    from app.shared.messages.iso15118_20.dc import DCPreChargeReq
+    from app.shared.messages.iso15118_20.common_types import Processing
+
+    return DCPreChargeReq(
+        header=_iso20_header(),
+        ev_processing=Processing.FINISHED,
+        ev_present_voltage=_iso20_rn(0),
+        ev_target_voltage=_iso20_rn(400),
+    )
+
+
+def _iso20_dc_pre_charge_res():
+    from app.shared.messages.iso15118_20.dc import DCPreChargeRes
+    from app.shared.messages.iso15118_20.common_types import ResponseCode
+
+    return DCPreChargeRes(
+        header=_iso20_header(),
+        response_code=ResponseCode.OK,
+        evse_present_voltage=_iso20_rn(399),
+    )
+
+
+def _iso20_dc_welding_detection_req():
+    from app.shared.messages.iso15118_20.dc import DCWeldingDetectionReq
+    from app.shared.messages.iso15118_20.common_types import Processing
+
+    return DCWeldingDetectionReq(
+        header=_iso20_header(),
+        ev_processing=Processing.FINISHED,
+    )
+
+
+def _iso20_dc_welding_detection_res():
+    from app.shared.messages.iso15118_20.dc import DCWeldingDetectionRes
+    from app.shared.messages.iso15118_20.common_types import ResponseCode
+
+    return DCWeldingDetectionRes(
+        header=_iso20_header(),
+        response_code=ResponseCode.OK,
+        evse_present_voltage=_iso20_rn(2),
+    )
+
+
+# --- ISO-20 WPT (sub-namespace ISO20_WPT) ---------------------------------
+
+
+def _iso20_wpt_pairing_req():
+    from app.shared.messages.iso15118_20.wpt import (
+        WPTEVResult,
+        WPTPairingReq,
+        WPTProcessing,
+    )
+
+    return WPTPairingReq(
+        header=_iso20_header(),
+        ev_processing=WPTProcessing.FINISHED,
+        ev_result_code=WPTEVResult.SUCCESS,
+    )
+
+
+# --- ISO-20 ACDP (sub-namespace ISO20_ACDP) -------------------------------
+
+
+def _iso20_acdp_connect_req():
+    from app.shared.messages.iso15118_20.acd_p import (
+        ACDPChargingDeviceStatus,
+        ACDPConnectReq,
+    )
+
+    return ACDPConnectReq(
+        header=_iso20_header(),
+        ev_electrical_charging_device_status=ACDPChargingDeviceStatus.STATE_B,
+    )
+
+
+def _iso20_doc(id_: str, build: Callable[[], BaseModel], ns_attr: str) -> CodecFixture:
+    from app.shared.messages.enums import Namespace
+
+    return CodecFixture(
+        id=id_,
+        protocol="iso15118-20",
+        namespace=getattr(Namespace, ns_attr),
+        build=build,
+        expy_authoritative=True,
+    )
+
+
+_ISO20_NS = "ISO_V20_COMMON_MSG"
+
+FIXTURES.extend(
+    [
+        # ISO20_COMMON — Document
+        _iso20_doc("iso20-common-session-setup-req", _iso20_session_setup_req, _ISO20_NS),
+        _iso20_doc("iso20-common-session-setup-res", _iso20_session_setup_res, _ISO20_NS),
+        _iso20_doc(
+            "iso20-common-authorization-setup-req",
+            _iso20_authorization_setup_req,
+            _ISO20_NS,
+        ),
+        _iso20_doc(
+            "iso20-common-authorization-setup-res",
+            _iso20_authorization_setup_res,
+            _ISO20_NS,
+        ),
+        _iso20_doc(
+            "iso20-common-service-discovery-req",
+            _iso20_service_discovery_req,
+            _ISO20_NS,
+        ),
+        _iso20_doc(
+            "iso20-common-service-discovery-res",
+            _iso20_service_discovery_res,
+            _ISO20_NS,
+        ),
+        _iso20_doc(
+            "iso20-common-power-delivery-req", _iso20_power_delivery_req, _ISO20_NS
+        ),
+        _iso20_doc(
+            "iso20-common-power-delivery-res", _iso20_power_delivery_res, _ISO20_NS
+        ),
+        _iso20_doc("iso20-common-session-stop-req", _iso20_session_stop_req, _ISO20_NS),
+        _iso20_doc("iso20-common-session-stop-res", _iso20_session_stop_res, _ISO20_NS),
+        # ISO20_COMMON — Fragment (signed PnC auth params)
+        CodecFixture(
+            id="iso20-common-frag-pnc-auth-req-params",
+            protocol="iso15118-20",
+            namespace=_iso20_namespaces().ISO_V20_COMMON_MSG,
+            build=_iso20_frag_pnc_auth_req_params,
+            root_kind="fragment",
+            expy_authoritative=True,
+        ),
+        # ISO20_COMMON — XmldsigFragment (SignedInfo, signature creation
+        # payload).
+        CodecFixture(
+            id="iso20-common-xmldsig-signed-info",
+            protocol="iso15118-20",
+            namespace=_iso20_namespaces().ISO_V20_COMMON_MSG,
+            build=_iso20_xmldsig_signed_info,
+            root_kind="xmldsig",
+            expy_authoritative=True,
+        ),
+        # ISO20_AC — Document (AC + AC-BPT energy services)
+        _iso20_doc(
+            "iso20-ac-charge-parameter-discovery-req",
+            _iso20_ac_charge_parameter_discovery_req,
+            "ISO_V20_AC",
+        ),
+        _iso20_doc(
+            "iso20-ac-charge-parameter-discovery-res",
+            _iso20_ac_charge_parameter_discovery_res,
+            "ISO_V20_AC",
+        ),
+        _iso20_doc(
+            "iso20-ac-bpt-charge-parameter-discovery-req",
+            _iso20_ac_bpt_charge_parameter_discovery_req,
+            "ISO_V20_AC",
+        ),
+        _iso20_doc(
+            "iso20-ac-bpt-charge-parameter-discovery-res",
+            _iso20_ac_bpt_charge_parameter_discovery_res,
+            "ISO_V20_AC",
+        ),
+        # ISO20_DC — Document (DC + DC-BPT energy services)
+        _iso20_doc(
+            "iso20-dc-charge-parameter-discovery-req",
+            _iso20_dc_charge_parameter_discovery_req,
+            "ISO_V20_DC",
+        ),
+        _iso20_doc(
+            "iso20-dc-charge-parameter-discovery-res",
+            _iso20_dc_charge_parameter_discovery_res,
+            "ISO_V20_DC",
+        ),
+        _iso20_doc(
+            "iso20-dc-bpt-charge-parameter-discovery-req",
+            _iso20_dc_bpt_charge_parameter_discovery_req,
+            "ISO_V20_DC",
+        ),
+        _iso20_doc(
+            "iso20-dc-bpt-charge-parameter-discovery-res",
+            _iso20_dc_bpt_charge_parameter_discovery_res,
+            "ISO_V20_DC",
+        ),
+        _iso20_doc(
+            "iso20-dc-cable-check-req", _iso20_dc_cable_check_req, "ISO_V20_DC"
+        ),
+        _iso20_doc(
+            "iso20-dc-cable-check-res", _iso20_dc_cable_check_res, "ISO_V20_DC"
+        ),
+        _iso20_doc(
+            "iso20-dc-pre-charge-req", _iso20_dc_pre_charge_req, "ISO_V20_DC"
+        ),
+        _iso20_doc(
+            "iso20-dc-pre-charge-res", _iso20_dc_pre_charge_res, "ISO_V20_DC"
+        ),
+        _iso20_doc(
+            "iso20-dc-welding-detection-req",
+            _iso20_dc_welding_detection_req,
+            "ISO_V20_DC",
+        ),
+        _iso20_doc(
+            "iso20-dc-welding-detection-res",
+            _iso20_dc_welding_detection_res,
+            "ISO_V20_DC",
+        ),
+        # ISO20_WPT — Document (WPT energy service)
+        _iso20_doc("iso20-wpt-pairing-req", _iso20_wpt_pairing_req, "ISO_V20_WPT"),
+        # ISO20_ACDP — Document (ACDP energy service)
+        _iso20_doc("iso20-acdp-connect-req", _iso20_acdp_connect_req, "ISO_V20_ACDP"),
+    ]
+)

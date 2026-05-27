@@ -173,6 +173,37 @@ class _IdentityAdapter(EnvelopeAdapter):
     """DIN / ISO-2 identity envelope: Pydantic shape already matches EVerest."""
 
 
+class _Iso20Adapter(EnvelopeAdapter):
+    """ISO 15118-20 envelope: ``{"<MessageName>": <body-dict>}``.
+
+    ISO-20 has no shared ``V2G_Message(Header, Body)`` wrapper — each
+    request/response carries its own ``Header`` and libcbv2g expects the
+    payload keyed by the XSD element name at the top level. The Pydantic
+    side models each message as a :class:`V2GMessage` subclass whose
+    ``__str__`` returns the XSD-conformant class name (``SessionSetupReq``,
+    ``DC_CableCheckReq``, …), so the strip/synthesize is a single-key wrap.
+    """
+
+    def wrap(self, walker: "_Walker", model: BaseModel) -> dict:
+        return {str(model): walker.encode_model(model)}
+
+    def unwrap(
+        self,
+        walker: "_Walker",
+        everest: dict,
+        model_cls: Type[BaseModel],
+    ) -> BaseModel:
+        # libcbv2g always emits a single top-level key for ISO-20
+        # documents. Strip the wrapper and decode the body against the
+        # caller-supplied Pydantic class — the wrapper-key only confirms
+        # which message type was decoded, which the caller already knows.
+        if len(everest) == 1:
+            (body,) = everest.values()
+        else:
+            body = everest
+        return walker.decode_model(body, model_cls)
+
+
 @dataclass
 class _NamespaceConfig:
     adapter: EnvelopeAdapter
@@ -232,7 +263,13 @@ class _Walker:
         # Prefer per-type shape lookup (unambiguous) and fall back to the
         # global alias map for models that don't have a matching v2gjson
         # ``*Type`` builder (e.g. the synthetic ``Body``/``V2GMessage``).
-        type_shape_map = self._config.type_shape_maps.get(str(model).lower())
+        # ``str(model)`` picks up XSD-element overrides used by message
+        # classes (``AC_ChargeParameterDiscoveryReq`` etc.); plain data
+        # classes (``RationalNumber``) inherit Pydantic's verbose default
+        # ``__str__``, so try the Python class name as a second key.
+        type_shape_map = self._config.type_shape_maps.get(
+            str(model).lower()
+        ) or self._config.type_shape_maps.get(type(model).__name__.lower())
         out: Dict[str, Any] = {}
         for field_name, field in type(model).model_fields.items():
             alias = field.alias or field_name
@@ -710,3 +747,24 @@ register_namespace(
         "value": "CONTENT",
     },
 )
+
+# ISO 15118-20 — single envelope shape `{"<MessageName>": ...}` for every
+# sub-namespace; the body itself carries the per-message ``Header``. Fragment
+# and XmldsigFragment helpers reuse the namespace's shape map for signed-
+# element payloads (PnC_AReqAuthorizationMode, SignedInfo, …).
+from expy.v2gjson import (  # noqa: E402
+    iso20_acdp as _iso20_acdp_v2gjson,
+    iso20_ac as _iso20_ac_v2gjson,
+    iso20_common as _iso20_common_v2gjson,
+    iso20_dc as _iso20_dc_v2gjson,
+    iso20_wpt as _iso20_wpt_v2gjson,
+)
+
+for _ns, _mod in (
+    (Namespace.ISO_V20_COMMON_MSG, _iso20_common_v2gjson),
+    (Namespace.ISO_V20_AC, _iso20_ac_v2gjson),
+    (Namespace.ISO_V20_DC, _iso20_dc_v2gjson),
+    (Namespace.ISO_V20_WPT, _iso20_wpt_v2gjson),
+    (Namespace.ISO_V20_ACDP, _iso20_acdp_v2gjson),
+):
+    register_namespace(_ns, _mod, adapter=_Iso20Adapter())

@@ -23,8 +23,13 @@ from tests.conformance.codec.fixtures import FIXTURES, CodecFixture
 # The legacy ``EXI()`` wrapper only handles full ``V2GMessage`` documents on
 # decode (it unwraps a ``V2G_Message`` key). Fragment / XmldsigFragment
 # payloads added in ADR-0002 Slice 2+ are exercised by the dedicated EXPy
-# tests under ``tests/expy/`` instead.
-_DOCUMENT_FIXTURES = [f for f in FIXTURES if f.root_kind == "document"]
+# tests under ``tests/expy/`` instead. Fixtures flagged ``expy_authoritative``
+# (currently every ISO-20 document and a handful of ISO-2 signed elements)
+# have an EXPy-only golden — Exificient produces divergent or malformed bytes
+# for them. They get the same round-trip coverage via the EXPy tests.
+_DOCUMENT_FIXTURES = [
+    f for f in FIXTURES if f.root_kind == "document" and not f.expy_authoritative
+]
 
 
 @pytest.mark.parametrize("fixture", _DOCUMENT_FIXTURES, ids=lambda f: f.id)

@@ -62,6 +62,11 @@ def main(argv: list[str]) -> int:
             ns_map = {
                 Namespace.DIN_MSG_DEF: ExpyNamespace.DIN,
                 Namespace.ISO_V2_MSG_DEF: ExpyNamespace.ISO2,
+                Namespace.ISO_V20_COMMON_MSG: ExpyNamespace.ISO20_COMMON,
+                Namespace.ISO_V20_AC: ExpyNamespace.ISO20_AC,
+                Namespace.ISO_V20_DC: ExpyNamespace.ISO20_DC,
+                Namespace.ISO_V20_WPT: ExpyNamespace.ISO20_WPT,
+                Namespace.ISO_V20_ACDP: ExpyNamespace.ISO20_ACDP,
             }
             expy_processors[namespace] = EXIProcessor(ns_map[namespace])
         return expy_processors[namespace]
