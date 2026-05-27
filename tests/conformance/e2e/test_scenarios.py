@@ -8,11 +8,12 @@ pytest case. Per ADR-0003 § End-to-end layer:
 > Oracle: clean session termination — both EVCC and SECC observe
 > `SessionStopReq` → `SessionStopRes` with no protocol-level errors raised.
 
-Detecting the success oracle: the EVCC and SECC both emit
-`Communication session stopped successfully` (see
-`app/{evcc,secc}/states/din_spec_states.py`) when the state machine reaches a
-clean SessionStopRes. The runner watches subprocess stdout for that string
-on both sides; either subprocess crashing or timing out before both emit it
+Detecting the success oracle: the EVCC logs `SessionStopRes received` and
+the SECC logs `Sent SessionStopRes` (both via the shared
+`app/shared/comm_session.py` message logger) when the state machine reaches a
+clean SessionStopRes. These markers are protocol-agnostic across DIN, ISO
+15118-2, and ISO 15118-20. The runner watches each subprocess's stdout for
+its own marker; either subprocess crashing or timing out before both emit it
 counts as a failure.
 
 Scenario YAMLs may opt into `xfail: true` for protocol slices that have not
@@ -33,9 +34,12 @@ from typing import Iterator, Optional
 import pytest
 import yaml
 
+from app.shared.personality import load_personality
+
 SCENARIOS_DIR = Path(__file__).resolve().parents[1] / "scenarios"
 PERSONALITIES_DIR = Path(__file__).resolve().parents[1] / "personalities"
-SESSION_SUCCESS_MARKER = "Communication session stopped successfully"
+EVCC_SUCCESS_MARKER = "SessionStopRes received"
+SECC_SUCCESS_MARKER = "Sent SessionStopRes"
 
 
 @dataclass(frozen=True)
@@ -91,11 +95,11 @@ def _scenario_params() -> list:
     return params
 
 
-def _wait_for_success(proc: subprocess.Popen, deadline: float) -> bool:
-    """Read `proc.stdout` line-by-line until success marker or deadline.
+def _wait_for_success(proc: subprocess.Popen, marker: str, deadline: float) -> bool:
+    """Read `proc.stdout` line-by-line until the given marker or the deadline.
 
-    Returns True when the success marker is seen. Returns False if the
-    process exits or the deadline passes first.
+    Returns True when the marker is seen. Returns False if the process exits
+    or the deadline passes first.
     """
     assert proc.stdout is not None
     while time.monotonic() < deadline:
@@ -104,7 +108,7 @@ def _wait_for_success(proc: subprocess.Popen, deadline: float) -> bool:
             if proc.poll() is not None:
                 return False
             continue
-        if SESSION_SUCCESS_MARKER in line.decode("utf-8", errors="replace"):
+        if marker in line.decode("utf-8", errors="replace"):
             return True
     return False
 
@@ -121,17 +125,26 @@ def test_scenario(scenario: Scenario, launch_emulator):
     if not scenario.secc_personality.exists():
         pytest.fail(f"missing SECC personality at {scenario.secc_personality}")
 
+    # Pre-validate via the same loader the spawned emulators use. Catches a
+    # malformed test personality before two subprocesses are launched and
+    # surfaces the Pydantic error in the test report rather than buried in
+    # subprocess stdout.
+    load_personality(str(scenario.evcc_personality), role="evcc")
+    load_personality(str(scenario.secc_personality), role="secc")
+
     secc = launch_emulator("secc", scenario.secc_personality)
     # Tiny grace period so the SECC TCP listener is up before EVCC dials.
     time.sleep(0.5)
     evcc = launch_emulator("evcc", scenario.evcc_personality)
 
     deadline = time.monotonic() + scenario.timeout_seconds
-    evcc_done = _wait_for_success(evcc, deadline)
-    secc_done = _wait_for_success(secc, deadline) if evcc_done else False
+    evcc_done = _wait_for_success(evcc, EVCC_SUCCESS_MARKER, deadline)
+    secc_done = (
+        _wait_for_success(secc, SECC_SUCCESS_MARKER, deadline) if evcc_done else False
+    )
 
     assert evcc_done and secc_done, (
-        f"scenario {scenario.name!r}: expected both EVCC and SECC to log "
-        f"{SESSION_SUCCESS_MARKER!r}; "
+        f"scenario {scenario.name!r}: expected EVCC to log "
+        f"{EVCC_SUCCESS_MARKER!r} and SECC to log {SECC_SUCCESS_MARKER!r}; "
         f"EVCC done={evcc_done}, SECC done={secc_done}"
     )

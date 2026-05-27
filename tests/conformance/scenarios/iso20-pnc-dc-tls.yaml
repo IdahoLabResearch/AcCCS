@@ -4,7 +4,4 @@ evcc_personality: iso20-evcc
 secc_personality: iso20-secc
 expected_outcome: session_complete
 timeout_seconds: 120
-xfail: true
-xfail_reason: >-
-  Awaits ISO 15118-20 personality + state-machine wiring (#9) and EXPy
-  ISO-20 codec fixtures (#14). Tracked in ADR-0003's per-slice gating table.
+xfail: false

@@ -58,10 +58,9 @@ The three smoke scenarios (`scenarios/din-happy.yaml`,
 `scenarios/iso2-pnc-dc-tls.yaml`, `scenarios/iso20-pnc-dc-tls.yaml`) are a
 **hard PR gate from this PR forward**.
 
-- `din-happy.yaml` is **passing today** (Slice 1).
-- `iso2-pnc-dc-tls.yaml` and `iso20-pnc-dc-tls.yaml` are **xfail** until the
-  ISO-2 and ISO-20 personality and codec slices land — see the per-slice
-  gating table in ADR-0003.
+All three scenarios run as hard gates — no `xfail` markers. Once the
+personality YAML loader (#6) and the ISO-2 / ISO-20 personality slices
+(#7, #8, #9) landed, F3 was completed and the smoke set was un-xfailed.
 
 Per ADR-0003: "PRs that break the smoke set do not merge. This is enforced
 even during the personality YAML rollout, where breakage is expected — each
@@ -85,12 +84,11 @@ test-pyramid choice documented in ADR-0003.
 ## Test personalities
 
 `personalities/` holds **minimal, synthetic test personalities** authored
-against the pre-rollout `.env` / JSON configuration. They will be replaced
-with YAML files once personality Slice 1 (#6) lands (F3 in ADR-0003's
-ordering).
+as YAML and validated by the same Pydantic loader (`app.shared.personality`)
+the production emulators use.
 
 These are framework fixtures — not operational personalities. The operational
-personality directory will live at the repo root once #6 lands.
+personality directory lives at the repo root (`personalities/`).
 
 ## Layout
 
@@ -99,7 +97,7 @@ tests/conformance/
 ├── README.md                  this file
 ├── conftest.py                pytest fixtures: veth setup, emulator lifecycle
 ├── pytest.ini                 (rootdir; pytest discovery)
-├── personalities/             test personalities (bootstrap; replaced by YAML in Slice 2)
+├── personalities/             test personalities (YAML, validated by app.shared.personality)
 ├── scenarios/                 scenario YAMLs (the E2E corpus)
 ├── captures/                  replay corpus (veth + hw, tagged) — empty today
 ├── codec/                     codec layer tests + fixtures
