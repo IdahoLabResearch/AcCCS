@@ -6,8 +6,8 @@
 #
 # Run a DIN session with this personality on both sides:
 #
-#   python run_secc.py --config personalities/example_din_variant.yaml --virtual
-#   python run_evcc.py --config personalities/example_din_variant.yaml --virtual
+#   python run_secc.py --config din_reference --virtual
+#   python run_evcc.py --config din_reference --virtual
 #
 # This file works for both the EVCC and the SECC because the section shapes
 # are symmetric (each role only consumes the fields relevant to it). The

@@ -1,6 +1,6 @@
 # Conformance ISO 15118-2 EIM SECC variant test personality.
 #
-# Mirrors `personalities/example_iso2_eim_variant.yaml` so the E2E suite
+# Mirrors `personalities/iso2_eim_dc.yaml` so the E2E suite
 # can pin an `iso2-eim-variant` scenario.
 
 role: secc

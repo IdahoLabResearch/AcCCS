@@ -32,7 +32,8 @@ def load_requested_protocols(read_protocols: Optional[List[str]]) -> List[Protoc
     if not valid_protocols:
         raise NoSupportedProtocols(
             f"No supported protocols configured. Supported protocols are "
-            f"{supported_protocols} and could be configured in evcc_config.json"
+            f"{supported_protocols} and can be set via the personality file's "
+            f"`capabilities.supported_protocols`."
         )
     return [Protocol[name] for name in valid_protocols if name in Protocol.__members__]
 
@@ -57,7 +58,8 @@ def load_requested_energy_services(
     if not valid_services:
         raise NoSupportedEnergyServices(
             f"No supported energy services configured. Supported energy services are "
-            f"{supported_services} and could be configured in evcc_config.json"
+            f"{supported_services} and can be set via the personality file's "
+            f"`capabilities.supported_energy_services`."
         )
     return [
         ServiceV20[name] for name in valid_services if name in ServiceV20.__members__
@@ -74,8 +76,8 @@ def load_requested_auth_modes(read_auth_modes: Optional[List[str]]) -> List[Auth
     if not valid_auth_options:
         raise NoSupportedAuthenticationModes(
             f"No supported authentication modes configured. Supported auth modes"
-            f" are {default_auth_modes} and could be configured in .env"
-            f" file with key 'AUTH_MODES'"
+            f" are {default_auth_modes} and can be set via the personality"
+            f" file's `capabilities.supported_auth_modes`."
         )
     return [AuthEnum[x] for x in valid_auth_options]
 

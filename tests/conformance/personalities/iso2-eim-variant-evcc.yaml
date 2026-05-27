@@ -1,6 +1,6 @@
 # Conformance ISO 15118-2 EIM EVCC variant test personality.
 #
-# Mirrors `personalities/example_iso2_eim_variant.yaml` so the E2E suite
+# Mirrors `personalities/iso2_eim_dc.yaml` so the E2E suite
 # can pin an `iso2-eim-variant` scenario without dragging the example
 # file into the conformance test directory. The interface (network/) is
 # the conformance veth pair; everything else matches the variant.

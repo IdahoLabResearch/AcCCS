@@ -1,6 +1,5 @@
 aiofile==3.9.0
 cryptography==45.0.5
-environs==14.2.0
 psutil==7.0.0
 py4j==0.10.9.9
 pydantic==2.11.7

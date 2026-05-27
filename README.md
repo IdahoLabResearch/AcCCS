@@ -127,7 +127,8 @@ personality. Operational knobs are overridable:
 
 To customise a personality, copy `personalities/default-<role>.yaml` to a
 new file and edit. The Pydantic loader validates strictly — unknown keys
-are a hard error.
+are a hard error. See [`docs/personality-authoring.md`](docs/personality-authoring.md)
+for a section-by-section authoring guide and the bundled example library.
 
 ## Certificate Management
 

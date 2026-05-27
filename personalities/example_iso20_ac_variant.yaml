@@ -7,8 +7,8 @@
 #
 # Run an ISO 15118-20 AC session with this personality on both sides:
 #
-#   python run_secc.py --config personalities/example_iso20_ac_variant.yaml --virtual
-#   python run_evcc.py --config personalities/example_iso20_ac_variant.yaml --virtual
+#   python run_secc.py --config example_iso20_ac_variant --virtual
+#   python run_evcc.py --config example_iso20_ac_variant --virtual
 #
 # Symmetric shape (no `role:` field) so the loader accepts either role.
 

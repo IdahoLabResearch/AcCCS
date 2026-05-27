@@ -7,8 +7,8 @@
 #
 # Run an ISO 15118-20 DC session with this personality on both sides:
 #
-#   python run_secc.py --config personalities/example_iso20_dc_variant.yaml --virtual
-#   python run_evcc.py --config personalities/example_iso20_dc_variant.yaml --virtual
+#   python run_secc.py --config iso20_dc --virtual
+#   python run_evcc.py --config iso20_dc --virtual
 #
 # Symmetric shape (no `role:` field) so the loader accepts either role.
 

@@ -7,8 +7,8 @@
 #
 # Run with:
 #
-#   python run_secc.py --config personalities/example_iso20_dc_bpt_variant.yaml --virtual
-#   python run_evcc.py --config personalities/example_iso20_dc_bpt_variant.yaml --virtual
+#   python run_secc.py --config example_iso20_dc_bpt_variant --virtual
+#   python run_evcc.py --config example_iso20_dc_bpt_variant --virtual
 
 identity:
   evse_id: USINL20DCBPT01

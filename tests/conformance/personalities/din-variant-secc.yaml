@@ -1,6 +1,6 @@
 # Conformance DIN 70121 SECC variant test personality.
 #
-# Mirrors `personalities/example_din_variant.yaml` so the E2E suite can
+# Mirrors `personalities/din_reference.yaml` so the E2E suite can
 # pin a `din-variant` scenario without dragging the example file into the
 # conformance test directory.
 
