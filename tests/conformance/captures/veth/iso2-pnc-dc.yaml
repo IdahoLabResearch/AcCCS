@@ -1,0 +1,9 @@
+source: veth
+protocol: iso15118-2
+energy_mode: dc
+captured_at: 2026-05-27
+secc_personality: iso2_pnc_dc
+evcc_personality: iso2_pnc_dc
+messages: 130
+notes: |
+  ISO 15118-2 DC, PnC auth (iso2_pnc_dc personality, both roles).

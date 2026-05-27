@@ -1,0 +1,9 @@
+source: veth
+protocol: iso15118-20
+energy_mode: ac
+captured_at: 2026-05-27
+secc_personality: example_iso20_ac_variant
+evcc_personality: example_iso20_ac_variant
+messages: 92
+notes: |
+  ISO 15118-20 AC happy-path (example_iso20_ac_variant personality).

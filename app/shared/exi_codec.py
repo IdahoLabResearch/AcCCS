@@ -10,6 +10,7 @@ from app.shared.exceptions import (
     EXIEncodingError,
     V2GMessageValidationError,
 )
+from app.shared.exi_capture import record as _exi_capture_record
 from app.shared.exificient_exi_codec import ExificientEXICodec
 from app.shared.iexi_codec import IEXICodec
 from app.shared.messages import BaseModel
@@ -262,6 +263,16 @@ class EXI:
         if shared_settings[SettingKey.MESSAGE_LOG_EXI]:
             logger.debug(f"EXI-encoded message: {exi_stream.hex()}")
 
+        try:
+            _exi_capture_record(
+                direction="encode",
+                namespace=protocol_ns,
+                model=msg_element,
+                payload=exi_stream,
+            )
+        except Exception:  # capture must never break the session
+            logger.exception("EXI capture (encode) failed")
+
         return exi_stream
 
     def from_exi(self, exi_message: bytes, namespace: str) -> Union[
@@ -302,6 +313,16 @@ class EXI:
 
         if shared_settings[SettingKey.MESSAGE_LOG_JSON]:
             logger.debug(f"Decoded message (ns={namespace}): {exi_decoded}")
+
+        try:
+            _exi_capture_record(
+                direction="decode",
+                namespace=namespace,
+                model=next(iter(decoded_dict)),
+                payload=exi_message,
+            )
+        except Exception:  # capture must never break the session
+            logger.exception("EXI capture (decode) failed")
 
         try:
             if namespace == Namespace.SAP and "supportedAppProtocolReq" in decoded_dict:

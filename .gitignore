@@ -22,3 +22,9 @@ test_*
 PWM_PCB.kicad_prl
 server_keylog.log
 client_keylog.log
+
+# Per-role emulator stdout from the replay-corpus capture script — scratch
+# artefacts kept only for post-capture debugging. The replay corpus itself
+# is the `.jsonl` + `.yaml` pair next to each `.log`.
+tests/conformance/captures/**/*.evcc.log
+tests/conformance/captures/**/*.secc.log

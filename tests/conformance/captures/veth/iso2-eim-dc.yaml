@@ -1,0 +1,9 @@
+source: veth
+protocol: iso15118-2
+energy_mode: dc
+captured_at: 2026-05-27
+secc_personality: iso2_eim_dc
+evcc_personality: iso2_eim_dc
+messages: 122
+notes: |
+  ISO 15118-2 DC, EIM auth (iso2_eim_dc personality, both roles).
