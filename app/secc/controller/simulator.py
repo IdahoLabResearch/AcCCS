@@ -1276,7 +1276,7 @@ class SimEVSEController(EVSEControllerInterface):
         is set to False. Except that both the request and response is base64 encoded.
         """
         cert_install_req_exi = base64.b64decode(base64_encoded_cert_installation_req)
-        cert_install_req = EXI().from_exi(cert_install_req_exi, namespace)
+        cert_install_req = EXI().from_exi_document(cert_install_req_exi, namespace)
         try:
             dh_pub_key, encrypted_priv_key_bytes = encrypt_priv_key(
                 oem_prov_cert=load_cert(CertPath.OEM_LEAF_DER),
@@ -1338,23 +1338,27 @@ class SimEVSEController(EVSEControllerInterface):
             # Elements to sign, containing its id and the exi encoded stream
             contract_cert_tuple = (
                 cert_install_res.contract_cert_chain.id,
-                EXI().to_exi(
-                    cert_install_res.contract_cert_chain, Namespace.ISO_V2_MSG_DEF
+                EXI().to_exi_fragment(
+                    cert_install_res.contract_cert_chain,
+                    Namespace.ISO_V2_MSG_DEF,
+                    root_name="ContractSignatureCertChain",
                 ),
             )
             encrypted_priv_key_tuple = (
                 cert_install_res.encrypted_private_key.id,
-                EXI().to_exi(
+                EXI().to_exi_fragment(
                     cert_install_res.encrypted_private_key, Namespace.ISO_V2_MSG_DEF
                 ),
             )
             dh_public_key_tuple = (
                 cert_install_res.dh_public_key.id,
-                EXI().to_exi(cert_install_res.dh_public_key, Namespace.ISO_V2_MSG_DEF),
+                EXI().to_exi_fragment(
+                    cert_install_res.dh_public_key, Namespace.ISO_V2_MSG_DEF
+                ),
             )
             emaid_tuple = (
                 cert_install_res.emaid.id,
-                EXI().to_exi(cert_install_res.emaid, Namespace.ISO_V2_MSG_DEF),
+                EXI().to_exi_fragment(cert_install_res.emaid, Namespace.ISO_V2_MSG_DEF),
             )
 
             elements_to_sign = [
@@ -1389,7 +1393,7 @@ class SimEVSEController(EVSEControllerInterface):
                 {"CertificateInstallationRes": cert_install_res.model_dump()}
             )
             to_be_exi_encoded = V2GMessageV2(header=header, body=body)
-            exi_encoded_cert_installation_res = EXI().to_exi(
+            exi_encoded_cert_installation_res = EXI().to_exi_document(
                 to_be_exi_encoded, Namespace.ISO_V2_MSG_DEF
             )
 

@@ -197,7 +197,7 @@ class SessionStateMachine(ABC):
             None,
         ] = None
         try:
-            decoded_message = EXI().from_exi(
+            decoded_message = EXI().from_exi_document(
                 v2gtp_msg.payload, self.get_exi_ns(v2gtp_msg.payload_type)
             )
 

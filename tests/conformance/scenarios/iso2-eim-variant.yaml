@@ -1,0 +1,7 @@
+name: iso2-eim-variant
+description: ISO 15118-2 EIM DC TLS-off happy path
+evcc_personality: iso2-eim-variant-evcc
+secc_personality: iso2-eim-variant-secc
+expected_outcome: session_complete
+timeout_seconds: 90
+xfail: false

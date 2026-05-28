@@ -836,7 +836,7 @@ def create_signature(
     )
 
     # 2. Step: Signature generation
-    exi_encoded_signed_info = EXI().to_exi(signed_info, Namespace.XML_DSIG)
+    exi_encoded_signed_info = EXI().to_exi_xmldsig(signed_info, Namespace.XML_DSIG)
     der_encoded_signature_value = signature_key.sign(
         data=exi_encoded_signed_info, signature_algorithm=ec.ECDSA(SHA256())
     )
@@ -947,7 +947,7 @@ def verify_signature(
     # ECDSA (Elliptic Curve Digital Signature Algorithm) operation.
     # That is why we do NOT additionally hash the EXI encoded signed info element
     # before we inject it to the `data` field of the `verify` method.
-    exi_encoded_signed_info = EXI().to_exi(signature.signed_info, Namespace.XML_DSIG)
+    exi_encoded_signed_info = EXI().to_exi_xmldsig(signature.signed_info, Namespace.XML_DSIG)
 
     # The verify method from cryptography expects the signature to be in DER encoded
     # format. Please check: https://cryptography.io/en/latest/hazmat/primitives/asymmetric/ec/#cryptography.hazmat.primitives.asymmetric.ec.EllipticCurvePublicKey.verify  # noqa: E501

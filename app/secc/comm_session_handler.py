@@ -31,7 +31,7 @@ from app.secc.transport.udp_server import UDPServer
 from app.shared.comm_session import V2GCommunicationSession
 from app.shared.exceptions import InvalidSDPRequestError, InvalidV2GTPMessageError
 from app.shared.exi_codec import EXI
-from app.shared.iexi_codec import IEXICodec
+from app.shared.expy_exi_codec import EXPyEXICodec
 from app.shared.messages.enums import (
     AuthEnum,
     ISOV2PayloadTypes,
@@ -179,7 +179,7 @@ class CommunicationSessionHandler:
     # pylint: disable=too-many-instance-attributes
 
     def __init__(
-        self, config: Config, codec: IEXICodec, evse_controller: EVSEControllerInterface
+        self, config: Config, codec: EXPyEXICodec, evse_controller: EVSEControllerInterface
     ):
         self.list_of_tasks: List[Coroutine] = []
         self.udp_server: Optional[UDPServer] = None

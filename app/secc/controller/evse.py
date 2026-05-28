@@ -14,7 +14,7 @@ from app.secc.controller.interface import ServiceStatus
 from app.secc.controller.simulator import SimEVSEController
 from app.secc.secc_settings import Config
 from app.secc.transport.slac import SLACHandler
-from app.shared.exificient_exi_codec import ExificientEXICodec
+from app.shared.expy_exi_codec import EXPyEXICodec
 from app.shared.logging import _init_logger
 from app.shared.network import (
     get_link_local_addr,
@@ -96,7 +96,7 @@ class EVSE:
         sim_evse_controller = SimEVSEController(personality=self.personality)
         await sim_evse_controller.set_status(ServiceStatus.STARTING)
         await SECCHandler(
-            exi_codec=ExificientEXICodec(),
+            exi_codec=EXPyEXICodec(),
             evse_controller=sim_evse_controller,
             config=self.config,
         ).start(self.config.iface)

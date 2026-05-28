@@ -1,18 +1,49 @@
-import json
+"""EXI codec wrapper.
+
+Three method pairs cover libcbv2g/EXPy's three roots:
+
+* :meth:`EXI.to_exi_document` / :meth:`EXI.from_exi_document` — full
+  V2G messages (DIN, ISO 15118-2, ISO 15118-20) and the SAP
+  ``supportedAppProtocolReq``/``Res`` exchange.
+* :meth:`EXI.to_exi_fragment` / :meth:`EXI.from_exi_fragment` — signed
+  sub-elements (``AuthorizationReq``, ``CertificateInstallationReq``,
+  ``SalesTariff``, ISO-2 cert-install components, ISO-20
+  ``PnC_AReqAuthorizationMode``).
+* :meth:`EXI.to_exi_xmldsig` / :meth:`EXI.from_exi_xmldsig` — the
+  ``SignedInfo`` xmldsig fragment that backs every signature
+  computation (see :mod:`app.shared.security`).
+
+Pydantic models cross the boundary through
+:mod:`app.shared.everest_shape`; bytes cross the boundary through
+:class:`~app.shared.expy_exi_codec.EXPyEXICodec`.
+"""
+
+from __future__ import annotations
+
 import logging
-from base64 import b64decode, b64encode
 from typing import Optional, Type, Union
 
-from pydantic import ValidationError, HttpUrl
+from pydantic import ValidationError
 
+from app.shared.everest_shape import (
+    EnvelopeAdapter,
+    _NamespaceConfig,
+    _REGISTRY,
+    _Walker,
+    everest_to_pydantic,
+    everest_to_pydantic_fragment,
+    everest_to_pydantic_xmldsig,
+    pydantic_to_everest,
+    pydantic_to_everest_fragment,
+    pydantic_to_everest_xmldsig,
+)
 from app.shared.exceptions import (
     EXIDecodingError,
     EXIEncodingError,
     V2GMessageValidationError,
 )
 from app.shared.exi_capture import record as _exi_capture_record
-from app.shared.exificient_exi_codec import ExificientEXICodec
-from app.shared.iexi_codec import IEXICodec
+from app.shared.expy_exi_codec import EXPyEXICodec
 from app.shared.messages import BaseModel
 from app.shared.messages.app_protocol import (
     SupportedAppProtocolReq,
@@ -56,10 +87,7 @@ from app.shared.messages.iso15118_20.common_messages import (
     SessionStopReq,
     SessionStopRes,
 )
-from app.shared.messages.iso15118_20.common_types import V2GMessage
-from app.shared.messages.iso15118_20.common_types import (
-    V2GMessage as V2GMessageV20,
-)
+from app.shared.messages.iso15118_20.common_types import V2GMessage as V2GMessageV20
 from app.shared.messages.iso15118_20.dc import (
     DCCableCheckReq,
     DCCableCheckRes,
@@ -77,359 +105,328 @@ from app.shared.settings import SettingKey, shared_settings
 logger = logging.getLogger(__name__)
 
 
-class CustomJSONEncoder(json.JSONEncoder):
-    """
-    Custom JSON encoder to allow the encoding of raw bytes to Base64 encoded
-    strings to conform with their XSD type base64Binary. Also, JSON cannot
-    encode bytes by default, so the base64Binary type comes in handy.
-    """
+# ISO 15118-20 top-level message name → Pydantic class. Used both to
+# dispatch decode-side classification and to expose the legacy
+# auto-routing of :meth:`from_exi_document` when the caller does not
+# pass an explicit ``model_cls``.
+_ISO20_MSG_CLASSES: dict[str, Type[V2GMessageV20]] = {
+    "SessionSetupReq": SessionSetupReq,
+    "SessionSetupRes": SessionSetupRes,
+    "AuthorizationSetupReq": AuthorizationSetupReq,
+    "AuthorizationSetupRes": AuthorizationSetupRes,
+    "CertificateInstallationReq": CertificateInstallationReq,
+    "CertificateInstallationRes": CertificateInstallationRes,
+    "AuthorizationReq": AuthorizationReqV20,
+    "AuthorizationRes": AuthorizationRes,
+    "ServiceDiscoveryReq": ServiceDiscoveryReq,
+    "ServiceDiscoveryRes": ServiceDiscoveryRes,
+    "ServiceDetailReq": ServiceDetailReq,
+    "ServiceDetailRes": ServiceDetailRes,
+    "ServiceSelectionReq": ServiceSelectionReq,
+    "ServiceSelectionRes": ServiceSelectionRes,
+    "AC_ChargeParameterDiscoveryReq": ACChargeParameterDiscoveryReq,
+    "AC_ChargeParameterDiscoveryRes": ACChargeParameterDiscoveryRes,
+    "DC_ChargeParameterDiscoveryReq": DCChargeParameterDiscoveryReq,
+    "DC_ChargeParameterDiscoveryRes": DCChargeParameterDiscoveryRes,
+    "ScheduleExchangeReq": ScheduleExchangeReq,
+    "ScheduleExchangeRes": ScheduleExchangeRes,
+    "DC_CableCheckReq": DCCableCheckReq,
+    "DC_CableCheckRes": DCCableCheckRes,
+    "DC_PreChargeReq": DCPreChargeReq,
+    "DC_PreChargeRes": DCPreChargeRes,
+    "PowerDeliveryReq": PowerDeliveryReq,
+    "PowerDeliveryRes": PowerDeliveryRes,
+    "AC_ChargeLoopReq": ACChargeLoopReq,
+    "AC_ChargeLoopRes": ACChargeLoopRes,
+    "DC_ChargeLoopReq": DCChargeLoopReq,
+    "DC_ChargeLoopRes": DCChargeLoopRes,
+    "DC_WeldingDetectionReq": DCWeldingDetectionReq,
+    "DC_WeldingDetectionRes": DCWeldingDetectionRes,
+    "SessionStopReq": SessionStopReq,
+    "SessionStopRes": SessionStopRes,
+}
 
-    # pylint: disable=method-hidden
-    def default(self, o):
-        if isinstance(o, bytes):
-            return b64encode(o).decode()
-        if isinstance(o, HttpUrl):
-            return str(o)
-        return json.JSONEncoder.default(self, o)
+
+# AcCCS-side xmldsig calls pass ``Namespace.XML_DSIG`` (a virtual identifier;
+# libcbv2g exposes xmldsig per protocol namespace). For translation lookup we
+# route through ISO 15118-2's shape registry, since SignedInfo is shape-
+# identical and ISO-2 is the historical anchor — matching the codec-side
+# routing in :mod:`app.shared.expy_exi_codec`.
+_XMLDSIG_TRANSLATION_NS = Namespace.ISO_V2_MSG_DEF
 
 
-class CustomJSONDecoder(json.JSONDecoder):
-    """
-    Custom JSON decoder to allow the decoding of Base64 encoded bytes back to
-    raw bytes.
+def _capture(direction: str, namespace: str, model, payload: bytes) -> None:
+    try:
+        _exi_capture_record(
+            direction=direction,
+            namespace=namespace,
+            model=model,
+            payload=payload,
+        )
+    except Exception:  # capture must never break the session
+        logger.exception("EXI capture (%s) failed", direction)
 
-    We use a custom object_hook() function for json.JSONDecoder to match the
-    corresponding ISO 15118 message and datatype fields that we know have a
-    bytes value and are serialised as Base64 encoded (base64_encoded_fields_set)
-    and then decode each matching dict entry from Base64 back to raw bytes.
-    """
 
-    base64_encoded_fields_set = {
-        "Certificate",
-        "DHPublicKey",
-        "GenChallenge",
-        "MeterSignature",
-        "OEMProvisioningCert",
-        "SECP521_EncryptedPrivateKey",
-        "SigMeterReading",
-        "TPM_EncryptedPrivateKey",
-        "Value",
-        "value",
-        "X448_EncryptedPrivateKey",
-        "DigestValue",
-    }
+def _wrap_encode_error(exc: Exception, model: BaseModel, namespace: str) -> EXIEncodingError:
+    err = EXIEncodingError(
+        f"EXIEncodingError for {str(model)} (ns={namespace}): {exc}"
+    )
+    # Preserve EXPy's structured attributes (``rc``, ``namespace``, ``root``)
+    # when available so callers can log the libcbv2g return code.
+    for attr in ("rc", "namespace", "root"):
+        if hasattr(exc, attr):
+            setattr(err, attr, getattr(exc, attr))
+    return err
 
-    def __init__(self, *args, **kwargs):
-        json.JSONDecoder.__init__(self, object_hook=self.object_hook, *args, **kwargs)
 
-    def object_hook(self, dct) -> dict:
-        for field in self.base64_encoded_fields_set.intersection(set(dct)):
-            # 'Value' (or 'value') can be an integer field in the pydantic model
-            # PhysicalValue (ISO 15118-2) and RationalNumber (ISO 15118-20) and
-            # a string in EMAID. But it can also be a bytes field in the
-            # pydantic model EncryptedPrivateKey. So we need to make sure to
-            # only Base64 decode the one that is for sure not of type integer
-            # or string. But for the string case, we need to distinguish
-            # between a Base64 encoded string and a normal string (like the
-            # one in EMAID).
-            # TODO Need to find a better way, feels more and more like a hack
-            if field in ("Value", "value") and isinstance(dct[field], int):
-                continue
-
-            if field in ("Value", "value") and isinstance(dct[field], str):
-                # Trying to distinguish and EMAID value string from an
-                # EncryptedPrivateKey value string. The latter is Base64
-                # encoded. An EMAID is 14 or 15 characters long, a Base64
-                # encoded EncryptedPrivateKey is definitely bigger.
-                # Feels like a hack, is a hack, but what else shall we do ...?
-                if len(dct[field]) <= 15:
-                    continue
-
-            if field == "Certificate" and isinstance(dct[field], list):
-                # The types CertificateChain and SubCertificates both have fields
-                # with the name `Certificate`. However, in `CertificateChain`
-                # the field is of the type bytes, whilst in `SubCertificates` is
-                # of the type list[bytes].
-                # This difference needs to be taken into account; so here we look
-                # for the list type, decode its elements and substitute the entry
-                # in the dict with the new list.
-                certificate_list = [b64decode(value) for value in dct[field]]
-                dct[field] = certificate_list
-                continue
-
-            dct[field] = b64decode(dct[field])
-        return dct
+def _wrap_decode_error(exc: Exception, namespace: str) -> EXIDecodingError:
+    err = EXIDecodingError(
+        f"EXIDecodingError ({exc.__class__.__name__}) ns={namespace}: {exc}"
+    )
+    for attr in ("rc", "namespace", "root"):
+        if hasattr(exc, attr):
+            setattr(err, attr, getattr(exc, attr))
+    return err
 
 
 class EXI:
-    """
-    This Singleton class holds onto the EXI codec this session is initialized with.
-    If a codec is not specified an instance of the fallback codec is returned.
-    The codec to be used will be requested during encode and decode operations.
-    """
+    """Process-wide EXI wrapper (singleton)."""
 
-    _instance = None
+    _instance: Optional["EXI"] = None
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(EXI, cls).__new__(cls)
-            cls._instance.exi_codec = None
+            cls._instance._codec = None
         return cls._instance
 
-    def set_exi_codec(self, codec: IEXICodec):
+    def set_exi_codec(self, codec: EXPyEXICodec) -> None:
         logger.info(f"EXI Codec version: {codec.get_version()}")
-        self.exi_codec = codec
+        self._codec = codec
 
-    def get_exi_codec(self) -> IEXICodec:
-        """
-        If exi_codec is not specified return an instance of the default codec Exificient
-        """
-        if self.exi_codec is None:
-            self.exi_codec = ExificientEXICodec()
-        return self.exi_codec
+    def get_exi_codec(self) -> EXPyEXICodec:
+        if self._codec is None:
+            self._codec = EXPyEXICodec()
+        return self._codec
 
-    def to_exi(self, msg_element: BaseModel, protocol_ns: str) -> bytes:
-        """
-        Encodes the message into a bytes stream using the EXI codec
+    # ---- document --------------------------------------------------------
 
-        Args:
-            msg_element: The V2G message (or message element) to be EXI encoded
-            protocol_ns: The protocol namespace that uniquely identifies the XSD
-                         schema, which the EXI encoder needs to use for the encoding
-                         process
-
-        Returns:
-            A bytes object, representing the EXI encoded message
-        """
-        msg_to_dct: dict = msg_element.model_dump(by_alias=True, exclude_none=True)
-        try:
-            # Pydantic does not export the name of the model itself to a dict,
-            # so we need to add it (the message names like 'SessionSetupReq')
-            if (
-                str(msg_element) == "CertificateChain"
-                and protocol_ns == Namespace.ISO_V2_MSG_DEF
-            ):
-                # TODO: If we add `ContractSignatureCertChain` as the return of __str__
-                #       for the CertificateChain class, do we still need this if clause?
-                # In case of CertificateInstallationRes and CertificateUpdateRes,
-                # str(message) would not be 'ContractSignatureCertChain' but
-                # 'CertificateChain' (the type of ContractSignatureCertChain)
-                message_dict = {"ContractSignatureCertChain": msg_to_dct}
-            elif str(msg_element) == "CertificateChain" and protocol_ns.startswith(
-                Namespace.ISO_V20_BASE
-            ):
-                # TODO: If we add `CPSCertificateChain` as the return of __str__
-                #       for a unique class for V20 or even call it CPSCertificateChain
-                #       do we still need this if clause?
-                # In case of CertificateInstallationRes,
-                # str(message) would not be 'CPSCertificateChain' but
-                # 'CertificateChain' (the type of CPSCertificateChain)
-                message_dict = {"CPSCertificateChain": msg_to_dct}
-            elif str(msg_element) == "SignedCertificateChain":
-                # TODO: If we add `OEMProvisioningCertificateChain` as the
-                #  return of __str__ for the SignedCertificateChain class, do we still
-                #  need this if clause?
-                # In case of CertificateInstallationReq,
-                # str(message) would not be 'OEMProvisioningCertificateChain' but
-                # 'SignedCertificateChain' (the type of OEMProvisioningCertificateChain)
-                message_dict = {"OEMProvisioningCertificateChain": msg_to_dct}
-            elif isinstance(msg_element, V2GMessageV2) or isinstance(
-                msg_element, V2GMessageDINSPEC
-            ):
-                message_dict = {"V2G_Message": msg_to_dct}
-            else:
-                message_dict = {str(msg_element): msg_to_dct}
-
-            msg_content = json.dumps(message_dict, cls=CustomJSONEncoder)
-        except Exception as exc:
-            raise EXIEncodingError(
-                f"EXIEncodingError for {str(msg_element)}: \
-                                   {exc}"
-            ) from exc
-
+    def to_exi_document(self, model: BaseModel, namespace: str) -> bytes:
         if shared_settings[SettingKey.MESSAGE_LOG_JSON]:
-            logger.debug(f"Message to encode (ns={protocol_ns}): {msg_content}")
-
+            logger.debug(
+                f"Message to encode (ns={namespace}, document): {str(model)}"
+            )
         try:
-            exi_stream = self.exi_codec.encode(msg_content, protocol_ns)
+            everest = pydantic_to_everest(model, namespace)
+            exi_bytes = self.get_exi_codec().encode_document(everest, namespace)
         except Exception as exc:
-            logger.error(
-                f"EXIEncodingError in {protocol_ns} with {str(msg_content)}: {exc}"
-            )
-            raise EXIEncodingError(
-                f"EXIEncodingError for {str(msg_element)}: " f"{exc}"
-            ) from exc
-
+            logger.error(f"EXIEncodingError (document) ns={namespace}: {exc}")
+            raise _wrap_encode_error(exc, model, namespace) from exc
         if shared_settings[SettingKey.MESSAGE_LOG_EXI]:
-            logger.debug(f"EXI-encoded message: {exi_stream.hex()}")
+            logger.debug(f"EXI-encoded document (ns={namespace}): {exi_bytes.hex()}")
+        _capture(direction="encode", namespace=namespace, model=model, payload=exi_bytes)
+        return exi_bytes
 
-        try:
-            _exi_capture_record(
-                direction="encode",
-                namespace=protocol_ns,
-                model=msg_element,
-                payload=exi_stream,
-            )
-        except Exception:  # capture must never break the session
-            logger.exception("EXI capture (encode) failed")
-
-        return exi_stream
-
-    def from_exi(self, exi_message: bytes, namespace: str) -> Union[
+    def from_exi_document(
+        self,
+        exi_message: bytes,
+        namespace: str,
+        model_cls: Optional[Type[BaseModel]] = None,
+    ) -> Union[
         SupportedAppProtocolReq,
         SupportedAppProtocolRes,
         V2GMessageV2,
         V2GMessageV20,
         V2GMessageDINSPEC,
     ]:
-        """
-        Decodes the EXI encoded bytearray into a message according to the payload
-        type provided.
-
-        Args:
-            exi_message: The EXI-encoded message, given as a bytes stream
-            namespace: The XSD namespace used to encode that message, so
-                      we know how to de-serialise the decoded message
-
-        Raises:
-            EXIDecodingError
-        """
         if shared_settings[SettingKey.MESSAGE_LOG_EXI]:
-            logger.debug(f"EXI-encoded message (ns={namespace}): {exi_message.hex()}")
+            logger.debug(
+                f"EXI-encoded document (ns={namespace}): {exi_message.hex()}"
+            )
 
         try:
-            exi_decoded = self.exi_codec.decode(exi_message, namespace)
+            decoded = self.get_exi_codec().decode_document(exi_message, namespace)
         except Exception as exc:
-            raise EXIDecodingError(
-                f"EXIDecodingError ({exc.__class__.__name__}): " f"{exc}"
-            ) from exc
-        try:
-            decoded_dict = json.loads(exi_decoded, cls=CustomJSONDecoder)
-        except json.JSONDecodeError as exc:
-            raise EXIDecodingError(
-                f"JSON decoding error ({exc.__class__.__name__}) while "
-                f"processing decoded EXI: {exc}"
-            ) from exc
+            raise _wrap_decode_error(exc, namespace) from exc
 
         if shared_settings[SettingKey.MESSAGE_LOG_JSON]:
-            logger.debug(f"Decoded message (ns={namespace}): {exi_decoded}")
+            logger.debug(f"Decoded document (ns={namespace}): {decoded}")
 
-        try:
-            _exi_capture_record(
-                direction="decode",
-                namespace=namespace,
-                model=next(iter(decoded_dict)),
-                payload=exi_message,
-            )
-        except Exception:  # capture must never break the session
-            logger.exception("EXI capture (decode) failed")
-
-        try:
-            if namespace == Namespace.SAP and "supportedAppProtocolReq" in decoded_dict:
-                return SupportedAppProtocolReq.model_validate(
-                    decoded_dict["supportedAppProtocolReq"]
-                )
-
-            if namespace == Namespace.SAP and "supportedAppProtocolRes" in decoded_dict:
-                return SupportedAppProtocolRes.model_validate(
-                    decoded_dict["supportedAppProtocolRes"]
-                )
-
-            if namespace == Namespace.DIN_MSG_DEF:
-                return V2GMessageDINSPEC.model_validate(decoded_dict["V2G_Message"])
-
-            if namespace == Namespace.ISO_V2_MSG_DEF:
-                return V2GMessageV2.model_validate(decoded_dict["V2G_Message"])
-
-            if namespace.startswith(Namespace.ISO_V20_BASE):
-                # The message name is the first key of the dict
-                msg_name = next(iter(decoded_dict))
-                # When parsing the dict, we need to remove the first key, which is
-                # the message name itself (e.g. SessionSetupReq)
-                msg_dict = decoded_dict[msg_name]
-                msg_classes_dict: dict[str, Type[V2GMessage]] = {
-                    "SessionSetupReq": SessionSetupReq,
-                    "SessionSetupRes": SessionSetupRes,
-                    "AuthorizationSetupReq": AuthorizationSetupReq,
-                    "AuthorizationSetupRes": AuthorizationSetupRes,
-                    "CertificateInstallationReq": CertificateInstallationReq,
-                    "CertificateInstallationRes": CertificateInstallationRes,
-                    "AuthorizationReq": AuthorizationReqV20,
-                    "AuthorizationRes": AuthorizationRes,
-                    "ServiceDiscoveryReq": ServiceDiscoveryReq,
-                    "ServiceDiscoveryRes": ServiceDiscoveryRes,
-                    "ServiceDetailReq": ServiceDetailReq,
-                    "ServiceDetailRes": ServiceDetailRes,
-                    "ServiceSelectionReq": ServiceSelectionReq,
-                    "ServiceSelectionRes": ServiceSelectionRes,
-                    "AC_ChargeParameterDiscoveryReq": ACChargeParameterDiscoveryReq,
-                    "AC_ChargeParameterDiscoveryRes": ACChargeParameterDiscoveryRes,
-                    "DC_ChargeParameterDiscoveryReq": DCChargeParameterDiscoveryReq,
-                    "DC_ChargeParameterDiscoveryRes": DCChargeParameterDiscoveryRes,
-                    "ScheduleExchangeReq": ScheduleExchangeReq,
-                    "ScheduleExchangeRes": ScheduleExchangeRes,
-                    "DC_CableCheckReq": DCCableCheckReq,
-                    "DC_CableCheckRes": DCCableCheckRes,
-                    "DC_PreChargeReq": DCPreChargeReq,
-                    "DC_PreChargeRes": DCPreChargeRes,
-                    "PowerDeliveryReq": PowerDeliveryReq,
-                    "PowerDeliveryRes": PowerDeliveryRes,
-                    "AC_ChargeLoopReq": ACChargeLoopReq,
-                    "AC_ChargeLoopRes": ACChargeLoopRes,
-                    "DC_ChargeLoopReq": DCChargeLoopReq,
-                    "DC_ChargeLoopRes": DCChargeLoopRes,
-                    "DC_WeldingDetectionReq": DCWeldingDetectionReq,
-                    "DC_WeldingDetectionRes": DCWeldingDetectionRes,
-                    "SessionStopReq": SessionStopReq,
-                    "SessionStopRes": SessionStopRes,
-                    # TODO add all the other message types and states
-                }
-                msg_class: Type[V2GMessage] = msg_classes_dict.get(msg_name)
-                if not msg_class:
-                    logger.error(
-                        "Unable to identify message to parse given the message "
-                        f"name {msg_name}"
+        # Resolve target Pydantic class when the caller didn't supply one.
+        resolved_cls = model_cls
+        envelope_key: Optional[str] = None
+        if resolved_cls is None:
+            if namespace == Namespace.SAP:
+                envelope_key = next(iter(decoded))
+                if envelope_key == "supportedAppProtocolReq":
+                    resolved_cls = SupportedAppProtocolReq
+                elif envelope_key == "supportedAppProtocolRes":
+                    resolved_cls = SupportedAppProtocolRes
+                else:
+                    raise EXIDecodingError(
+                        f"Unknown SAP envelope key {envelope_key!r}"
                     )
-                    raise EXIDecodingError(f"Unable to decode {msg_name}")
-
-                return msg_class.model_validate(msg_dict)
-
-            raise EXIDecodingError("Can't identify protocol to use for decoding")
-        except ValidationError as exc:
-            msg_type: Optional[
-                Type[
-                    Union[
-                        BodyBaseDINSPEC,
-                        BodyBaseV2,
-                        V2GMessage,
-                        SupportedAppProtocolReq,
-                        SupportedAppProtocolRes,
-                    ]
-                ],
-            ] = None
-            if namespace == Namespace.ISO_V2_MSG_DEF:
-                msg_name = next(iter(decoded_dict["V2G_Message"]["Body"]))
-                msg_type = get_msg_type(msg_name)
             elif namespace == Namespace.DIN_MSG_DEF:
-                msg_name = next(iter(decoded_dict["V2G_Message"]["Body"]))
-                msg_type = get_msg_type_dinspec(msg_name)
+                resolved_cls = V2GMessageDINSPEC
+            elif namespace == Namespace.ISO_V2_MSG_DEF:
+                resolved_cls = V2GMessageV2
             elif namespace.startswith(Namespace.ISO_V20_BASE):
-                msg_type = msg_class
-            elif namespace == Namespace.SAP:
-                if "supportedAppProtocolReq" in decoded_dict:
-                    msg_type = SupportedAppProtocolReq
-                elif "supportedAppProtocolRes" in decoded_dict:
-                    msg_type = SupportedAppProtocolRes
+                envelope_key = next(iter(decoded))
+                resolved_cls = _ISO20_MSG_CLASSES.get(envelope_key)
+                if resolved_cls is None:
+                    raise EXIDecodingError(
+                        f"Unknown ISO-20 message name {envelope_key!r}"
+                    )
+            else:
+                raise EXIDecodingError(
+                    f"Cannot dispatch document decode for namespace {namespace!r}"
+                )
 
-            raise V2GMessageValidationError(
-                f"Validation error: {exc}. \n\nDecoded dict: " f"{decoded_dict}",
-                ResponseCode.FAILED,
-                msg_type,
-            ) from exc
+        # Record the capture against the decoded model name. For ISO-20 / SAP
+        # the envelope key is the natural model name; for DIN / ISO-2 the
+        # legacy capture format keys decode records by ``"V2G_Message"``.
+        capture_model = envelope_key
+        if capture_model is None:
+            capture_model = "V2G_Message" if namespace in (
+                Namespace.DIN_MSG_DEF,
+                Namespace.ISO_V2_MSG_DEF,
+            ) else str(resolved_cls.__name__)
+        _capture(
+            direction="decode",
+            namespace=namespace,
+            model=capture_model,
+            payload=exi_message,
+        )
 
-        except V2GMessageValidationError as exc:
-            raise exc
-        except EXIDecodingError as exc:
-            raise EXIDecodingError(
-                f"EXI decoding error: {exc}. \n\nDecoded dict: " f"{decoded_dict}"
-            ) from exc
+        try:
+            return everest_to_pydantic(decoded, resolved_cls, namespace)
+        except ValidationError as exc:
+            raise self._validation_error(exc, decoded, namespace, resolved_cls) from exc
+
+    # ---- fragment --------------------------------------------------------
+
+    def to_exi_fragment(
+        self,
+        model: BaseModel,
+        namespace: str,
+        root_name: Optional[str] = None,
+    ) -> bytes:
+        translation_ns = (
+            _XMLDSIG_TRANSLATION_NS if namespace == Namespace.XML_DSIG else namespace
+        )
+        try:
+            everest = pydantic_to_everest_fragment(
+                model, translation_ns, root_name=root_name
+            )
+            exi_bytes = self.get_exi_codec().encode_fragment(everest, namespace)
+        except Exception as exc:
+            logger.error(f"EXIEncodingError (fragment) ns={namespace}: {exc}")
+            raise _wrap_encode_error(exc, model, namespace) from exc
+        if shared_settings[SettingKey.MESSAGE_LOG_EXI]:
+            logger.debug(f"EXI-encoded fragment (ns={namespace}): {exi_bytes.hex()}")
+        _capture(direction="encode", namespace=namespace, model=model, payload=exi_bytes)
+        return exi_bytes
+
+    def from_exi_fragment(
+        self,
+        exi_message: bytes,
+        model_cls: Type[BaseModel],
+        namespace: str,
+        root_name: Optional[str] = None,
+    ) -> BaseModel:
+        translation_ns = (
+            _XMLDSIG_TRANSLATION_NS if namespace == Namespace.XML_DSIG else namespace
+        )
+        try:
+            decoded = self.get_exi_codec().decode_fragment(exi_message, namespace)
+        except Exception as exc:
+            raise _wrap_decode_error(exc, namespace) from exc
+        _capture(
+            direction="decode",
+            namespace=namespace,
+            model=root_name or model_cls.__name__,
+            payload=exi_message,
+        )
+        try:
+            return everest_to_pydantic_fragment(
+                decoded, model_cls, translation_ns, root_name=root_name
+            )
+        except ValidationError as exc:
+            raise self._validation_error(exc, decoded, namespace, model_cls) from exc
+
+    # ---- xmldsig ---------------------------------------------------------
+
+    def to_exi_xmldsig(
+        self,
+        model: BaseModel,
+        namespace: str,
+        root_name: Optional[str] = None,
+    ) -> bytes:
+        translation_ns = (
+            _XMLDSIG_TRANSLATION_NS if namespace == Namespace.XML_DSIG else namespace
+        )
+        try:
+            everest = pydantic_to_everest_xmldsig(
+                model, translation_ns, root_name=root_name
+            )
+            exi_bytes = self.get_exi_codec().encode_xmldsig(everest, namespace)
+        except Exception as exc:
+            logger.error(f"EXIEncodingError (xmldsig) ns={namespace}: {exc}")
+            raise _wrap_encode_error(exc, model, namespace) from exc
+        if shared_settings[SettingKey.MESSAGE_LOG_EXI]:
+            logger.debug(f"EXI-encoded xmldsig (ns={namespace}): {exi_bytes.hex()}")
+        _capture(direction="encode", namespace=namespace, model=model, payload=exi_bytes)
+        return exi_bytes
+
+    def from_exi_xmldsig(
+        self,
+        exi_message: bytes,
+        model_cls: Type[BaseModel],
+        namespace: str,
+        root_name: Optional[str] = None,
+    ) -> BaseModel:
+        translation_ns = (
+            _XMLDSIG_TRANSLATION_NS if namespace == Namespace.XML_DSIG else namespace
+        )
+        try:
+            decoded = self.get_exi_codec().decode_xmldsig(exi_message, namespace)
+        except Exception as exc:
+            raise _wrap_decode_error(exc, namespace) from exc
+        _capture(
+            direction="decode",
+            namespace=namespace,
+            model=root_name or model_cls.__name__,
+            payload=exi_message,
+        )
+        try:
+            return everest_to_pydantic_xmldsig(
+                decoded, model_cls, translation_ns, root_name=root_name
+            )
+        except ValidationError as exc:
+            raise self._validation_error(exc, decoded, namespace, model_cls) from exc
+
+    # ---- internal --------------------------------------------------------
+
+    def _validation_error(
+        self,
+        exc: ValidationError,
+        decoded: dict,
+        namespace: str,
+        model_cls: Type[BaseModel],
+    ) -> V2GMessageValidationError:
+        msg_type: Optional[Type] = None
+        if namespace == Namespace.ISO_V2_MSG_DEF and "Body" in decoded:
+            msg_name = next(iter(decoded["Body"]))
+            msg_type = get_msg_type(msg_name)
+        elif namespace == Namespace.DIN_MSG_DEF and "Body" in decoded:
+            msg_name = next(iter(decoded["Body"]))
+            msg_type = get_msg_type_dinspec(msg_name)
+        elif namespace.startswith(Namespace.ISO_V20_BASE):
+            msg_type = model_cls
+        elif namespace == Namespace.SAP:
+            msg_type = model_cls
+        return V2GMessageValidationError(
+            f"Validation error: {exc}. \n\nDecoded dict: {decoded}",
+            ResponseCode.FAILED,
+            msg_type,
+        )

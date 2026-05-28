@@ -116,6 +116,35 @@ def _build_alias_shape_map(v2gjson_module) -> Dict[str, FieldShape]:
     return shape_map
 
 
+def _build_type_required_lists(v2gjson_module) -> Dict[str, set]:
+    """Per-``*Type`` set of positional-required list parameters.
+
+    libcbv2g's JSON validator rejects payloads that omit a required-list
+    element even when the XSD marks the element ``minOccurs=0`` (notably
+    ``SalesTariffEntry.ConsumptionCost``). When the Pydantic side has the
+    field unset we still need to emit ``{"array": [], "arrayLen": 0}`` for
+    v2gjson to accept the encode.
+    """
+    out: Dict[str, set] = {}
+    for name, obj in inspect.getmembers(v2gjson_module, inspect.isfunction):
+        if not name.endswith("Type"):
+            continue
+        try:
+            sig = inspect.signature(obj)
+        except (TypeError, ValueError):
+            continue
+        required_lists: set = set()
+        for pname, param in sig.parameters.items():
+            if (
+                param.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD
+                and param.default is inspect.Parameter.empty
+                and get_origin(param.annotation) is list
+            ):
+                required_lists.add(pname)
+        out[name[:-4].lower()] = required_lists
+    return out
+
+
 def _build_type_shape_maps(v2gjson_module) -> Dict[str, Dict[str, FieldShape]]:
     """Per-``*Type`` builder shape maps for unambiguous per-context lookup.
 
@@ -216,6 +245,7 @@ class _NamespaceConfig:
     # ambiguous (e.g. ``eMAID`` is ``str`` in ``PaymentDetailsReqType`` but
     # a wrapper element in ``CertificateInstallationResType``).
     type_shape_maps: Dict[str, Dict[str, FieldShape]]
+    type_required_lists: Dict[str, set]
     """Encode-side renames: Pydantic alias → v2gjson alias.
 
     Used for the handful of XSD elements that EVerest's libcbv2g flattens
@@ -248,6 +278,7 @@ def register_namespace(
         alias_renames=dict(alias_renames or {}),
         v2gjson_module=v2gjson_module,
         type_shape_maps=_build_type_shape_maps(v2gjson_module),
+        type_required_lists=_build_type_required_lists(v2gjson_module),
     )
 
 
@@ -344,6 +375,17 @@ class _Walker:
                     list_enum_cls=shape.list_enum_cls,
                 )
             out[out_alias] = self._encode_value(out_alias, value, shape)
+        # Backfill positional-required list parameters that the Pydantic
+        # model left unset. v2gjson requires the key even when the XSD
+        # marks the element optional (e.g. SalesTariffEntry.ConsumptionCost).
+        required_lists = self._config.type_required_lists.get(
+            str(model).lower()
+        ) or self._config.type_required_lists.get(type(model).__name__.lower())
+        if required_lists:
+            for required_alias in required_lists:
+                renamed = self._config.alias_renames.get(required_alias, required_alias)
+                if renamed not in out:
+                    out[renamed] = {"array": [], "arrayLen": 0}
         return out
 
     def _encode_value(
@@ -508,6 +550,11 @@ class _Walker:
         if list_inner is not None:
             if isinstance(value, dict) and "array" in value:
                 items = value["array"]
+            elif isinstance(value, dict) and "arrayLen" in value:
+                # v2gjson emits empty arrays as ``{"arrayLen": 0}`` with the
+                # ``array`` key elided (libcbv2g's JSON omits zero-length
+                # arrays). Treat as empty list rather than a single dict item.
+                items = []
             elif isinstance(value, list):
                 items = value
             else:
@@ -767,4 +814,16 @@ for _ns, _mod in (
     (Namespace.ISO_V20_WPT, _iso20_wpt_v2gjson),
     (Namespace.ISO_V20_ACDP, _iso20_acdp_v2gjson),
 ):
-    register_namespace(_ns, _mod, adapter=_Iso20Adapter())
+    # ``value -> CONTENT`` matches ISO-2: ISO-20 reuses the xmldsig
+    # ``SignatureValue`` shape (flattened to ``CONTENT`` + attributes by
+    # libcbv2g), and Pydantic models alias the text node as ``value``.
+    register_namespace(
+        _ns, _mod, adapter=_Iso20Adapter(), alias_renames={"value": "CONTENT"}
+    )
+
+# SAP — single-key wrap (``{"supportedAppProtocolReq": {...}}``) matches the
+# ISO-20 adapter exactly: ``str(model)`` on the Pydantic side already returns
+# the XSD element name with the spec's lowercase initial letter.
+from expy.v2gjson import sap as _sap_v2gjson  # noqa: E402
+
+register_namespace(Namespace.SAP, _sap_v2gjson, adapter=_Iso20Adapter())

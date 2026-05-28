@@ -1,8 +1,8 @@
 """Codec-layer round-trip oracle.
 
-For every fixture in `fixtures.FIXTURES`:
+For every fixture in :data:`fixtures.FIXTURES`:
 
-- encode the pydantic model and assert it equals the golden byte sequence,
+- encode the pydantic model and assert it equals the golden byte sequence;
 - decode the golden byte sequence and assert it round-trips back to an
   equivalent pydantic model.
 
@@ -10,8 +10,9 @@ This is the oracle described by ADR-0003's codec layer:
 
 > byte-for-byte equality on encode; decoded-Pydantic equality on decode.
 
-Per ADR-0003 the corpus is bootstrapped from the current Exificient codec
-during ADR-0002 Slices 1–3 and rebaselined against EXPy at Slice 5.
+Per ADR-0002 the corpus is rebaselined against EXPy at Slice 5 (#16). The
+``expy_authoritative`` flag is now redundant — every golden is produced by
+the EXPy codec via the unified :class:`~app.shared.exi_codec.EXI` wrapper.
 """
 
 from __future__ import annotations
@@ -20,19 +21,8 @@ import pytest
 
 from tests.conformance.codec.fixtures import FIXTURES, CodecFixture
 
-# The legacy ``EXI()`` wrapper only handles full ``V2GMessage`` documents on
-# decode (it unwraps a ``V2G_Message`` key). Fragment / XmldsigFragment
-# payloads added in ADR-0002 Slice 2+ are exercised by the dedicated EXPy
-# tests under ``tests/expy/`` instead. Fixtures flagged ``expy_authoritative``
-# (currently every ISO-20 document and a handful of ISO-2 signed elements)
-# have an EXPy-only golden — Exificient produces divergent or malformed bytes
-# for them. They get the same round-trip coverage via the EXPy tests.
-_DOCUMENT_FIXTURES = [
-    f for f in FIXTURES if f.root_kind == "document" and not f.expy_authoritative
-]
 
-
-@pytest.mark.parametrize("fixture", _DOCUMENT_FIXTURES, ids=lambda f: f.id)
+@pytest.mark.parametrize("fixture", FIXTURES, ids=lambda f: f.id)
 def test_codec_round_trip(fixture: CodecFixture, exi_codec):
     from app.shared.exi_codec import EXI
 
@@ -46,14 +36,45 @@ def test_codec_round_trip(fixture: CodecFixture, exi_codec):
     expected_bytes = fixture.golden_path.read_bytes()
     message = fixture.build()
 
-    encoded = EXI().to_exi(message, fixture.namespace)
+    if fixture.root_kind == "document":
+        encoded = EXI().to_exi_document(message, fixture.namespace)
+    elif fixture.root_kind == "fragment":
+        encoded = EXI().to_exi_fragment(
+            message, fixture.namespace, root_name=fixture.root_name
+        )
+    elif fixture.root_kind == "xmldsig":
+        encoded = EXI().to_exi_xmldsig(
+            message, fixture.namespace, root_name=fixture.root_name
+        )
+    else:
+        pytest.fail(f"unknown root_kind {fixture.root_kind!r} for {fixture.id}")
+
     assert encoded == expected_bytes, (
         f"encode drift for {fixture.id}: codec produced {encoded.hex()} but "
         f"golden was {expected_bytes.hex()}"
     )
 
-    decoded = EXI().from_exi(expected_bytes, fixture.namespace)
-    # Pydantic-level equality. `model_dump` strips Python identity but keeps
+    model_cls = fixture.decode_model_cls
+    if fixture.root_kind == "document":
+        decoded = EXI().from_exi_document(
+            expected_bytes, fixture.namespace, model_cls=model_cls
+        )
+    elif fixture.root_kind == "fragment":
+        decoded = EXI().from_exi_fragment(
+            expected_bytes,
+            model_cls,
+            fixture.namespace,
+            root_name=fixture.root_name,
+        )
+    else:
+        decoded = EXI().from_exi_xmldsig(
+            expected_bytes,
+            model_cls,
+            fixture.namespace,
+            root_name=fixture.root_name,
+        )
+
+    # Pydantic-level equality. ``model_dump`` strips Python identity but keeps
     # field values, which is exactly the oracle ADR-0003 specifies.
     assert decoded.model_dump(by_alias=True, exclude_none=True) == message.model_dump(
         by_alias=True, exclude_none=True

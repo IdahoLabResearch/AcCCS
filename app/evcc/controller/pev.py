@@ -15,7 +15,7 @@ from app.evcc.controller.simulator import SimEVController
 from app.evcc.evcc_config import EVCCConfig
 from app.evcc.transport.slac import SLACHandler
 from app.shared.EmulatorEnum import PEVState
-from app.shared.exificient_exi_codec import ExificientEXICodec
+from app.shared.expy_exi_codec import EXPyEXICodec
 from app.shared.logging import _init_logger
 from app.shared.network import (
     get_link_local_addr,
@@ -94,7 +94,7 @@ class PEV:
         await EVCCHandler(
             evcc_config=self.evcc_config,
             iface=self.config.iface,
-            exi_codec=ExificientEXICodec(),
+            exi_codec=EXPyEXICodec(),
             ev_controller=SimEVController(self.evcc_config),
         ).start()
 

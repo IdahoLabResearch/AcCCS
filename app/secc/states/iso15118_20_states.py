@@ -402,7 +402,7 @@ class Authorization(StateSECC):
                 [
                     (
                         auth_req.pnc_params.id,
-                        EXI().to_exi(auth_req.pnc_params, Namespace.ISO_V20_COMMON_MSG),
+                        EXI().to_exi_fragment(auth_req.pnc_params, Namespace.ISO_V20_COMMON_MSG),
                     )
                 ],
                 auth_req.pnc_params.contract_cert_chain.certificate,

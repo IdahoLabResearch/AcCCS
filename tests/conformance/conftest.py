@@ -20,7 +20,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import shutil
 import signal
 import subprocess
 import sys
@@ -51,28 +50,21 @@ EVCC_IFACE = "acccs_evcc"
 
 @pytest.fixture(scope="session")
 def exi_codec():
-    """Initialise the Exificient EXI codec once per test session.
+    """Initialise the EXPy EXI codec once per test session.
 
     The codec layer cannot run without a registered codec on the `EXI`
-    singleton. Initialisation launches a JVM via py4j; if Java is unavailable,
-    skip every test that depends on this fixture rather than erroring.
+    singleton.
     """
-    if shutil.which("java") is None:
-        pytest.skip("java not on PATH — Exificient codec cannot launch")
-
-    # Imported lazily so collecting tests doesn't pull in py4j unnecessarily.
     from app.shared.exi_codec import EXI
-    from app.shared.exificient_exi_codec import ExificientEXICodec
+    from app.shared.expy_exi_codec import EXPyEXICodec
     from app.shared.settings import load_shared_settings
 
-    # `to_exi` / `from_exi` consult `shared_settings` for log toggles; without
-    # this call the codec raises KeyError on first use.
+    # The EXI wrapper consults ``shared_settings`` for log toggles; without
+    # this call the wrapper raises KeyError on first use.
     load_shared_settings()
-    codec = ExificientEXICodec()
+    codec = EXPyEXICodec()
     EXI().set_exi_codec(codec)
     yield codec
-    # py4j's launch_gateway sets `die_on_exit=True`, so the JVM goes away when
-    # the test process does. No explicit teardown required.
 
 
 # ---------------------------------------------------------------------------

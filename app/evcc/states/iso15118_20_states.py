@@ -208,8 +208,10 @@ class AuthorizationSetup(StateEVCC):
                     [
                         (
                             "id1",
-                            EXI().to_exi(
-                                oem_prov_cert_chain, Namespace.ISO_V20_COMMON_MSG
+                            EXI().to_exi_fragment(
+                                oem_prov_cert_chain,
+                                Namespace.ISO_V20_COMMON_MSG,
+                                root_name="OEMProvisioningCertificateChain",
                             ),
                         )
                     ],
@@ -271,7 +273,7 @@ class AuthorizationSetup(StateEVCC):
             # TODO: Need a signature for ISO 15118-20, not ISO 15118-2
             pnc_params_tuple = (
                 pnc_params.id,
-                EXI().to_exi(pnc_params, Namespace.ISO_V20_COMMON_MSG),
+                EXI().to_exi_fragment(pnc_params, Namespace.ISO_V20_COMMON_MSG),
             )
             elements_to_sign = [pnc_params_tuple]
             try:

@@ -11,7 +11,7 @@ from app.evcc.comm_session_handler import CommunicationSessionHandler
 from app.evcc.controller.interface import EVControllerInterface
 from app.evcc.evcc_config import EVCCConfig
 from app.evcc.evcc_settings import Config
-from app.shared.iexi_codec import IEXICodec
+from app.shared.expy_exi_codec import EXPyEXICodec
 from app.shared.logging import _init_logger
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ class EVCCHandler(CommunicationSessionHandler):
         self,
         evcc_config: EVCCConfig,
         iface: str,
-        exi_codec: IEXICodec,
+        exi_codec: EXPyEXICodec,
         ev_controller: EVControllerInterface,
     ):
         CommunicationSessionHandler.__init__(

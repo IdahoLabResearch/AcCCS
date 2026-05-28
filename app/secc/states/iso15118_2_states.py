@@ -773,7 +773,7 @@ class CertificateInstallation(StateSECC):
             elements_to_sign=[
                 (
                     cert_install_req.id,
-                    EXI().to_exi(cert_install_req, Namespace.ISO_V2_MSG_DEF),
+                    EXI().to_exi_fragment(cert_install_req, Namespace.ISO_V2_MSG_DEF),
                 )
             ],
             leaf_cert=cert_install_req.oem_provisioning_cert,
@@ -850,23 +850,27 @@ class CertificateInstallation(StateSECC):
             # Elements to sign, containing its id and the exi encoded stream
             contract_cert_tuple = (
                 cert_install_res.contract_cert_chain.id,
-                EXI().to_exi(
-                    cert_install_res.contract_cert_chain, Namespace.ISO_V2_MSG_DEF
+                EXI().to_exi_fragment(
+                    cert_install_res.contract_cert_chain,
+                    Namespace.ISO_V2_MSG_DEF,
+                    root_name="ContractSignatureCertChain",
                 ),
             )
             encrypted_priv_key_tuple = (
                 cert_install_res.encrypted_private_key.id,
-                EXI().to_exi(
+                EXI().to_exi_fragment(
                     cert_install_res.encrypted_private_key, Namespace.ISO_V2_MSG_DEF
                 ),
             )
             dh_public_key_tuple = (
                 cert_install_res.dh_public_key.id,
-                EXI().to_exi(cert_install_res.dh_public_key, Namespace.ISO_V2_MSG_DEF),
+                EXI().to_exi_fragment(
+                    cert_install_res.dh_public_key, Namespace.ISO_V2_MSG_DEF
+                ),
             )
             emaid_tuple = (
                 cert_install_res.emaid.id,
-                EXI().to_exi(cert_install_res.emaid, Namespace.ISO_V2_MSG_DEF),
+                EXI().to_exi_fragment(cert_install_res.emaid, Namespace.ISO_V2_MSG_DEF),
             )
 
             elements_to_sign = [
@@ -1170,7 +1174,7 @@ class Authorization(StateSECC):
                     elements_to_sign=[
                         (
                             authorization_req.id,
-                            EXI().to_exi(authorization_req, Namespace.ISO_V2_MSG_DEF),
+                            EXI().to_exi_fragment(authorization_req, Namespace.ISO_V2_MSG_DEF),
                         )
                     ],
                     leaf_cert=self.comm_session.contract_cert_chain.certificate,
@@ -1449,7 +1453,7 @@ class ChargeParameterDiscovery(StateSECC):
                     try:
                         element_to_sign = (
                             schedule.sales_tariff.id,
-                            EXI().to_exi(
+                            EXI().to_exi_fragment(
                                 schedule.sales_tariff, Namespace.ISO_V2_MSG_DEF
                             ),
                         )
@@ -1971,7 +1975,7 @@ class MeteringReceipt(StateSECC):
             [
                 (
                     metering_receipt_req.id,
-                    EXI().to_exi(metering_receipt_req, Namespace.ISO_V2_MSG_DEF),
+                    EXI().to_exi_fragment(metering_receipt_req, Namespace.ISO_V2_MSG_DEF),
                 )
             ],
             self.comm_session.contract_cert_chain.certificate,

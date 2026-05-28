@@ -31,7 +31,7 @@ from app.shared.exceptions import (
     SDPFailedError,
 )
 from app.shared.exi_codec import EXI
-from app.shared.iexi_codec import IEXICodec
+from app.shared.expy_exi_codec import EXPyEXICodec
 from app.shared.messages.app_protocol import AppProtocol, SupportedAppProtocolReq
 from app.shared.messages.enums import (
     AuthEnum,
@@ -233,7 +233,7 @@ class EVCCCommunicationSession(V2GCommunicationSession):
         v2gtp_msg = V2GTPMessage(
             Protocol.UNKNOWN,
             ISOV2PayloadTypes.EXI_ENCODED,
-            EXI().to_exi(sap_req, Namespace.SAP),
+            EXI().to_exi_document(sap_req, Namespace.SAP),
         )
         self.current_state.message = sap_req
         await self.send(v2gtp_msg)
@@ -277,7 +277,7 @@ class CommunicationSessionHandler:
         self,
         config: EVCCConfig,
         iface: str,
-        codec: IEXICodec,
+        codec: EXPyEXICodec,
         ev_controller: EVControllerInterface,
     ):
         self.list_of_tasks: List[Coroutine] = []

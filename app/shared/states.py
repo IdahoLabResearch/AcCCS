@@ -330,7 +330,7 @@ class State(ABC):
             if exi_payload:
                 logger.info(
                     f"Already EXI encoded. Content: "
-                    f"{EXI().get_exi_codec().decode(exi_payload,next_msg.namespace)}"
+                    f"{EXI().get_exi_codec().decode_document(exi_payload, next_msg.namespace)}"
                 )
         else:
             to_be_exi_encoded = next_msg
@@ -342,7 +342,7 @@ class State(ABC):
         if to_be_exi_encoded and next_msg_payload_type:
             # Step 3
             try:
-                exi_payload = EXI().to_exi(to_be_exi_encoded, namespace)
+                exi_payload = EXI().to_exi_document(to_be_exi_encoded, namespace)
 
                 if hasattr(self.comm_session, "evse_id"):
                     logger.trace(  # type: ignore[attr-defined]

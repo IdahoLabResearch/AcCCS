@@ -450,7 +450,7 @@ class PaymentServiceSelection(StateEVCC):
                         [
                             (
                                 cert_install_req.id,
-                                EXI().to_exi(
+                                EXI().to_exi_fragment(
                                     cert_install_req, Namespace.ISO_V2_MSG_DEF
                                 ),
                             )
@@ -538,25 +538,27 @@ class CertificateInstallation(StateEVCC):
             elements_to_sign=[
                 (
                     cert_install_res.contract_cert_chain.id,
-                    EXI().to_exi(
-                        cert_install_res.contract_cert_chain, Namespace.ISO_V2_MSG_DEF
+                    EXI().to_exi_fragment(
+                        cert_install_res.contract_cert_chain,
+                        Namespace.ISO_V2_MSG_DEF,
+                        root_name="ContractSignatureCertChain",
                     ),
                 ),
                 (
                     cert_install_res.encrypted_private_key.id,
-                    EXI().to_exi(
+                    EXI().to_exi_fragment(
                         cert_install_res.encrypted_private_key, Namespace.ISO_V2_MSG_DEF
                     ),
                 ),
                 (
                     cert_install_res.dh_public_key.id,
-                    EXI().to_exi(
+                    EXI().to_exi_fragment(
                         cert_install_res.dh_public_key, Namespace.ISO_V2_MSG_DEF
                     ),
                 ),
                 (
                     cert_install_res.emaid.id,
-                    EXI().to_exi(cert_install_res.emaid, Namespace.ISO_V2_MSG_DEF),
+                    EXI().to_exi_fragment(cert_install_res.emaid, Namespace.ISO_V2_MSG_DEF),
                 ),
             ],
             leaf_cert=cert_install_res.cps_cert_chain.certificate,
@@ -648,7 +650,7 @@ class PaymentDetails(StateEVCC):
                 [
                     (
                         authorization_req.id,
-                        EXI().to_exi(authorization_req, Namespace.ISO_V2_MSG_DEF),
+                        EXI().to_exi_fragment(authorization_req, Namespace.ISO_V2_MSG_DEF),
                     )
                 ],
                 load_priv_key(
@@ -1158,7 +1160,7 @@ class ChargingStatus(StateEVCC):
                     [
                         (
                             metering_receipt_req.id,
-                            EXI().to_exi(
+                            EXI().to_exi_fragment(
                                 metering_receipt_req, Namespace.ISO_V2_MSG_DEF
                             ),
                         )
