@@ -1,0 +1,7 @@
+name: iso20-eim-dc
+description: ISO 15118-20 EIM DC TLS-on happy path
+evcc_personality: iso20-eim-evcc
+secc_personality: iso20-eim-secc
+expected_outcome: session_complete
+timeout_seconds: 120
+xfail: false

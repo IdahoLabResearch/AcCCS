@@ -1,4 +1,4 @@
-name: iso2-eim-variant
+name: iso2-eim-dc
 description: ISO 15118-2 EIM DC TLS-off happy path
 evcc_personality: iso2-eim-variant-evcc
 secc_personality: iso2-eim-variant-secc
