@@ -33,7 +33,7 @@ Four layers, each with a distinct seam, oracle, and substrate.
 - **Seam:** two real emulator subprocesses talking over the `acccs_secc` ⇄ `acccs_evcc` veth pair (`setup_veth.sh`).
 - **Oracle:** clean session termination — both EVCC and SECC observe `SessionStopReq` → `SessionStopRes` with no protocol-level errors raised. Negotiated protocol / auth mode / energy mode may additionally be asserted per [[scenario]].
 - **Substrate:** veth-only in CI. The AcCCS-box Raspberry Pi runs the same suite as a pre-merge job on substantial changes (real TCP/IPv6, real `smbus`/PWM/Devolo NIC path).
-- **Inputs:** declarative [[scenario]] YAML files (one per protocol, see Coverage). New E2E tests = new YAML files, no Python edits required.
+- **Inputs:** declarative [[scenario]] YAML files (see the Coverage matrix below). New E2E tests = new YAML files, no Python edits required.
 - **Known coverage gap:** HomePlug GreenPHY / SLAC is not exercised — veth is L2-clean Ethernet. SLAC verification depends on hardware-in-the-loop, which is the major-release acceptance gate (below), not routine CI.
 
 ### 4. Replay layer
@@ -46,13 +46,22 @@ Four layers, each with a distinct seam, oracle, and substrate.
 
 ## Coverage matrix
 
-E2E coverage is deliberately narrow — **one canonical happy-path [[scenario]] per protocol**, exercising the most representative real-world configuration:
+E2E coverage stays deliberately narrow relative to the full feature matrix, but as of Slice 5 (#15 / #26) it carries **one PnC and one EIM happy-path per ISO protocol**, alongside DIN's single happy-path and a DIN personality-variant regression guard — six [[scenario]]s total, each exercising a representative real-world configuration:
 
-- `din-happy.yaml` — DIN 70121, DC.
-- `iso2-pnc-dc-tls.yaml` — ISO 15118-2, PnC, DC, TLS on.
-- `iso20-pnc-dc-tls.yaml` — ISO 15118-20, PnC, DC, TLS on.
+| Scenario | Protocol | Auth | Energy | TLS | Notes |
+|---|---|---|---|---|---|
+| `din-happy.yaml` | DIN 70121 | — | DC | off | canonical DIN happy path |
+| `din-variant.yaml` | DIN 70121 | — | DC | off | altered power limits / EVSEID / energy-transfer-mode; personality-swap regression guard (#7) |
+| `iso2-pnc-dc-tls.yaml` | ISO 15118-2 | PnC | DC | on | |
+| `iso2-eim-dc.yaml` | ISO 15118-2 | EIM | DC | off | |
+| `iso20-pnc-dc-tls.yaml` | ISO 15118-20 | PnC | DC | on | |
+| `iso20-eim-dc.yaml` | ISO 15118-20 | EIM | DC | on | |
 
-Cross-products (EIM vs PnC, AC vs DC, TLS on/off, BPT, WPT, ACDP) are *not* covered at the E2E layer. They are pushed down to:
+DIN 70121 has no PnC/EIM contract-auth split, so its auth column is left blank.
+
+The earlier policy was one canonical happy-path per protocol with EIM excluded from E2E; Slice 5's acceptance criteria broadened E2E to include an EIM happy-path per ISO protocol, and this matrix records that broadening.
+
+The remaining cross-products (AC vs DC, BPT, WPT, ACDP) are *not* covered at the E2E layer. They are pushed down to:
 
 - **State-machine layer** for per-feature code-path coverage (scripted peers exercise specific transitions).
 - **Codec layer** for encoding-specific concerns.
@@ -60,7 +69,7 @@ Cross-products (EIM vs PnC, AC vs DC, TLS on/off, BPT, WPT, ACDP) are *not* cove
 
 This is a test-pyramid choice: broad coverage at the cheap layers, narrow coverage at the expensive layer.
 
-The three E2E scenarios are a **hard PR gate from day one**. PRs that break the smoke set do not merge. This is enforced even during the personality YAML rollout, where breakage is expected — each personality slice is responsible for updating scenarios as it lands.
+The six E2E scenarios are a **hard PR gate from day one**. PRs that break the smoke set do not merge. This is enforced even during the personality YAML rollout, where breakage is expected — each personality slice is responsible for updating scenarios as it lands.
 
 Coverage grows in two ways beyond the smoke floor:
 
