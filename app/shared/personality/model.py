@@ -18,7 +18,7 @@ validated submodel and is out of scope for Slice 1.
 
 from __future__ import annotations
 
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Type
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -532,6 +532,39 @@ class SECCPersonality(_PersonalityBase):
 # Discriminated union for callers that don't know the role at type-check
 # time. Used by the loader's auto-detect helper.
 Personality = EVCCPersonality | SECCPersonality
+
+
+# The TLS posture for the cert-free "smoke" personalities. It differs from
+# the stock default `TLS()` only in the three encryption toggles — every
+# other knob (including `sdp_retry_cycles`) keeps its default.
+NO_TLS = TLS(enable_tls_1_3=False, use_tls=False, enforce_tls=False)
+
+# ISO 15118-20 mandates TLS 1.3 (ADR-0001), and the loader hard-refuses to
+# start a session that pairs a -20 protocol with TLS 1.3 off (see
+# `app/secc/secc_settings.py` / `app/evcc/states/sap_states.py`). So the
+# cert-free smoke variants drop the two -20 protocols from the stock list and
+# keep only the protocols that can actually negotiate without TLS.
+NO_TLS_SUPPORTED_PROTOCOLS = ["DIN_SPEC_70121", "ISO_15118_2"]
+
+
+def no_tls_personality(model_cls: Type["_PersonalityBase"]) -> "_PersonalityBase":
+    """Build a cert-free smoke personality for the given role class.
+
+    The result is the stock default persona minus encryption: identical to
+    `model_cls()` except for two sections —
+
+    - `tls:` is replaced with `NO_TLS` (encryption off), and
+    - `capabilities.supported_protocols` drops `ISO_15118_20_*`, because those
+      mandate TLS 1.3 and the loader refuses to start without it.
+
+    Used to generate `default-no-tls-{evcc,secc}.yaml` (issue #23) so a fresh
+    clone can run the virtual demo without first generating PKI certs. The
+    cert-enabled stock default remains the realistic-testing path.
+    """
+    caps = model_cls().capabilities.model_copy(
+        update={"supported_protocols": list(NO_TLS_SUPPORTED_PROTOCOLS)}
+    )
+    return model_cls(tls=NO_TLS, capabilities=caps)
 
 
 # ---------------------------------------------------------------------------
