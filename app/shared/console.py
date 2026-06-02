@@ -85,11 +85,13 @@ class _LogPaneHandler(logging.Handler):
     `emit` runs on whatever thread emitted the record — the scapy SLAC sniffer
     thread and any `loop.run_in_executor` worker do **not** run on the asyncio/UI
     thread. The bounded line deque is appended on the calling thread (a `deque`
-    append is atomic enough), but the `on_emit` refresh touches prompt_toolkit
-    (`Buffer.set_document` / `Application.invalidate`), which is not thread-safe.
-    So once the UI loop is bound (`bind_loop`), off-loop refreshes are marshalled
-    onto it via `call_soon_threadsafe`; on-loop and not-yet-running refreshes run
-    inline (issue #33).
+    append is atomic enough); the `on_emit` callback then signals that the pane
+    needs a redraw. The pane's expensive full-text rebuild is coalesced onto the
+    UI's render tick rather than run per record (issue #35), so `on_emit` itself
+    is cheap, but it is still treated as UI-loop-affined: once the UI loop is
+    bound (`bind_loop`), off-loop refreshes are marshalled onto it via
+    `call_soon_threadsafe`; on-loop and not-yet-running refreshes run inline
+    (issue #33).
     """
 
     def __init__(self, lines: "collections.deque[str]", on_emit) -> None:
@@ -330,31 +332,59 @@ def _build_application(live_control: LiveControl, source: str) -> _Console:
         style="class:footer",
     )
 
+    # Coalesce pane rebuilds to the render tick (issue #35). The expensive part
+    # of showing a log line is rebuilding the whole pane text (`"\n".join` over
+    # the up-to-2000 line deque) and `set_document`-ing it; doing that per record
+    # put millions of joined chars/s on the asyncio loop at the ~2000 lines/s the
+    # virtual ISO-2 DC CurrentDemand loop emits. So `on_emit` (which runs per
+    # record, possibly off-loop and marshalled — issue #33) now only flips a
+    # dirty flag, and the rebuild runs at most once per frame in `before_render`,
+    # driven by the existing `refresh_interval=0.5`. The cost of displaying logs
+    # is therefore bounded per unit time instead of scaling with the record rate.
+    #
+    # A 1-element list is a mutable cell shared by the closures below. It starts
+    # dirty so the first frame paints whatever backlog accumulated between the
+    # handler being installed and the first render.
+    pane_dirty = [True]
+
+    def on_emit() -> None:
+        pane_dirty[0] = True
+
+    def _rebuild_pane() -> None:
+        # Rebuild the pane text from the (bounded) line buffer and keep the
+        # cursor at the end so the Window tails to the newest line. The footer is
+        # a separate control repainted every frame, so its visibility never
+        # depends on this.
+        text = "\n".join(lines)
+        log_buffer.set_document(
+            Document(text, cursor_position=len(text)), bypass_readonly=True
+        )
+
+    def _flush_pane(_app=None) -> None:
+        # Fired right before every render frame (and exposed as `flush_pane` for
+        # tests to simulate one tick). Rebuilds only when something changed, so a
+        # burst of records between frames collapses to a single rebuild and a
+        # tick with nothing new is a cheap no-op.
+        if pane_dirty[0]:
+            pane_dirty[0] = False
+            _rebuild_pane()
+
     app = Application(
         layout=Layout(HSplit([log_window, footer])),
         key_bindings=kb,
         style=Style.from_dict({"footer": "reverse"}),
         full_screen=True,
         refresh_interval=0.5,
+        before_render=_flush_pane,
     )
-
-    def on_emit() -> None:
-        # Rebuild the pane text from the (bounded) line buffer and keep the
-        # cursor at the end so the Window tails to the newest line. The footer
-        # is a separate control repainted every frame, so its visibility never
-        # depends on this; invalidate just nudges the log pane to refresh.
-        text = "\n".join(lines)
-        log_buffer.set_document(
-            Document(text, cursor_position=len(text)), bypass_readonly=True
-        )
-        if app.is_running:
-            app.invalidate()
 
     handler = _LogPaneHandler(lines, on_emit)
     console = _Console(app, log_buffer, handler)
     # Override-entry hooks, exposed for tests to drive a commit headlessly.
     console.entry = entry
     console.commit = _commit
+    # Exposed so tests can drive a single render tick without a running app.
+    console.flush_pane = _flush_pane
     return console
 
 
