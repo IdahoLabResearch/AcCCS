@@ -14,6 +14,7 @@ import asyncio
 import collections
 import io
 import logging
+import threading
 
 import pytest
 
@@ -132,3 +133,67 @@ def test_run_with_console_routes_logs_in_flight_then_restores(
     # Restored once the session completes.
     assert stdout_handler in logging.getLogger().handlers
     assert fake_handler not in logging.getLogger().handlers
+
+
+def test_off_loop_logging_is_marshalled_onto_the_ui_thread(
+    monkeypatch, root_with_handlers
+):
+    """A log emitted off the UI loop touches prompt_toolkit only on the UI thread.
+
+    Regression for issue #33: the scapy SLAC sniffer thread and any
+    `run_in_executor` worker can log while the console's event loop runs on the
+    asyncio thread. The pane handler must marshal the buffer-mutation/invalidate
+    refresh onto the UI loop rather than running it on the calling thread.
+    """
+    lines: "collections.deque[str]" = collections.deque(maxlen=100)
+    refresh_threads: list[int] = []
+
+    fake_app = _FakeApp()
+
+    def on_emit() -> None:
+        # Stands in for the real on_emit: this is where set_document/invalidate
+        # (the prompt_toolkit interaction) would run. Record which thread it's on.
+        refresh_threads.append(threading.get_ident())
+        if fake_app.is_running:
+            fake_app.invalidate()
+
+    handler = _LogPaneHandler(lines, on_emit)
+    fake = console._Console(fake_app, object(), handler)
+    monkeypatch.setattr(console, "_build_application", lambda lc, source: fake)
+
+    ui_thread: dict[str, int] = {}
+    worker_errors: list[BaseException] = []
+
+    async def main():
+        ui_thread["ident"] = threading.get_ident()
+        done = threading.Event()
+
+        def worker():
+            try:
+                for i in range(50):
+                    logging.getLogger().info("from-thread %d", i)
+            except BaseException as exc:  # noqa: BLE001 - capture for assertion
+                worker_errors.append(exc)
+            finally:
+                done.set()
+
+        t = threading.Thread(target=worker)
+        t.start()
+        # Pump the loop so the marshalled call_soon_threadsafe callbacks run.
+        while not done.is_set():
+            await asyncio.sleep(0.001)
+        t.join()
+        await asyncio.sleep(0.01)  # drain any final scheduled refresh
+
+    asyncio.run(run_with_console(LiveControl(), main(), source="EVCC"))
+
+    # The off-loop logging never raised.
+    assert worker_errors == []
+    # The refresh fired and every refresh ran on the UI loop thread, never the
+    # worker thread that emitted the records.
+    assert refresh_threads, "on_emit refresh never fired"
+    assert all(tid == ui_thread["ident"] for tid in refresh_threads)
+    # All 50 lines arrived intact and in order in the pane's line buffer. The
+    # pane handler inherits the routed stdout handler's "%(levelname)s: ..."
+    # formatter (see `_route_logging_to_pane`), so each line is prefixed.
+    assert list(lines) == [f"INFO: from-thread {i}" for i in range(50)]

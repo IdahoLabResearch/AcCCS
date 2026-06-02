@@ -33,6 +33,7 @@ See ADR-0004 for the recorded reversal and the measured evidence.
 
 from __future__ import annotations
 
+import asyncio
 import collections
 import logging
 import sys
@@ -80,12 +81,33 @@ class _LogPaneHandler(logging.Handler):
     straight to the terminal and corrupting the full-screen frame. The original
     formatter and level are copied over, so the on-screen log text is identical
     to the headless path's.
+
+    `emit` runs on whatever thread emitted the record — the scapy SLAC sniffer
+    thread and any `loop.run_in_executor` worker do **not** run on the asyncio/UI
+    thread. The bounded line deque is appended on the calling thread (a `deque`
+    append is atomic enough), but the `on_emit` refresh touches prompt_toolkit
+    (`Buffer.set_document` / `Application.invalidate`), which is not thread-safe.
+    So once the UI loop is bound (`bind_loop`), off-loop refreshes are marshalled
+    onto it via `call_soon_threadsafe`; on-loop and not-yet-running refreshes run
+    inline (issue #33).
     """
 
     def __init__(self, lines: "collections.deque[str]", on_emit) -> None:
         super().__init__()
         self._lines = lines
         self._on_emit = on_emit
+        # The UI event loop, captured by `bind_loop` once the console is running.
+        # `None` means no loop is live (before start / after teardown / in unit
+        # tests using the handler standalone).
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+
+    def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Capture the UI event loop so off-loop refreshes can be marshalled onto it."""
+        self._loop = loop
+
+    def unbind_loop(self) -> None:
+        """Drop the loop reference at teardown so no refresh is scheduled onto a closing loop."""
+        self._loop = None
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
@@ -94,9 +116,35 @@ class _LogPaneHandler(logging.Handler):
             self.handleError(record)
             return
         # A record may format to multiple physical lines (e.g. tracebacks).
+        # The deque append stays on the calling thread; only the prompt_toolkit
+        # refresh below is thread-sensitive.
         for line in msg.split("\n"):
             self._lines.append(line)
-        self._on_emit()
+        self._dispatch_refresh()
+
+    def _dispatch_refresh(self) -> None:
+        """Run the pane refresh on the UI loop thread, marshalling if need be.
+
+        - No loop bound → run inline. The console is not running its loop, so
+          there is no concurrent UI thread to corrupt; `on_emit` no-ops its
+          `invalidate` when the app is not running.
+        - Already on the UI loop thread → run inline (avoids deferring the
+          common case, where the asyncio session logs from its own loop).
+        - Off the UI loop thread → `call_soon_threadsafe`, so the buffer
+          mutation and `invalidate` happen on the UI thread.
+        """
+        loop = self._loop
+        if loop is None:
+            self._on_emit()
+            return
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is loop:
+            self._on_emit()
+        else:
+            loop.call_soon_threadsafe(self._on_emit)
 
 
 @dataclass
@@ -361,9 +409,11 @@ async def run_with_console(
     The console is torn down — and stdout logging restored — when `main_coro`
     completes or raises: the session, not the footer, owns the lifetime.
     """
-    import asyncio
-
     console = _build_application(live_control, source)
+    # Capture the UI loop and arm the handler *before* routing logs into it, so
+    # any record the pane handler receives can be marshalled onto this loop
+    # rather than touching prompt_toolkit from an off-loop thread (issue #33).
+    console.handler.bind_loop(asyncio.get_running_loop())
     removed = _route_logging_to_pane(console.handler)
 
     main_task = asyncio.ensure_future(main_coro)
@@ -381,6 +431,8 @@ async def run_with_console(
             logger.debug(
                 "Operator console UI task ended with an exception", exc_info=True
             )
-        # Restore stdout logging so anything outside this context (and the
-        # headless path) is unaffected by the console's handler swap.
+        # Stop marshalling onto a loop that's about to close, then restore stdout
+        # logging so anything outside this context (and the headless path) is
+        # unaffected by the console's handler swap.
+        console.handler.unbind_loop()
         _restore_logging(console.handler, removed)
