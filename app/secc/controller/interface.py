@@ -119,6 +119,11 @@ class EVSEControllerInterface(ABC):
         self.evse_data_context = EVSEDataContext()
 
         self._selected_protocol: Optional[Protocol] = None
+        # Live operator control (ADR-0004). `None` when no console/override
+        # plumbing was wired in (e.g. the conformance state-machine harness,
+        # which constructs controllers directly) — present-value reads then
+        # behave exactly as before. A concrete controller sets this.
+        self.live_control = None
 
     def reset_ev_data_context(self):
         self.ev_data_context = EVDataContext()
@@ -765,6 +770,27 @@ class EVSEControllerInterface(ABC):
         """
         return await self.get_dc_charge_parameters()
 
+    def _present_value_override(self, protocol: Protocol, field: str, fallback):
+        """Return the live-override value if set, else the data-context `fallback`.
+
+        Live override (ADR-0004, issue #29): on an SECC the operator console
+        replaces the EVSE's *reported present* (delivered) current/voltage.
+        Scoped to ISO 15118-2 (DIN parity is a later slice); a `None` field —
+        or no `live_control` at all — falls back to the data-context value.
+        Unchecked, like the EVCC side: the value is whatever the operator typed,
+        bounded only by what the downstream `PhysicalValue` can encode.
+
+        Note the returned value may be a `float` (the operator override) even
+        though the call sites narrow it with `cast(int, ...)`; that cast is a
+        static-typing artifact of the data-context fallback's declared type and
+        is a runtime no-op — `get_exponent_value_repr` accepts `int` or `float`.
+        """
+        if protocol == Protocol.ISO_15118_2 and self.live_control is not None:
+            override = getattr(self.live_control, field)
+            if override is not None:
+                return override
+        return fallback
+
     async def get_evse_present_voltage(
         self, protocol: Protocol
     ) -> Union[PVEVSEPresentVoltage, PVEVSEPresentVoltageDin, RationalNumber]:
@@ -776,18 +802,19 @@ class EVSEControllerInterface(ABC):
         - ISO 15118-20
         - DINSPEC
         """
+        present_voltage = self._present_value_override(
+            protocol, "override_voltage_v", self.evse_data_context.present_voltage
+        )
         if protocol in [Protocol.DIN_SPEC_70121, Protocol.ISO_15118_2]:
             exponent, value = PhysicalValue.get_exponent_value_repr(
-                cast(int, self.evse_data_context.present_voltage)
+                cast(int, present_voltage)
             )
             if protocol == Protocol.DIN_SPEC_70121:
                 return PVEVSEPresentVoltageDin(multiplier=exponent, value=value, unit="V")
             else:
                 return PVEVSEPresentVoltage(multiplier=exponent, value=value, unit="V")
         else:
-            return RationalNumber.get_rational_repr(
-                self.evse_data_context.present_voltage
-            )
+            return RationalNumber.get_rational_repr(present_voltage)
 
     async def get_evse_present_current(
         self, protocol: Protocol
@@ -800,18 +827,19 @@ class EVSEControllerInterface(ABC):
         - ISO 15118-20
         - DINSPEC
         """
+        present_current = self._present_value_override(
+            protocol, "override_current_a", self.evse_data_context.present_current
+        )
         if protocol in [Protocol.DIN_SPEC_70121, Protocol.ISO_15118_2]:
             exponent, value = PhysicalValue.get_exponent_value_repr(
-                cast(int, self.evse_data_context.present_current)
+                cast(int, present_current)
             )
             if protocol == Protocol.DIN_SPEC_70121:
                 return PVEVSEPresentCurrentDin(multiplier=exponent, value=value, unit="A")
             else:
                 return PVEVSEPresentCurrent(multiplier=exponent, value=value, unit="A")
         else:
-            return RationalNumber.get_rational_repr(
-                self.evse_data_context.present_current
-            )
+            return RationalNumber.get_rational_repr(present_current)
 
     @abstractmethod
     async def start_cable_check(self):

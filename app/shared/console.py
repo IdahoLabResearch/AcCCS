@@ -36,7 +36,8 @@ from __future__ import annotations
 import collections
 import logging
 import sys
-from typing import Awaitable
+from dataclasses import dataclass
+from typing import Awaitable, Optional
 
 from app.shared.live_control import LiveControl
 
@@ -98,12 +99,51 @@ class _LogPaneHandler(logging.Handler):
         self._on_emit()
 
 
+@dataclass
+class _EntryState:
+    """Operator value-entry state for the override footer (issue #29).
+
+    `mode` is None when not entering a value, else "current"/"voltage"; `text`
+    accumulates the typed digits; `message` is transient footer feedback (last
+    commit result or a parse error). A small dataclass rather than a dict so the
+    field names are typo-checked instead of failing only at runtime.
+    """
+
+    mode: Optional[str] = None
+    text: str = ""
+    message: str = ""
+
+
+def _apply_override(live_control: LiveControl, field: str, text: str) -> str:
+    """Parse operator-typed text and apply it as a live override (issue #29).
+
+    `field` is ``"current"`` or ``"voltage"``. Returns a short status string for
+    the footer's transient feedback line. Values are **unchecked** — anything
+    that parses as a number is stored verbatim (no clamping to the personality
+    envelope); a value the EXI codec can't ultimately encode surfaces as a codec
+    error downstream, which is acceptable per ADR-0004. Non-numeric input is
+    rejected here (it could never be encoded) and leaves the override untouched.
+    """
+    raw = text.strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        return f"invalid {field}: {raw!r}"
+    if field == "current":
+        live_control.set_override_current(value)
+        return f"override current = {value} A"
+    live_control.set_override_voltage(value)
+    return f"override voltage = {value} V"
+
+
 class _Console:
     """A built, not-yet-running operator console: the app plus its log pane.
 
     Bundled so `run_with_console` can drive the prompt_toolkit Application and
     feed the log pane from one place, while `_build_application` stays cheap to
-    construct in tests (no TTY, no event loop).
+    construct in tests (no TTY, no event loop). `_build_application` also attaches
+    the override-entry hooks (`entry`, `commit`) as attributes so tests can drive
+    a value commit without a real keyboard.
     """
 
     def __init__(self, app, log_buffer, handler: _LogPaneHandler) -> None:
@@ -121,6 +161,7 @@ def _build_application(live_control: LiveControl, source: str) -> _Console:
     from prompt_toolkit.application import Application
     from prompt_toolkit.buffer import Buffer
     from prompt_toolkit.document import Document
+    from prompt_toolkit.filters import Condition
     from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.layout import Layout
     from prompt_toolkit.layout.containers import HSplit, Window
@@ -131,25 +172,105 @@ def _build_application(live_control: LiveControl, source: str) -> _Console:
     # read_only so the pane is display-only; we mutate it via bypass_readonly.
     log_buffer = Buffer(read_only=True)
 
+    # Override-entry state (issue #29). The single `_EntryState` instance is
+    # shared by every key handler via closure (one mutable cell).
+    #
+    # We capture digits with our own key bindings into `text` rather than focusing
+    # a prompt_toolkit input buffer: the value line is only ever a handful of
+    # characters, and app-level key bindings fire regardless of focus, so this
+    # sidesteps the focus/visibility juggling a hidden BufferControl would need.
+    entry = _EntryState()
+    in_entry = Condition(lambda: entry.mode is not None)
+    not_entry = ~in_entry
+
     kb = KeyBindings()
 
-    @kb.add("s")
+    # Action keys are gated off while entering a value, so a stray 's'/'c'/etc.
+    # can't fire an action mid-number (it is simply ignored — only the value
+    # keys below are live in entry mode).
+    @kb.add("s", filter=not_entry)
     def _toggle_stall(event) -> None:
         live_control.toggle_charge_loop_stall()
         event.app.invalidate()
 
-    @kb.add("a")
+    @kb.add("a", filter=not_entry)
     def _advance(event) -> None:
         live_control.release_charge_loop()
         event.app.invalidate()
 
+    @kb.add("c", filter=not_entry)
+    def _set_current(event) -> None:
+        _enter_mode("current")
+        event.app.invalidate()
+
+    @kb.add("v", filter=not_entry)
+    def _set_voltage(event) -> None:
+        _enter_mode("voltage")
+        event.app.invalidate()
+
+    @kb.add("x", filter=not_entry)
+    def _clear_overrides(event) -> None:
+        live_control.clear_overrides()
+        entry.message = "overrides cleared"
+        event.app.invalidate()
+
+    # Value-entry keys, live only while a value is being typed.
+    for _ch in "0123456789.-":
+
+        @kb.add(_ch, filter=in_entry)
+        def _append(event, ch=_ch) -> None:
+            entry.text += ch
+            event.app.invalidate()
+
+    @kb.add("backspace", filter=in_entry)
+    def _backspace(event) -> None:
+        entry.text = entry.text[:-1]
+        event.app.invalidate()
+
+    @kb.add("enter", filter=in_entry)
+    def _commit(event) -> None:
+        entry.message = _apply_override(live_control, entry.mode, entry.text)
+        _exit_mode()
+        event.app.invalidate()
+
+    @kb.add("escape", filter=in_entry)
+    def _cancel_entry(event) -> None:
+        _exit_mode()
+        entry.message = "entry cancelled"
+        event.app.invalidate()
+
+    def _enter_mode(mode: str) -> None:
+        entry.mode = mode
+        entry.text = ""
+        entry.message = ""
+
+    def _exit_mode() -> None:
+        entry.mode = None
+        entry.text = ""
+
+    def _fmt(value, unit):
+        return f"{value:g} {unit}" if value is not None else "auto"
+
     def render_footer():
         state = "ARMED" if live_control.stall_charge_loop else "off"
-        return [
+        cur = _fmt(live_control.override_current_a, "A")
+        volt = _fmt(live_control.override_voltage_v, "V")
+        if entry.mode:
+            label = "current (A)" if entry.mode == "current" else "voltage (V)"
+            return [
+                ("class:footer", f" AcCCS {source} │ set {label}: "),
+                ("class:footer", entry.text or "_"),
+                ("class:footer", "  [enter] commit  [esc] cancel "),
+            ]
+        parts = [
             ("class:footer", f" AcCCS {source} "),
             ("class:footer", f"│ charge-loop stall: {state} "),
-            ("class:footer", "│ [s] toggle stall  [a] advance "),
+            ("class:footer", f"│ override I:{cur} V:{volt} "),
+            ("class:footer", "│ [s] stall  [a] advance  [c] set-I  [v] set-V  [x] clear "),
         ]
+        if entry.message:
+            parts.append(("class:footer", f"│ {entry.message} "))
+        return parts
 
     log_window = Window(
         content=BufferControl(buffer=log_buffer, focusable=False),
@@ -182,7 +303,11 @@ def _build_application(live_control: LiveControl, source: str) -> _Console:
             app.invalidate()
 
     handler = _LogPaneHandler(lines, on_emit)
-    return _Console(app, log_buffer, handler)
+    console = _Console(app, log_buffer, handler)
+    # Override-entry hooks, exposed for tests to drive a commit headlessly.
+    console.entry = entry
+    console.commit = _commit
+    return console
 
 
 def _route_logging_to_pane(handler: _LogPaneHandler):

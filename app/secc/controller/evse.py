@@ -103,7 +103,9 @@ class EVSE:
 
         self.doSLAC()
 
-        sim_evse_controller = SimEVSEController(personality=self.personality)
+        sim_evse_controller = SimEVSEController(
+            personality=self.personality, live_control=self.live_control
+        )
         await sim_evse_controller.set_status(ServiceStatus.STARTING)
         session = SECCHandler(
             exi_codec=EXPyEXICodec(),

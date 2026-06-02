@@ -50,3 +50,45 @@ def test_toggle_on_clears_stale_release():
     lc.toggle_charge_loop_stall()  # off -> on
     assert lc.stall_charge_loop is True
     assert lc.take_charge_loop_release() is False
+
+
+# -- live override (ADR-0004, issue #29) ------------------------------------
+
+
+def test_override_defaults_are_none():
+    """No override set => fields are None, meaning 'use the personality value'."""
+    lc = LiveControl()
+    assert lc.override_current_a is None
+    assert lc.override_voltage_v is None
+
+
+def test_override_via_constructor():
+    lc = LiveControl(override_current_a=125.0, override_voltage_v=420.0)
+    assert lc.override_current_a == 125.0
+    assert lc.override_voltage_v == 420.0
+
+
+def test_set_override_current_and_voltage():
+    lc = LiveControl()
+    lc.set_override_current(250.0)
+    assert lc.override_current_a == 250.0
+    assert lc.override_voltage_v is None  # voltage untouched
+    lc.set_override_voltage(800.0)
+    assert lc.override_voltage_v == 800.0
+
+
+def test_set_override_persists_and_can_change():
+    """An override persists until changed (loop iterations don't reset it)."""
+    lc = LiveControl()
+    lc.set_override_current(100.0)
+    assert lc.override_current_a == 100.0
+    lc.set_override_current(150.0)
+    assert lc.override_current_a == 150.0
+
+
+def test_clear_overrides_restores_none():
+    """Clearing restores None on both fields => fall back to personality value."""
+    lc = LiveControl(override_current_a=10.0, override_voltage_v=20.0)
+    lc.clear_overrides()
+    assert lc.override_current_a is None
+    assert lc.override_voltage_v is None

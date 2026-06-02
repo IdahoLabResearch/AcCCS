@@ -15,6 +15,7 @@ and the SECC authorization-gate stall to this same object.
 from __future__ import annotations
 
 import asyncio
+from typing import Optional
 
 
 class LiveControl:
@@ -39,9 +40,20 @@ class LiveControl:
         *,
         console_enabled: bool = False,
         stall_charge_loop: bool = False,
+        override_current_a: Optional[float] = None,
+        override_voltage_v: Optional[float] = None,
     ) -> None:
         self.console_enabled = console_enabled
         self.stall_charge_loop = stall_charge_loop
+        # Live current/voltage override for the ISO 15118-2 DC charge loop
+        # (ADR-0004, issue #29). `None` means "use the personality-derived
+        # value". The override is role-aware *at the read site*: an EVCC reads
+        # these as its requested target (CurrentDemandReq), an SECC as its
+        # reported present/delivered value (CurrentDemandRes). Values are
+        # unchecked — whatever the operator types is sent as long as the EXI
+        # codec can encode it (no clamping to the personality envelope).
+        self.override_current_a = override_current_a
+        self.override_voltage_v = override_voltage_v
         # One-shot release for the charge-loop exit gate. Constructed without a
         # running loop (PEV.__init__ runs before asyncio.run); asyncio.Event on
         # Python 3.10+ binds to the loop lazily, and we only ever poll
@@ -81,3 +93,18 @@ class LiveControl:
             self._charge_loop_release.clear()
             return True
         return False
+
+    # -- live current/voltage override --------------------------------------
+
+    def set_override_current(self, value: float) -> None:
+        """Set the live current override (amperes). Persists until changed/cleared."""
+        self.override_current_a = value
+
+    def set_override_voltage(self, value: float) -> None:
+        """Set the live voltage override (volts). Persists until changed/cleared."""
+        self.override_voltage_v = value
+
+    def clear_overrides(self) -> None:
+        """Clear both overrides so the read site falls back to the personality value."""
+        self.override_current_a = None
+        self.override_voltage_v = None

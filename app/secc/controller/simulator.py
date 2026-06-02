@@ -264,7 +264,7 @@ class SimEVSEController(EVSEControllerInterface):
     A simulated version of an EVSE controller
     """
 
-    def __init__(self, personality=None):
+    def __init__(self, personality=None, live_control=None):
         """Construct a sim controller.
 
         `personality` is an optional `SECCPersonality` (ADR-0001). When
@@ -273,9 +273,15 @@ class SimEVSEController(EVSEControllerInterface):
         The conformance state-machine harness keeps invoking
         `SimEVSEController()` without arguments — the EVSEID falls back to
         the historical default in that case.
+
+        `live_control` is the shared `LiveControl` object (ADR-0004); when
+        present, the operator console can override the EVSE's reported present
+        current/voltage in the ISO 15118-2 charge loop. `None` (the default)
+        leaves present-value reads behaving exactly as before.
         """
         super().__init__()
         self.personality = personality
+        self.live_control = live_control
         self.ev_data_context = EVDataContext()
         self.evse_data_context = get_evse_context()
 
