@@ -52,6 +52,62 @@ def test_toggle_on_clears_stale_release():
     assert lc.take_charge_loop_release() is False
 
 
+# -- authorization stall (ADR-0004, issue #30) ------------------------------
+
+
+def test_authorization_defaults_are_inert():
+    lc = LiveControl()
+    assert lc.stall_authorization is False
+    assert lc.take_authorization_release() is False
+
+
+def test_arm_authorization_via_constructor():
+    lc = LiveControl(stall_authorization=True)
+    assert lc.stall_authorization is True
+
+
+def test_toggle_flips_authorization_arm_flag():
+    lc = LiveControl()
+    lc.toggle_authorization_stall()
+    assert lc.stall_authorization is True
+    lc.toggle_authorization_stall()
+    assert lc.stall_authorization is False
+
+
+def test_authorization_release_is_one_shot():
+    lc = LiveControl(stall_authorization=True)
+    lc.release_authorization()
+    assert lc.take_authorization_release() is True
+    assert lc.take_authorization_release() is False
+
+
+def test_arm_authorization_clears_stale_release():
+    """A release pressed while disarmed must not leak into the next arm."""
+    lc = LiveControl()
+    lc.release_authorization()  # stray [a] while not armed
+    lc.arm_authorization_stall()
+    assert lc.take_authorization_release() is False
+
+
+def test_toggle_authorization_on_clears_stale_release():
+    lc = LiveControl()
+    lc.release_authorization()
+    lc.toggle_authorization_stall()  # off -> on
+    assert lc.stall_authorization is True
+    assert lc.take_authorization_release() is False
+
+
+def test_two_gates_are_independent():
+    """Releasing the charge-loop gate must not satisfy the auth gate, or vice versa."""
+    lc = LiveControl(stall_charge_loop=True, stall_authorization=True)
+    lc.release_charge_loop()
+    assert lc.take_authorization_release() is False  # auth gate untouched
+    assert lc.take_charge_loop_release() is True
+    lc.release_authorization()
+    assert lc.take_charge_loop_release() is False  # charge gate untouched
+    assert lc.take_authorization_release() is True
+
+
 # -- live override (ADR-0004, issue #29) ------------------------------------
 
 

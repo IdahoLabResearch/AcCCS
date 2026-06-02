@@ -590,12 +590,14 @@ class StallRuntime(_StrictBase):
 
     Stall arming lives in `runtime.yaml` (not the personality): it is a
     per-invocation, CLI-overridable operator decision, and the personality is
-    immutable. Slice 1 (issue #28) ships only `charge_loop` — the EVCC's
-    forceful hold over the ISO 15118-2 DC CurrentDemand loop. Later slices add
-    the SECC authorization-gate arm flag to this same section.
+    immutable. `charge_loop` is the EVCC's forceful hold over the ISO 15118-2
+    DC CurrentDemand loop (issue #28); `authorization` is the SECC's forceful
+    hold over the ISO 15118-2 Authorization gate (issue #30). Each is consumed
+    only by the role that owns that gate.
     """
 
     charge_loop: bool = False
+    authorization: bool = False
 
 
 class ConsoleRuntime(_StrictBase):

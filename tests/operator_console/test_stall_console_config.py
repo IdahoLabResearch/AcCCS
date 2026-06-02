@@ -26,6 +26,7 @@ def _parse(argv: list[str]) -> argparse.Namespace:
 def test_defaults():
     r = Runtime()
     assert r.stall.charge_loop is False
+    assert r.stall.authorization is False
     assert r.console.mode == "auto"
 
 
@@ -36,6 +37,7 @@ def test_runtime_yaml_arms_stall(tmp_path: Path):
             """
             stall:
               charge_loop: true
+              authorization: true
             console:
               mode: off
             """
@@ -43,6 +45,7 @@ def test_runtime_yaml_arms_stall(tmp_path: Path):
     )
     r = load_runtime(str(path))
     assert r.stall.charge_loop is True
+    assert r.stall.authorization is True
     assert r.console.mode == "off"
 
 
@@ -54,6 +57,13 @@ def test_stall_charge_loop_flag():
     assert args.stall_charge_loop is True
     overridden = apply_runtime_overrides(Runtime(), args)
     assert overridden.stall.charge_loop is True
+
+
+def test_stall_authorization_flag():
+    args = _parse(["--stall-authorization"])
+    assert args.stall_authorization is True
+    overridden = apply_runtime_overrides(Runtime(), args)
+    assert overridden.stall.authorization is True
 
 
 def test_no_console_flag():
@@ -76,9 +86,12 @@ def test_cli_overrides_runtime_yaml_stall():
 
 
 def test_absent_flags_leave_runtime_untouched():
-    runtime = Runtime(stall={"charge_loop": True}, console={"mode": "on"})
+    runtime = Runtime(
+        stall={"charge_loop": True, "authorization": True}, console={"mode": "on"}
+    )
     args = _parse([])  # no console/stall flags
     overridden = apply_runtime_overrides(runtime, args)
     # argparse defaults the new flags to None, so the runtime values survive.
     assert overridden.stall.charge_loop is True
+    assert overridden.stall.authorization is True
     assert overridden.console.mode == "on"

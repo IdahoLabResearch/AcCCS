@@ -61,12 +61,14 @@ class EVSE:
         self.NMK = bytes.fromhex(personality.slac.nmk_hex)
         self.modified_cordset = runtime.modified_cordset
 
-        # Operator console (ADR-0004). Slice 1 wires the footer plumbing on
-        # both roles; the SECC authorization-gate stall is a later slice, so
-        # the footer's stall toggle is carried but not yet consumed here.
+        # Operator console (ADR-0004). The SECC owns the ISO-2 authorization
+        # gate, so `stall_authorization` is the stall this role actually
+        # consumes; `stall_charge_loop` is carried for the shared LiveControl
+        # shape but never read on the SECC side.
         self.live_control = LiveControl(
             console_enabled=resolve_console_enabled(runtime.console.mode),
             stall_charge_loop=runtime.stall.charge_loop,
+            stall_authorization=runtime.stall.authorization,
         )
 
         self.destinationMAC = None

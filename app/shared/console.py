@@ -3,8 +3,9 @@
 Per ADR-0004 (`docs/adr/0004-operator-console-live-control.md`) the console is
 a `prompt_toolkit` footer pinned to the bottom of the terminal with the
 session's log lines scrolling in a pane above it. It is the single delivery
-surface for the project's live, mid-session capabilities — currently just the
-EVCC charge-loop [[stall]] (issue #28).
+surface for the project's live, mid-session capabilities: the [[stall]] gates
+(role-aware — EVCC charge-loop, SECC authorization), and the live current/
+voltage [[live-override]].
 
 Activation is opt-out with TTY auto-detection:
 
@@ -218,6 +219,13 @@ def _build_application(live_control: LiveControl, source: str) -> _Console:
     from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
     from prompt_toolkit.styles import Style
 
+    # The footer is role-aware (ADR-0004, issue #30). The protocol assigns each
+    # stall gate to one role — the EVCC owns the ISO-2 DC charge loop, the SECC
+    # owns the ISO-2 Authorization gate — so `[s]`/`[a]` drive whichever gate
+    # this role actually holds. The override controls are shown for both roles
+    # (the live override is meaningful on each).
+    is_secc = source == "SECC"
+
     lines: "collections.deque[str]" = collections.deque(maxlen=_LOG_PANE_LINES)
     # read_only so the pane is display-only; we mutate it via bypass_readonly.
     log_buffer = Buffer(read_only=True)
@@ -240,12 +248,18 @@ def _build_application(live_control: LiveControl, source: str) -> _Console:
     # keys below are live in entry mode).
     @kb.add("s", filter=not_entry)
     def _toggle_stall(event) -> None:
-        live_control.toggle_charge_loop_stall()
+        if is_secc:
+            live_control.toggle_authorization_stall()
+        else:
+            live_control.toggle_charge_loop_stall()
         event.app.invalidate()
 
     @kb.add("a", filter=not_entry)
     def _advance(event) -> None:
-        live_control.release_charge_loop()
+        if is_secc:
+            live_control.release_authorization()
+        else:
+            live_control.release_charge_loop()
         event.app.invalidate()
 
     @kb.add("c", filter=not_entry)
@@ -301,8 +315,15 @@ def _build_application(live_control: LiveControl, source: str) -> _Console:
     def _fmt(value, unit):
         return f"{value:g} {unit}" if value is not None else "auto"
 
+    stall_label = "auth stall" if is_secc else "charge-loop stall"
+
     def render_footer():
-        state = "ARMED" if live_control.stall_charge_loop else "off"
+        armed = (
+            live_control.stall_authorization
+            if is_secc
+            else live_control.stall_charge_loop
+        )
+        state = "ARMED" if armed else "off"
         cur = _fmt(live_control.override_current_a, "A")
         volt = _fmt(live_control.override_voltage_v, "V")
         if entry.mode:
@@ -314,7 +335,7 @@ def _build_application(live_control: LiveControl, source: str) -> _Console:
             ]
         parts = [
             ("class:footer", f" AcCCS {source} "),
-            ("class:footer", f"│ charge-loop stall: {state} "),
+            ("class:footer", f"│ {stall_label}: {state} "),
             ("class:footer", f"│ override I:{cur} V:{volt} "),
             ("class:footer", "│ [s] stall  [a] advance  [c] set-I  [v] set-V  [x] clear "),
         ]

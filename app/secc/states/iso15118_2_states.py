@@ -1272,6 +1272,27 @@ class Authorization(StateSECC):
             if self.comm_session.selected_auth_option == AuthEnum.EIM_V2:
                 auth_status = EVSEProcessing.ONGOING_WAITING_FOR_CUSTOMER
 
+        # Operator authorization-stall (ADR-0004, issue #30). While the auth
+        # gate is armed, hold the EVCC in the Authorization loop by reporting
+        # EVSEProcessing.ONGOING indefinitely — ignoring whether authorization
+        # has actually completed — until the operator presses [a]dvance, which
+        # releases EVSEProcessing.FINISHED exactly once and lets the session
+        # advance to ChargeParameterDiscovery. This is the SECC-side forceful
+        # stall, the mirror of the EVCC charge-loop stall. (A REJECTED auth has
+        # already returned above, so the gate never papers over a real reject.)
+        live_control = getattr(self.comm_session.evse_controller, "live_control", None)
+        if live_control is not None and live_control.stall_authorization:
+            if live_control.take_authorization_release():
+                logger.info(
+                    "Operator advanced the authorization gate; releasing "
+                    "EVSEProcessing.FINISHED."
+                )
+                auth_status = EVSEProcessing.FINISHED
+                next_state = ChargeParameterDiscovery
+            else:
+                auth_status = EVSEProcessing.ONGOING
+                next_state = None
+
         authorization_res = AuthorizationRes(
             response_code=response_code, evse_processing=auth_status
         )

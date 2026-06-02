@@ -49,6 +49,42 @@ def test_a_releases_charge_loop_gate():
     assert lc.take_charge_loop_release() is True
 
 
+# -- role-aware stall gate (ADR-0004, issue #30) ----------------------------
+
+
+def test_secc_s_toggles_authorization_stall_not_charge_loop():
+    """On the SECC, [s] drives the auth gate (the gate that role owns)."""
+    lc = LiveControl()
+    app = _build_application(lc, "SECC").app
+    handler = _handler_for(app, "s")
+
+    handler(_FakeEvent())
+    assert lc.stall_authorization is True
+    assert lc.stall_charge_loop is False  # the EVCC's gate is untouched
+    handler(_FakeEvent())
+    assert lc.stall_authorization is False
+
+
+def test_secc_a_releases_authorization_gate():
+    lc = LiveControl(stall_authorization=True)
+    app = _build_application(lc, "SECC").app
+    handler = _handler_for(app, "a")
+
+    handler(_FakeEvent())
+    assert lc.take_authorization_release() is True
+    # The charge-loop gate saw no release.
+    assert lc.take_charge_loop_release() is False
+
+
+def test_evcc_s_still_toggles_charge_loop_stall():
+    """The EVCC footer keeps driving the charge-loop gate."""
+    lc = LiveControl()
+    app = _build_application(lc, "EVCC").app
+    _handler_for(app, "s")(_FakeEvent())
+    assert lc.stall_charge_loop is True
+    assert lc.stall_authorization is False
+
+
 # -- live override set/clear (ADR-0004, issue #29) --------------------------
 
 

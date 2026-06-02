@@ -57,10 +57,12 @@ class PEV:
         # Operator console + live control (ADR-0004). Resolved once at startup:
         # console activation honours TTY auto-detection, and the charge-loop
         # stall is armable from runtime.yaml / CLI here (the footer can also
-        # arm it live).
+        # arm it live). The EVCC owns the charge-loop gate; `stall_authorization`
+        # is carried for the shared LiveControl shape but never read here.
         self.live_control = LiveControl(
             console_enabled=resolve_console_enabled(runtime.console.mode),
             stall_charge_loop=runtime.stall.charge_loop,
+            stall_authorization=runtime.stall.authorization,
         )
 
         self.iface = self.config.iface

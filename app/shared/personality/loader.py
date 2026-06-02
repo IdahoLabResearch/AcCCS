@@ -139,6 +139,7 @@ _CLI_FIELD_MAP = {
     "message_log_exi": "log.message_log_exi",
     # Operator console + stall arming (ADR-0004).
     "stall_charge_loop": "stall.charge_loop",
+    "stall_authorization": "stall.authorization",
     "console_mode": "console.mode",
 }
 
@@ -249,6 +250,17 @@ def add_runtime_cli_args(parser: argparse.ArgumentParser) -> None:
         help=(
             "EVCC: arm the charge-loop stall — hold the ISO 15118-2 DC "
             "CurrentDemand loop open until released via the console [a]dvance"
+        ),
+    )
+    parser.add_argument(
+        "--stall-authorization",
+        dest="stall_authorization",
+        action="store_true",
+        default=None,
+        help=(
+            "SECC: arm the authorization stall — hold the ISO 15118-2 "
+            "Authorization gate (EVSEProcessing=ONGOING) until released via "
+            "the console [a]dvance"
         ),
     )
     # --console / --no-console both write console.mode. argparse keeps the last
