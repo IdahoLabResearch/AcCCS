@@ -15,6 +15,7 @@ from typing import List, Optional, Tuple, Union
 from app.evcc import EVCCConfig
 from app.evcc.controller.interface import ChargeParamsV2, EVControllerInterface
 from app.shared.exceptions import InvalidProtocolError, MACAddressNotFound
+from app.shared.live_control import LiveControl
 from app.shared.messages.datatypes import (
     DCEVChargeParams,
     PhysicalValue,
@@ -132,8 +133,16 @@ class SimEVController(EVControllerInterface):
     A simulated version of an EV controller
     """
 
-    def __init__(self, evcc_config: EVCCConfig):
+    def __init__(
+        self,
+        evcc_config: EVCCConfig,
+        live_control: Optional["LiveControl"] = None,
+    ):
         self.config = evcc_config
+        # Live operator control (ADR-0004). `None` when no console/stall
+        # plumbing was wired in (e.g. unit tests that construct the controller
+        # directly) — the charge loop then behaves exactly as before.
+        self.live_control = live_control
         self.charging_loop_cycles: int = max(evcc_config.charge_loop_cycle, 1)
         self.charge_loop_delay_time: int = min(evcc_config.charge_loop_delay_time, 50)
         self.increment = (1 / self.charging_loop_cycles) * 100
@@ -702,6 +711,18 @@ class SimEVController(EVControllerInterface):
 
     async def continue_charging(self) -> bool:
         """Overrides EVControllerInterface.continue_charging()."""
+        # Operator stall (ADR-0004): while the charge-loop gate is armed, hold
+        # the CurrentDemand loop open indefinitely — ignore the cycle cap and
+        # SOC completion — until the operator presses [a]dvance, which releases
+        # the gate exactly once so the loop ends via PowerDelivery(STOP).
+        if self.live_control is not None and self.live_control.stall_charge_loop:
+            if self.live_control.take_charge_loop_release():
+                logger.info(
+                    "Operator advanced the charge-loop gate; ending "
+                    "CurrentDemand loop."
+                )
+                return False
+            return True
         if self.charging_loop_cycles == 0 or await self.is_charging_complete():
             # To simulate a bit of a charging loop, we'll let it run chargingLoopCycle
             # times specified in config file

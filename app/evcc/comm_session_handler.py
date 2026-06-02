@@ -32,6 +32,7 @@ from app.shared.exceptions import (
 )
 from app.shared.exi_codec import EXI
 from app.shared.expy_exi_codec import EXPyEXICodec
+from app.shared.live_control import LiveControl
 from app.shared.messages.app_protocol import AppProtocol, SupportedAppProtocolReq
 from app.shared.messages.enums import (
     AuthEnum,
@@ -86,6 +87,7 @@ class EVCCCommunicationSession(V2GCommunicationSession):
         evcc_config: EVCCConfig,
         iface: str,
         ev_controller: EVControllerInterface,
+        live_control: Optional[LiveControl] = None,
     ):
         # Need to import here to avoid a circular import error
         # pylint: disable=import-outside-toplevel
@@ -105,6 +107,10 @@ class EVCCCommunicationSession(V2GCommunicationSession):
         self.iface = iface
         # The EV controller that implements the interface EVControllerInterface
         self.ev_controller = ev_controller
+        # Shared live operator control (ADR-0004). Reachable from here so the
+        # state machines can read the stall arm flag / release signal via
+        # `comm_session.live_control`; the controller holds the same object.
+        self.live_control = live_control
         # The authorization option (called PaymentOption in ISO 15118-2) the
         # EVCC selected from the authorization options offered by the SECC
         self.selected_auth_option: Optional[AuthEnum] = None
@@ -279,6 +285,7 @@ class CommunicationSessionHandler:
         iface: str,
         codec: EXPyEXICodec,
         ev_controller: EVControllerInterface,
+        live_control: Optional[LiveControl] = None,
     ):
         self.list_of_tasks: List[Coroutine] = []
         self.udp_client: UDPClient = None
@@ -288,6 +295,9 @@ class CommunicationSessionHandler:
         self.config: EVCCConfig = config
         self.iface: str = iface
         self.ev_controller: EVControllerInterface = ev_controller
+        # Shared live operator control (ADR-0004); forwarded into each
+        # EVCCCommunicationSession so state machines can reach it.
+        self.live_control: Optional[LiveControl] = live_control
         self.sdp_retries_number = SDP_MAX_REQUEST_COUNTER
         self._sdp_retry_cycles = self.config.sdp_retry_cycles
 
@@ -444,6 +454,7 @@ class CommunicationSessionHandler:
             self.config,
             self.iface,
             self.ev_controller,
+            self.live_control,
         )
         # Overwriting is_tls field in EVCCCommunicationSession with the setting
         # returned from SDP response. Remember is_tls field in config still represents

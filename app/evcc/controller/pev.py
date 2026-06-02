@@ -14,8 +14,10 @@ from app.evcc import Config, EVCCHandler
 from app.evcc.controller.simulator import SimEVController
 from app.evcc.evcc_config import EVCCConfig
 from app.evcc.transport.slac import SLACHandler
+from app.shared.console import resolve_console_enabled, run_with_console
 from app.shared.EmulatorEnum import PEVState
 from app.shared.expy_exi_codec import EXPyEXICodec
+from app.shared.live_control import LiveControl
 from app.shared.logging import _init_logger
 from app.shared.network import (
     get_link_local_addr,
@@ -51,6 +53,15 @@ class PEV:
         self.runtime = runtime
         self.config = Config.from_personality(personality, runtime)
         self.evcc_config = EVCCConfig.from_personality(personality)
+
+        # Operator console + live control (ADR-0004). Resolved once at startup:
+        # console activation honours TTY auto-detection, and the charge-loop
+        # stall is armable from runtime.yaml / CLI here (the footer can also
+        # arm it live).
+        self.live_control = LiveControl(
+            console_enabled=resolve_console_enabled(runtime.console.mode),
+            stall_charge_loop=runtime.stall.charge_loop,
+        )
 
         self.iface = self.config.iface
         self.sourceMAC = get_nic_mac_address(self.iface)
@@ -91,12 +102,18 @@ class PEV:
 
         self.doSLAC()
 
-        await EVCCHandler(
+        session = EVCCHandler(
             evcc_config=self.evcc_config,
             iface=self.config.iface,
             exi_codec=EXPyEXICodec(),
-            ev_controller=SimEVController(self.evcc_config),
+            ev_controller=SimEVController(self.evcc_config, self.live_control),
+            live_control=self.live_control,
         ).start()
+
+        if self.live_control.console_enabled:
+            await run_with_console(self.live_control, session, source="EVCC")
+        else:
+            await session
 
     def doSLAC(self):
         logger.info("Starting SLAC")

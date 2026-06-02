@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import List, Literal, Optional, Type
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.shared.messages.enums import (
     AuthEnum,
@@ -585,6 +585,47 @@ class NmapRuntime(_StrictBase):
     ports: str = "-"
 
 
+class StallRuntime(_StrictBase):
+    """Operator [[stall]] arming, per ADR-0004.
+
+    Stall arming lives in `runtime.yaml` (not the personality): it is a
+    per-invocation, CLI-overridable operator decision, and the personality is
+    immutable. Slice 1 (issue #28) ships only `charge_loop` — the EVCC's
+    forceful hold over the ISO 15118-2 DC CurrentDemand loop. Later slices add
+    the SECC authorization-gate arm flag to this same section.
+    """
+
+    charge_loop: bool = False
+
+
+class ConsoleRuntime(_StrictBase):
+    """Operator console activation mode, per ADR-0004.
+
+    - ``auto`` (default): active when stdout is a TTY, silently headless
+      otherwise — keeps the conformance E2E / CI / replay paths untouched.
+    - ``on`` (CLI ``--console``): request the console; warns and stays
+      headless if there is no TTY.
+    - ``off`` (CLI ``--no-console``): never active.
+    """
+
+    mode: Literal["auto", "on", "off"] = "auto"
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _coerce_yaml_bools(cls, value):
+        """Accept YAML's bareword ``on``/``off`` (which parse as bools).
+
+        `console.mode: on` in a runtime.yaml is read by PyYAML as the boolean
+        ``True`` (YAML 1.1), so without this a perfectly natural config would
+        fail strict validation. Map the booleans onto the string literals.
+        """
+        if value is True:
+            return "on"
+        if value is False:
+            return "off"
+        return value
+
+
 class Runtime(_StrictBase):
     """Operational knobs — CLI-overridable.
 
@@ -596,6 +637,10 @@ class Runtime(_StrictBase):
     virtual: bool = False
     log: LogRuntime = Field(default_factory=LogRuntime)
     nmap: NmapRuntime = Field(default_factory=NmapRuntime)
+    # Operator console + stall arming (ADR-0004). Both are per-invocation
+    # operator intent, CLI-overridable, and deliberately not personality fields.
+    stall: StallRuntime = Field(default_factory=StallRuntime)
+    console: ConsoleRuntime = Field(default_factory=ConsoleRuntime)
     # Source port for the EVCC/SECC TCP listener. `None` means "random in
     # the dynamic range" (EVCC) or 25565 (SECC); both run scripts retain
     # their historical defaults when this is unset.

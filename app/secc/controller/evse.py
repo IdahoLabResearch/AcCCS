@@ -14,7 +14,9 @@ from app.secc.controller.interface import ServiceStatus
 from app.secc.controller.simulator import SimEVSEController
 from app.secc.secc_settings import Config
 from app.secc.transport.slac import SLACHandler
+from app.shared.console import resolve_console_enabled, run_with_console
 from app.shared.expy_exi_codec import EXPyEXICodec
+from app.shared.live_control import LiveControl
 from app.shared.logging import _init_logger
 from app.shared.network import (
     get_link_local_addr,
@@ -59,6 +61,14 @@ class EVSE:
         self.NMK = bytes.fromhex(personality.slac.nmk_hex)
         self.modified_cordset = runtime.modified_cordset
 
+        # Operator console (ADR-0004). Slice 1 wires the footer plumbing on
+        # both roles; the SECC authorization-gate stall is a later slice, so
+        # the footer's stall toggle is carried but not yet consumed here.
+        self.live_control = LiveControl(
+            console_enabled=resolve_console_enabled(runtime.console.mode),
+            stall_charge_loop=runtime.stall.charge_loop,
+        )
+
         self.destinationMAC = None
         self.destinationIP = None
         self.destinationPort = None
@@ -95,11 +105,16 @@ class EVSE:
 
         sim_evse_controller = SimEVSEController(personality=self.personality)
         await sim_evse_controller.set_status(ServiceStatus.STARTING)
-        await SECCHandler(
+        session = SECCHandler(
             exi_codec=EXPyEXICodec(),
             evse_controller=sim_evse_controller,
             config=self.config,
         ).start(self.config.iface)
+
+        if self.live_control.console_enabled:
+            await run_with_console(self.live_control, session, source="SECC")
+        else:
+            await session
 
     def doSLAC(self):
         self.slac.start()

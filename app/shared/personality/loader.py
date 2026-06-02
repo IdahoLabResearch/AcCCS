@@ -137,6 +137,9 @@ _CLI_FIELD_MAP = {
     "modified_cordset": "modified_cordset",
     "message_log_json": "log.message_log_json",
     "message_log_exi": "log.message_log_exi",
+    # Operator console + stall arming (ADR-0004).
+    "stall_charge_loop": "stall.charge_loop",
+    "console_mode": "console.mode",
 }
 
 
@@ -234,4 +237,35 @@ def add_runtime_cli_args(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         default=None,
         help="SECC: enable modified-cordset behaviour for hardware testing",
+    )
+
+    # Operator console + stall arming (ADR-0004). These are runtime knobs, so
+    # they get CLI flags; stall arming via CLI overrides runtime.yaml.
+    parser.add_argument(
+        "--stall-charge-loop",
+        dest="stall_charge_loop",
+        action="store_true",
+        default=None,
+        help=(
+            "EVCC: arm the charge-loop stall — hold the ISO 15118-2 DC "
+            "CurrentDemand loop open until released via the console [a]dvance"
+        ),
+    )
+    # --console / --no-console both write console.mode. argparse keeps the last
+    # one on the command line, so `--console --no-console` resolves to "off".
+    parser.add_argument(
+        "--console",
+        dest="console_mode",
+        action="store_const",
+        const="on",
+        default=None,
+        help="Force the operator console on (warns + stays headless without a TTY)",
+    )
+    parser.add_argument(
+        "--no-console",
+        dest="console_mode",
+        action="store_const",
+        const="off",
+        default=None,
+        help="Suppress the operator console (run fully headless)",
     )

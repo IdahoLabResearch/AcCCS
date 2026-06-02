@@ -12,6 +12,7 @@ from app.evcc.controller.interface import EVControllerInterface
 from app.evcc.evcc_config import EVCCConfig
 from app.evcc.evcc_settings import Config
 from app.shared.expy_exi_codec import EXPyEXICodec
+from app.shared.live_control import LiveControl
 from app.shared.logging import _init_logger
 
 logger = logging.getLogger(__name__)
@@ -23,9 +24,10 @@ class EVCCHandler(CommunicationSessionHandler):
         iface: str,
         exi_codec: EXPyEXICodec,
         ev_controller: EVControllerInterface,
+        live_control: Optional[LiveControl] = None,
     ):
         CommunicationSessionHandler.__init__(
-            self, evcc_config, iface, exi_codec, ev_controller
+            self, evcc_config, iface, exi_codec, ev_controller, live_control
         )
 
     async def start(self):
