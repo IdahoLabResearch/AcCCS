@@ -419,20 +419,43 @@ async def run_with_console(
     main_task = asyncio.ensure_future(main_coro)
     ui_task = asyncio.ensure_future(console.app.run_async())
     try:
-        await main_task
+        # Wait for whichever ends first. The session owns the lifetime, but the
+        # UI task must be watched too: if `run_async()` dies early (prompt_toolkit
+        # init throws, a terminal-resize race) before `is_running` ever flips
+        # True, awaiting only the session would leave it running forever against a
+        # control surface that no longer exists — a silent hang releasable only by
+        # SIGINT (issue #34).
+        await asyncio.wait({main_task, ui_task}, return_when=asyncio.FIRST_COMPLETED)
     finally:
+        # Tear the UI down: exit a still-running app so it releases the terminal,
+        # else cancel a task that never reached `is_running` (early failure leaves
+        # it already done, so neither branch fires and we don't cancel it).
         if console.app.is_running:
             console.app.exit()
-        # Drain the UI task; never let a footer teardown error mask the
-        # session's own result/exception.
+        elif not ui_task.done():
+            ui_task.cancel()
+        # Drain the UI task; an early-failure or teardown error is best-effort and
+        # must never mask the session's own result/exception. Surface it to the
+        # debug log so the failure isn't silent.
         try:
             await ui_task
+        except asyncio.CancelledError:
+            pass  # we cancelled it above; expected
         except Exception:  # noqa: BLE001 - footer teardown is best-effort
             logger.debug(
                 "Operator console UI task ended with an exception", exc_info=True
             )
+        # If the UI ended first, the session is still pending with no console left
+        # to drive it — cancel it so the `await main_task` below can't hang.
+        if not main_task.done():
+            main_task.cancel()
         # Stop marshalling onto a loop that's about to close, then restore stdout
         # logging so anything outside this context (and the headless path) is
         # unaffected by the console's handler swap.
         console.handler.unbind_loop()
         _restore_logging(console.handler, removed)
+
+    # Propagate the session's own result/exception. If the UI died first and we
+    # tore the session down, this re-raises CancelledError — the right signal that
+    # the run did not finish on its own terms, rather than a silent clean return.
+    await main_task

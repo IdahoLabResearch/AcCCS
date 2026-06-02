@@ -15,6 +15,7 @@ import collections
 import io
 import logging
 import threading
+from unittest import mock
 
 import pytest
 
@@ -133,6 +134,190 @@ def test_run_with_console_routes_logs_in_flight_then_restores(
     # Restored once the session completes.
     assert stdout_handler in logging.getLogger().handlers
     assert fake_handler not in logging.getLogger().handlers
+
+
+class _FailingApp:
+    """An Application whose `run_async` raises before `is_running` flips True.
+
+    Stands in for prompt_toolkit blowing up during init (a terminal-resize race,
+    a failed terminal probe) — the early-UI-failure case of issue #34.
+    """
+
+    def __init__(self):
+        self.is_running = False
+
+    async def run_async(self):
+        raise RuntimeError("prompt_toolkit init blew up")
+
+    def exit(self):  # pragma: no cover - never reached (is_running stays False)
+        pass
+
+    def invalidate(self):
+        pass
+
+
+def _install_failing_console(monkeypatch):
+    """Wire `_build_application` to return a console backed by `_FailingApp`."""
+    lines: "collections.deque[str]" = collections.deque(maxlen=100)
+    # MagicMock (not a bare object()) as the log_buffer so any accidental access
+    # in a future cleanup path is visible rather than an opaque AttributeError.
+    fake = console._Console(
+        _FailingApp(), mock.MagicMock(), _LogPaneHandler(lines, lambda: None)
+    )
+    monkeypatch.setattr(console, "_build_application", lambda lc, source: fake)
+    return fake
+
+
+def test_early_ui_failure_does_not_hang_and_tears_down(monkeypatch, root_with_handlers):
+    """If the UI task dies early, a still-running session is torn down promptly.
+
+    Regression for issue #34: `run_with_console` used to `await` only the session
+    and observe the UI task for the first time in `finally`. When `run_async()`
+    raised before `is_running` flipped True, the cleanup branch skipped
+    `app.exit()` and the session — which runs the CurrentDemand loop indefinitely
+    — was left waiting forever on a dead console, releasable only by SIGINT. Now
+    both tasks are watched (`FIRST_COMPLETED`); the UI's early death cancels the
+    session and surfaces as `CancelledError` rather than a silent hang.
+    """
+    root, stdout_handler, _file_handler, _file_stream = root_with_handlers
+    fake = _install_failing_console(monkeypatch)
+    session_cancelled = {}
+
+    async def never_ending():
+        # The charge loop: runs until the operator releases it via the console.
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            # Records that the *session* itself was torn down — the mechanism, not
+            # just the CancelledError outcome below (which a 5 s wait_for timeout
+            # would otherwise mimic if the cancel were silently dropped).
+            session_cancelled["yes"] = True
+            raise
+
+    async def driver():
+        # A real hang would never return; the timeout converts it to a failure
+        # instead of wedging the test run.
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(
+                run_with_console(LiveControl(), never_ending(), source="EVCC"),
+                timeout=5.0,
+            )
+
+    asyncio.run(driver())
+
+    # The session task was actually cancelled (torn down), not left running.
+    assert session_cancelled.get("yes") is True
+    # stdout logging is restored and the pane handler removed even on the early-
+    # failure path.
+    assert stdout_handler in root.handlers
+    assert fake.handler not in root.handlers
+
+
+def test_early_ui_failure_propagates_session_result(monkeypatch, root_with_handlers):
+    """A session that completes on its own returns cleanly despite the UI failing.
+
+    The UI's RuntimeError must not surface as the result — the session owns the
+    outcome; the UI failure is logged, not raised.
+    """
+    fake = _install_failing_console(monkeypatch)
+    completed = {}
+
+    async def main():
+        completed["ran"] = True
+
+    # No exception escapes: the session finished, so its (None) result propagates.
+    asyncio.run(
+        asyncio.wait_for(
+            run_with_console(LiveControl(), main(), source="EVCC"), timeout=5.0
+        )
+    )
+    assert completed["ran"] is True
+
+
+def test_early_ui_failure_does_not_mask_session_exception(
+    monkeypatch, root_with_handlers
+):
+    """The session's own exception propagates, not the UI task's early failure."""
+    _install_failing_console(monkeypatch)
+
+    class SessionError(Exception):
+        pass
+
+    async def main():
+        raise SessionError("session blew up on its own terms")
+
+    async def driver():
+        with pytest.raises(SessionError):
+            await asyncio.wait_for(
+                run_with_console(LiveControl(), main(), source="EVCC"), timeout=5.0
+            )
+
+    asyncio.run(driver())
+
+
+class _TeardownErrorApp:
+    """An Application that starts cleanly but errors *during* teardown.
+
+    Unlike `_FailingApp` (which dies before `is_running` flips), this reaches the
+    running state, so the happy-path teardown branch (`app.exit()`) fires; its
+    `run_async` then raises while shutting down. Exercises that a teardown error
+    on the normal exit path is still drained, never masking the session result.
+    """
+
+    def __init__(self):
+        self.is_running = False
+        self._stop = None
+
+    async def run_async(self):
+        self.is_running = True
+        self._stop = asyncio.Event()
+        try:
+            await self._stop.wait()
+        finally:
+            self.is_running = False
+        raise RuntimeError("prompt_toolkit blew up on teardown")
+
+    def exit(self):
+        self.is_running = False
+        if self._stop is not None:
+            self._stop.set()
+
+    def invalidate(self):
+        pass
+
+
+def test_teardown_error_does_not_mask_session_exception(monkeypatch, root_with_handlers):
+    """A teardown error on the normal exit path must not replace the session's.
+
+    Acceptance criterion (c) on the *graceful* teardown path: the app runs, the
+    session raises, `app.exit()` fires, and the UI then errors while shutting
+    down — yet the session's own exception is what propagates, and stdout logging
+    is restored regardless.
+    """
+    root, stdout_handler, _file_handler, _file_stream = root_with_handlers
+    lines: "collections.deque[str]" = collections.deque(maxlen=100)
+    fake = console._Console(
+        _TeardownErrorApp(), mock.MagicMock(), _LogPaneHandler(lines, lambda: None)
+    )
+    monkeypatch.setattr(console, "_build_application", lambda lc, source: fake)
+
+    class SessionError(Exception):
+        pass
+
+    async def main():
+        raise SessionError("session blew up on its own terms")
+
+    async def driver():
+        with pytest.raises(SessionError):
+            await asyncio.wait_for(
+                run_with_console(LiveControl(), main(), source="EVCC"), timeout=5.0
+            )
+
+    asyncio.run(driver())
+
+    # stdout logging restored even though the UI errored during teardown.
+    assert stdout_handler in root.handlers
+    assert fake.handler not in root.handlers
 
 
 def test_off_loop_logging_is_marshalled_onto_the_ui_thread(
