@@ -472,6 +472,27 @@ class Authorization(StateSECC):
         else:
             evse_processing = Processing.FINISHED
 
+        # Operator authorization-stall (ADR-0004, issue #32 — ISO 15118-20 parity
+        # of the ISO 15118-2 / DIN auth-stall). While the auth gate is armed, hold
+        # the EVCC in the Authorization loop by reporting Processing.ONGOING
+        # indefinitely — ignoring whether authorization has actually completed —
+        # until the operator presses [a]dvance, which releases Processing.FINISHED
+        # exactly once and lets the session advance to ServiceDiscovery. This is
+        # the SECC-side forceful stall, the mirror of the EVCC charge-loop stall.
+        # The `expecting_authorization_req` flag below is derived from
+        # `evse_processing`, so overriding it here keeps the state expecting
+        # another AuthorizationReq while held.
+        live_control = getattr(self.comm_session.evse_controller, "live_control", None)
+        if live_control is not None and live_control.stall_authorization:
+            if live_control.take_authorization_release():
+                logger.info(
+                    "Operator advanced the authorization gate; releasing "
+                    "Processing.FINISHED."
+                )
+                evse_processing = Processing.FINISHED
+            else:
+                evse_processing = Processing.ONGOING
+
         auth_res = AuthorizationRes(
             header=MessageHeader(
                 session_id=self.comm_session.session_id, timestamp=int(time.time())

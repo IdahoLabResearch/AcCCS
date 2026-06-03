@@ -940,21 +940,46 @@ class SimEVController(EVControllerInterface):
             ev_ress_soc=self._soc,
         )
 
+    def _iso20_override_or(self, field: str, fallback: float) -> float:
+        """Return the operator's live override for `field`, else `fallback`.
+
+        Live override (ADR-0004, issue #32 — ISO 15118-20 DC parity): on an
+        EVCC the operator console replaces the EV's *requested target*
+        current/voltage on the ISO-20 DC charge loop, the mirror of what
+        `get_dc_charge_params` does for ISO 15118-2 / DIN SPEC 70121. The
+        ISO-20 read sites are RationalNumber-valued (no `PVEVTarget*` subtypes),
+        so the override flows in as a plain magnitude that the caller hands to
+        `RationalNumber.get_rational_repr`. A `None` field — or no
+        `live_control` — falls back to the personality value. Unchecked, like
+        the ISO-2/DIN paths: bounded only by what `get_rational_repr` encodes.
+        """
+        if self.live_control is not None:
+            override = getattr(self.live_control, field)
+            if override is not None:
+                return override
+        return fallback
+
     async def get_scheduled_dc_charge_loop_params(
         self,
     ) -> ScheduledDCChargeLoopReqParams:
         """Overrides EVControllerInterface.get_scheduled_dc_charge_loop_params().
 
         Sources `ev_target_current` / `ev_target_voltage` from
-        `personality.power.ev_dc_v20`.
+        `personality.power.ev_dc_v20`, with the live override applied (issue #32).
         """
         ev_dc_v20 = self.config.ev_dc_v20
         return ScheduledDCChargeLoopReqParams(
             ev_target_current=RationalNumber.get_rational_repr(
-                ev_dc_v20.target_current_a if ev_dc_v20 else 200
+                self._iso20_override_or(
+                    "override_current_a",
+                    ev_dc_v20.target_current_a if ev_dc_v20 else 200,
+                )
             ),
             ev_target_voltage=RationalNumber.get_rational_repr(
-                ev_dc_v20.target_voltage_v if ev_dc_v20 else 20000
+                self._iso20_override_or(
+                    "override_voltage_v",
+                    ev_dc_v20.target_voltage_v if ev_dc_v20 else 20000,
+                )
             ),
         )
 
@@ -963,7 +988,9 @@ class SimEVController(EVControllerInterface):
 
         Sources every magnitude from `personality.power.ev_dc_v20` (`dynamic_*`
         sub-set) — kept distinct from the CPD envelope because the simulator
-        emits much smaller stub values here.
+        emits much smaller stub values here. The live override (issue #32) lands
+        on the dynamic-mode current/voltage limits (`ev_max_charge_current` /
+        `ev_max_voltage`), the dynamic equivalents of the scheduled targets.
         """
         ev_dc_v20 = self.config.ev_dc_v20
         return DynamicDCChargeLoopReqParams(
@@ -983,10 +1010,16 @@ class SimEVController(EVControllerInterface):
                 ev_dc_v20.dynamic_min_charge_power_w if ev_dc_v20 else 400
             ),
             ev_max_charge_current=RationalNumber.get_rational_repr(
-                ev_dc_v20.dynamic_max_charge_current_a if ev_dc_v20 else 40
+                self._iso20_override_or(
+                    "override_current_a",
+                    ev_dc_v20.dynamic_max_charge_current_a if ev_dc_v20 else 40,
+                )
             ),
             ev_max_voltage=RationalNumber.get_rational_repr(
-                ev_dc_v20.dynamic_max_voltage_v if ev_dc_v20 else 400
+                self._iso20_override_or(
+                    "override_voltage_v",
+                    ev_dc_v20.dynamic_max_voltage_v if ev_dc_v20 else 400,
+                )
             ),
             ev_min_voltage=RationalNumber.get_rational_repr(
                 ev_dc_v20.dynamic_min_voltage_v if ev_dc_v20 else 40
@@ -1032,10 +1065,18 @@ class SimEVController(EVControllerInterface):
         )
 
     async def get_present_voltage(self) -> RationalNumber:
-        """Overrides EVControllerInterface.get_present_voltage()."""
+        """Overrides EVControllerInterface.get_present_voltage().
+
+        This is the ISO-20 DC charge loop's `ev_present_voltage` read site
+        (present on `DCChargeLoopReq` in both scheduled and dynamic modes), so
+        the voltage override (issue #32) rides here too.
+        """
         ev_dc_v20 = self.config.ev_dc_v20
         return RationalNumber.get_rational_repr(
-            ev_dc_v20.target_voltage_v if ev_dc_v20 else 20000
+            self._iso20_override_or(
+                "override_voltage_v",
+                ev_dc_v20.target_voltage_v if ev_dc_v20 else 20000,
+            )
         )
 
     async def get_target_voltage(self) -> RationalNumber:

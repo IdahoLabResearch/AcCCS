@@ -5,7 +5,16 @@ requested target in `CurrentDemandReq` (sourced from
 `SimEVController.get_dc_charge_params`); on an SECC it replaces the EVSE's
 reported present/delivered value in `CurrentDemandRes` (sourced from
 `get_evse_present_voltage` / `get_evse_present_current`). Scope is the DC charge
-loop on both ISO 15118-2 and DIN SPEC 70121 (DIN parity landed in issue #31).
+loop on ISO 15118-2, DIN SPEC 70121 (DIN parity landed in issue #31) and ISO
+15118-20 DC (parity landed in issue #32).
+
+ISO 15118-20 has no `CurrentDemandReq`; the EVCC charge-loop voltage rides on
+`DCChargeLoopReq.ev_present_voltage` (sourced from `get_present_voltage`,
+present in both scheduled and dynamic modes) and the mode-active target
+magnitudes ride on the scheduled/dynamic charge-loop params (`get_scheduled_/
+get_dynamic_dc_charge_loop_params`). The SECC reports its present value on
+`DCChargeLoopRes` via the same `get_evse_present_*` read sites. ISO-20 AC has no
+current/voltage field, so the override has no AC home — AC gets stall only.
 """
 
 from __future__ import annotations
@@ -149,3 +158,93 @@ async def test_secc_without_live_control_is_inert():
     ctrl.evse_data_context.present_voltage = 500
     v = await ctrl.get_evse_present_voltage(Protocol.ISO_15118_2)
     assert _magnitude(v) == 500
+
+
+# -- ISO 15118-20 DC parity (issue #32) -------------------------------------
+#
+# ISO-20 read sites return a RationalNumber (decoded via get_decimal_value),
+# not a PhysicalValue. The override flows through the same LiveControl fields.
+
+
+async def test_evcc_iso20_present_voltage_honours_override():
+    """ev_present_voltage on DCChargeLoopReq tracks the voltage override
+    (present in both scheduled and dynamic modes)."""
+    lc = LiveControl()
+    ctrl = _evcc(lc)
+    baseline = (await ctrl.get_present_voltage()).get_decimal_value()
+    assert baseline == ctrl.config.ev_dc_v20.target_voltage_v
+    lc.set_override_voltage(456)
+    assert (await ctrl.get_present_voltage()).get_decimal_value() == 456
+    lc.clear_overrides()
+    assert (await ctrl.get_present_voltage()).get_decimal_value() == baseline
+
+
+async def test_evcc_iso20_scheduled_params_honour_override():
+    """Scheduled DC charge-loop params source ev_target_current / ev_target_voltage."""
+    lc = LiveControl()
+    ctrl = _evcc(lc)
+    lc.set_override_current(123)
+    lc.set_override_voltage(456)
+    params = await ctrl.get_scheduled_dc_charge_loop_params()
+    assert params.ev_target_current.get_decimal_value() == 123
+    assert params.ev_target_voltage.get_decimal_value() == 456
+
+
+async def test_evcc_iso20_dynamic_params_honour_override():
+    """Dynamic DC charge-loop params source ev_max_charge_current / ev_max_voltage."""
+    lc = LiveControl()
+    ctrl = _evcc(lc)
+    lc.set_override_current(123)
+    lc.set_override_voltage(456)
+    params = await ctrl.get_dynamic_dc_charge_loop_params()
+    assert params.ev_max_charge_current.get_decimal_value() == 123
+    assert params.ev_max_voltage.get_decimal_value() == 456
+
+
+async def test_evcc_iso20_no_override_uses_personality():
+    """No override -> mode params fall back to the personality magnitudes."""
+    ctrl = _evcc(LiveControl())
+    ev_dc = ctrl.config.ev_dc_v20
+    sched = await ctrl.get_scheduled_dc_charge_loop_params()
+    assert sched.ev_target_current.get_decimal_value() == ev_dc.target_current_a
+    assert sched.ev_target_voltage.get_decimal_value() == ev_dc.target_voltage_v
+    dyn = await ctrl.get_dynamic_dc_charge_loop_params()
+    assert dyn.ev_max_charge_current.get_decimal_value() == ev_dc.dynamic_max_charge_current_a
+    assert dyn.ev_max_voltage.get_decimal_value() == ev_dc.dynamic_max_voltage_v
+
+
+async def test_evcc_iso20_bpt_params_inherit_override():
+    """BPT variants reuse the scheduled/dynamic builders, so they inherit the override."""
+    lc = LiveControl(override_current_a=77, override_voltage_v=88)
+    ctrl = _evcc(lc)
+    bpt_sched = await ctrl.get_bpt_scheduled_dc_charge_loop_params()
+    assert bpt_sched.ev_target_current.get_decimal_value() == 77
+    assert bpt_sched.ev_target_voltage.get_decimal_value() == 88
+    bpt_dyn = await ctrl.get_bpt_dynamic_dc_charge_loop_params()
+    assert bpt_dyn.ev_max_charge_current.get_decimal_value() == 77
+    assert bpt_dyn.ev_max_voltage.get_decimal_value() == 88
+
+
+async def test_secc_iso20_dc_override_replaces_present_values():
+    """SECC reports the override on DCChargeLoopRes present voltage/current."""
+    lc = LiveControl()
+    ctrl = _secc(lc)
+    ctrl.evse_data_context.present_voltage = 500
+    ctrl.evse_data_context.present_current = 10
+    lc.set_override_voltage(750)
+    lc.set_override_current(42)
+    v = await ctrl.get_evse_present_voltage(Protocol.ISO_15118_20_DC)
+    c = await ctrl.get_evse_present_current(Protocol.ISO_15118_20_DC)
+    assert v.get_decimal_value() == 750
+    assert c.get_decimal_value() == 42
+
+
+async def test_secc_iso20_dc_no_override_uses_data_context():
+    lc = LiveControl()
+    ctrl = _secc(lc)
+    ctrl.evse_data_context.present_voltage = 500
+    ctrl.evse_data_context.present_current = 10
+    v = await ctrl.get_evse_present_voltage(Protocol.ISO_15118_20_DC)
+    c = await ctrl.get_evse_present_current(Protocol.ISO_15118_20_DC)
+    assert v.get_decimal_value() == 500
+    assert c.get_decimal_value() == 10

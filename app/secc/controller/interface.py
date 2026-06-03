@@ -773,13 +773,17 @@ class EVSEControllerInterface(ABC):
     def _present_value_override(self, protocol: Protocol, field: str, fallback):
         """Return the live-override value if set, else the data-context `fallback`.
 
-        Live override (ADR-0004, issues #29 / #31): on an SECC the operator
+        Live override (ADR-0004, issues #29 / #31 / #32): on an SECC the operator
         console replaces the EVSE's *reported present* (delivered)
-        current/voltage on the DC charge loop — both ISO 15118-2 and DIN SPEC
-        70121 (DIN parity landed in #31). A `None` field — or no `live_control`
-        at all — falls back to the data-context value. Unchecked, like the EVCC
-        side: the value is whatever the operator typed, bounded only by what the
-        downstream `PhysicalValue` can encode.
+        current/voltage on the DC charge loop — ISO 15118-2, DIN SPEC 70121 (DIN
+        parity landed in #31) and ISO 15118-20 DC (parity landed in #32). A
+        `None` field — or no `live_control` at all — falls back to the
+        data-context value. Unchecked, like the EVCC side: the value is whatever
+        the operator typed, bounded only by what the downstream
+        `PhysicalValue` / `RationalNumber` can encode.
+
+        ISO-20 AC carries no present current/voltage field, so it never reaches
+        this read site and gets no override (it is stall-only per #32).
 
         Note the returned value may be a `float` (the operator override) even
         though the call sites narrow it with `cast(int, ...)`; that cast is a
@@ -787,7 +791,12 @@ class EVSEControllerInterface(ABC):
         is a runtime no-op — `get_exponent_value_repr` accepts `int` or `float`.
         """
         if (
-            protocol in (Protocol.ISO_15118_2, Protocol.DIN_SPEC_70121)
+            protocol
+            in (
+                Protocol.ISO_15118_2,
+                Protocol.DIN_SPEC_70121,
+                Protocol.ISO_15118_20_DC,
+            )
             and self.live_control is not None
         ):
             override = getattr(self.live_control, field)

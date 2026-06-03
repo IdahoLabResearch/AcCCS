@@ -392,10 +392,25 @@ class Authorization(StateEVCC):
             )
         else:
             logger.debug("SECC is still processing the Authorization")
+            # Operator stall mode (ADR-0004, issue #32 — ISO 15118-20 parity of
+            # the ISO 15118-2 / DIN timer defeat): a stalling AcCCS SECC holds the
+            # Authorization gate (Processing=ONGOING) for longer than a conformant
+            # EVCC would tolerate. So when this EVCC is itself in stall mode it
+            # relaxes its own ongoing-authorization timer — it keeps polling
+            # AuthorizationReq instead of aborting at V2G_EVCC_ONGOING_TIMEOUT —
+            # letting the stalling SECC hold it indefinitely. The defeat is
+            # opt-in: a peer EVCC without stall mode still times out as before.
+            # Keyed on the EVCC's own stall arm (stall_charge_loop), exactly as
+            # on the ISO 15118-2 path.
+            live_control = self.comm_session.live_control
+            stall_mode = live_control is not None and live_control.stall_charge_loop
             elapsed_time: float = 0
             if self.comm_session.ongoing_timer >= 0:
                 elapsed_time = int(time.time()) - self.comm_session.ongoing_timer
-                if elapsed_time > TimeoutsShared.V2G_EVCC_ONGOING_TIMEOUT:
+                if (
+                    not stall_mode
+                    and elapsed_time > TimeoutsShared.V2G_EVCC_ONGOING_TIMEOUT
+                ):
                     self.stop_state_machine(
                         "Ongoing timer timed out for " "AuthorizationRes"
                     )
@@ -418,13 +433,20 @@ class Authorization(StateEVCC):
                 eim_params=self.comm_session.authorization_req_message.eim_params,
             )
 
+            # In stall mode keep a sane positive per-message timeout: once
+            # elapsed exceeds the ongoing timeout, `V2G_EVCC_ONGOING_TIMEOUT -
+            # elapsed_time` would go negative and poison the min().
+            next_timeout = Timeouts.AUTHORIZATION_REQ
+            if not stall_mode:
+                next_timeout = min(
+                    Timeouts.AUTHORIZATION_REQ,
+                    TimeoutsShared.V2G_EVCC_ONGOING_TIMEOUT - elapsed_time,
+                )
+
             self.create_next_message(
                 Authorization,
                 auth_req,
-                min(
-                    Timeouts.AUTHORIZATION_REQ,
-                    TimeoutsShared.V2G_EVCC_ONGOING_TIMEOUT - elapsed_time,
-                ),
+                next_timeout,
                 Namespace.ISO_V20_COMMON_MSG,
                 ISOV20PayloadTypes.MAINSTREAM,
             )
