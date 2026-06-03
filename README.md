@@ -222,11 +222,18 @@ optional `--runtime <runtime.yaml>`. Stock personalities live in the
 [`personalities/`](personalities/) directory; the bundled defaults are a
 complete materialised dump of every field with its built-in value:
 
+The emulators bind raw sockets, so they need root (`sudo`) or the
+`cap_net_raw` capability. Use the `sudo "$(which python)"` form so the
+activated environment's interpreter is used — a plain `sudo python` resets
+`PATH` to `secure_path` and runs the *system* interpreter, which lacks your
+installed dependencies (see [Project Setup → Smoke test](#5-smoke-test) for
+the full explanation):
+
 ```bash
 # Run the stock virtual SECC and EVCC over the acccs_secc/acccs_evcc veth pair
 sudo ./setup_veth.sh
-python run_secc.py --config default-secc --virtual
-python run_evcc.py --config default-evcc --virtual
+sudo "$(which python)" run_secc.py --config default-secc --virtual
+sudo "$(which python)" run_evcc.py --config default-evcc --virtual
 ```
 
 Personality search order (per [ADR-0001](docs/adr/0001-personality-yaml-config.md)):
