@@ -12,18 +12,10 @@ A description of the [CurrentImplementation](/docs/CurrentImplementation.md) of 
 **A final word:** All of this code was generated in our lab using extensive trial and error while monitoring communications between a couple EV and EVSE.  It has not been extensively tested with many vehicles or charging stations.  It was not written using formal software development and design methods.  We were just happy when it worked.  It is not pretty.
 
 ## Getting Started
-In order to include the third-party libraries when cloning AcCCS, use the proper git options.  For example:
 
-```
-git clone --recurse-submodules <clone url>
-git submodule sync
-```
-
-If you encounter errors about git not locating specific repository versions, using this dirty hack seems to work:
-
-```
-git submodule update --force --recursive --init --remote
-```
+For the full fresh-clone walkthrough — submodule clone, Python dependencies,
+PKI certificates, the virtual veth pair, and a smoke test — see
+[Project Setup](#project-setup).
 
 ## Hardware Configuration
 
@@ -85,11 +77,8 @@ Raspberry Pi alike):
 * **Ninja** ≥ 1.10
 * A C/C++ toolchain (gcc/clang and the matching standard libraries)
 
-On Debian/Raspberry Pi OS:
-
-```bash
-sudo apt install cmake ninja-build build-essential
-```
+Install these *before* `pip install` — [Project Setup](#project-setup) step 2
+covers the Debian / Raspberry Pi OS one-liner.
 
 ### EVSE and EV Python Scripts
 Below is a brief description of the scripts in this project. These scripts are provided as examples of how you might utilize this hardware in your own testing environment. This is not intended to be a finished product with all desired functionality. Some functionality is still a work in progress.
@@ -103,7 +92,128 @@ Below is a brief description of the scripts in this project. These scripts are p
 ### Current TODOs:
 * Complete and test a full MITM script
 
+## Project Setup
+
+This is the single, linear path from a fresh clone to a green virtual demo
+session. Follow it top to bottom — each step is a prerequisite for the smoke
+test at the end. The deeper reference sections below are linked from each step.
+
+### 1. Clone with submodules
+
+AcCCS vendors its third-party Layer 2 (HPGP) libraries as git submodules, so a
+plain `git clone` is not enough:
+
+```bash
+git clone --recurse-submodules <clone-url>
+cd AcCCS
+git submodule sync
+```
+
+If git errors about locating specific repository versions, this usually
+unsticks it:
+
+```bash
+git submodule update --force --recursive --init --remote
+```
+
+### 2. Python environment + dependencies
+
+Use Python 3.10+ in an isolated environment — a `conda` env or a `venv` both
+work. The pinned dependencies live in [`requirements.txt`](requirements.txt):
+
+```bash
+# conda
+conda create -n AcCCS python=3.11 && conda activate AcCCS
+# — or — venv
+python -m venv .venv && source .venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+One dependency, **EXPy**, builds a C/C++ extension at install time (see
+[ADR-0002](docs/adr/0002-expy-codec-replacement.md)), so a build toolchain
+must be present *before* `pip install`. On Debian / Raspberry Pi OS:
+
+```bash
+sudo apt install cmake ninja-build build-essential
+```
+
+See [Software Configuration](#software-configuration) for the full dependency
+rundown.
+
+### 3. Generate PKI certificates
+
+The stock personalities ship with TLS enabled (`tls.use_tls: true`,
+`tls.enable_tls_1_3: true`), so the SECC needs a server certificate chain
+before it can complete SDP/TLS. Generate it from the repo root:
+
+```bash
+bash app/shared/pki/create_certs.sh -v iso-2
+```
+
+Skipping this step is the most common first-run failure — it surfaces as
+`FileNotFoundError: oemRootCACert.pem` followed by a cascading
+`'TCPServer' object has no attribute 'ipv6_address_host'` traceback.
+
+If you intend to run ISO 15118-20 scenarios, also generate the `-v iso-20`
+chain:
+
+```bash
+bash app/shared/pki/create_certs.sh -v iso-20
+```
+
+See [Certificate Management](#certificate-management) for the Plug-and-Charge
+context.
+
+### 4. Create the virtual veth pair
+
+The `--virtual` demo runs both emulators on one host over a veth pair
+(`acccs_secc ↔ acccs_evcc`, with link-local addresses `fe80::1` / `fe80::2`).
+Create it with:
+
+```bash
+sudo ./setup_veth.sh
+```
+
+This is also a prerequisite for the conformance tests.
+
+### 5. Smoke test
+
+With steps 1–4 done, run the stock SECC and EVCC in two terminals. The
+emulators bind raw sockets, so they need root (`sudo`) or the `cap_net_raw`
+capability.
+
+Note the `sudo "$(which python)"` form: `sudo` resets `PATH` to its
+`secure_path`, so a plain `sudo python` runs the *system* interpreter, which
+lacks the dependencies you installed into the conda/venv environment from
+step 2 (you'd hit `ModuleNotFoundError: No module named 'nmap'`). The
+command substitution resolves to the activated environment's interpreter
+*before* `sudo` runs, so the env's Python is used:
+
+```bash
+# Terminal 1
+sudo "$(which python)" run_secc.py --config default-secc --virtual
+
+# Terminal 2 (a second or two later)
+sudo "$(which python)" run_evcc.py --config default-evcc --virtual
+```
+
+A clean session walks through these milestones:
+
+```
+SLAC → SDP/TLS → SessionSetup → ServiceDiscovery → PowerDelivery →
+CurrentDemand loop → PowerDelivery → WeldingDetection → SessionStop
+```
+
+ending with the EVCC logging `Going to state A`. If you see that, your setup is
+complete. See [Running the emulators](#running-the-emulators) for personality
+and CLI-override details.
+
 ## Running the emulators
+
+> **New here?** Complete [Project Setup](#project-setup) first — it covers the
+> submodule clone, dependencies, PKI certificates, and the veth pair that the
+> commands below assume are already in place.
 
 Only two scripts are expected to be run from command line: ```run_evcc.py``` and ```run_secc.py```. The other scripts and files serve as tools and utilities for these scripts to run.
 
@@ -148,6 +258,10 @@ are a hard error. See [`docs/personality-authoring.md`](docs/personality-authori
 for a section-by-section authoring guide and the bundled example library.
 
 ## Certificate Management
+
+Basic TLS certificate generation for the demo is covered in
+[Project Setup](#project-setup) step 3. This section provides the deeper
+Plug-and-Charge context and the contract-certificate workflow.
 
 ### Plug and Charge (ISO 15118-2 and ISO 15118-20)
 For Plug and Charge, certificates and private keys have to be created at the beginning. Go to the [pki](/app/shared/pki) directory and run the ```create_certs.sh``` script like this:
