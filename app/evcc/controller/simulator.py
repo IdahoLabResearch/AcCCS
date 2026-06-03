@@ -897,27 +897,31 @@ class SimEVController(EVControllerInterface):
                 "expected ISO 15118-2 or DIN SPEC 70121"
             )
             raise InvalidProtocolError
-        self.dc_ev_charge_params = self._build_dc_ev_charge_params(
-            din=(protocol == Protocol.DIN_SPEC_70121)
-        )
-        # Live override (ADR-0004, issue #29): on an EVCC the operator console
-        # replaces the EV's *requested target* current/voltage. Scoped to ISO
-        # 15118-2 (DIN parity is a later slice); a `None` field falls back to
-        # the personality value built above. Unchecked — the value is whatever
-        # the operator typed, bounded only by what `PhysicalValue` can encode.
-        if protocol == Protocol.ISO_15118_2 and self.live_control is not None:
+        is_din = protocol == Protocol.DIN_SPEC_70121
+        self.dc_ev_charge_params = self._build_dc_ev_charge_params(din=is_din)
+        # Live override (ADR-0004, issues #29 / #31): on an EVCC the operator
+        # console replaces the EV's *requested target* current/voltage on the DC
+        # charge loop — both ISO 15118-2 and DIN SPEC 70121 (DIN parity landed
+        # in #31). A `None` field falls back to the personality value built
+        # above. Unchecked — the value is whatever the operator typed, bounded
+        # only by what `PhysicalValue` can encode. The target uses the DIN
+        # PhysicalValue subtypes on the DIN path so the encoded message stays in
+        # the right namespace.
+        if self.live_control is not None:
+            current_cls = PVEVTargetCurrentDin if is_din else PVEVTargetCurrent
+            voltage_cls = PVEVTargetVoltageDin if is_din else PVEVTargetVoltage
             if self.live_control.override_current_a is not None:
                 c_mult, c_val = PhysicalValue.get_exponent_value_repr(
                     self.live_control.override_current_a
                 )
-                self.dc_ev_charge_params.dc_target_current = PVEVTargetCurrent(
+                self.dc_ev_charge_params.dc_target_current = current_cls(
                     multiplier=c_mult, value=c_val, unit=UnitSymbol.AMPERE
                 )
             if self.live_control.override_voltage_v is not None:
                 v_mult, v_val = PhysicalValue.get_exponent_value_repr(
                     self.live_control.override_voltage_v
                 )
-                self.dc_ev_charge_params.dc_target_voltage = PVEVTargetVoltage(
+                self.dc_ev_charge_params.dc_target_voltage = voltage_cls(
                     multiplier=v_mult, value=v_val, unit=UnitSymbol.VOLTAGE
                 )
         return self.dc_ev_charge_params

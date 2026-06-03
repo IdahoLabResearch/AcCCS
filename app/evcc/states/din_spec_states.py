@@ -299,9 +299,24 @@ class ContractAuthentication(StateEVCC):
             msg.body.contract_authentication_res
         )
 
+        # Operator stall mode (ADR-0004, issues #30 / #31 — DIN parity of the
+        # ISO 15118-2 timer defeat): a stalling AcCCS SECC holds the DIN
+        # ContractAuthentication gate (EVSEProcessing=ONGOING) for longer than a
+        # conformant EVCC would tolerate. So when this EVCC is itself in stall
+        # mode it relaxes its own ongoing-authorization timer — it keeps polling
+        # ContractAuthenticationReq instead of aborting at
+        # V2G_SECC_SEQUENCE_TIMEOUT — letting the stalling SECC hold it
+        # indefinitely. The defeat is opt-in: a peer EVCC without stall mode
+        # still times out as before. Keyed on the EVCC's own stall arm
+        # (stall_charge_loop), exactly as on the ISO 15118-2 path.
+        live_control = self.comm_session.live_control
+        stall_mode = live_control is not None and live_control.stall_charge_loop
         if self.comm_session.ongoing_timer > 0:
             elapsed_time = time() - self.comm_session.ongoing_timer
-            if elapsed_time > TimeoutsShared.V2G_SECC_SEQUENCE_TIMEOUT:
+            if (
+                not stall_mode
+                and elapsed_time > TimeoutsShared.V2G_SECC_SEQUENCE_TIMEOUT
+            ):
                 self.stop_state_machine(
                     "Ongoing timer timed out for " "ContractAuthenticationRes"
                 )

@@ -773,19 +773,23 @@ class EVSEControllerInterface(ABC):
     def _present_value_override(self, protocol: Protocol, field: str, fallback):
         """Return the live-override value if set, else the data-context `fallback`.
 
-        Live override (ADR-0004, issue #29): on an SECC the operator console
-        replaces the EVSE's *reported present* (delivered) current/voltage.
-        Scoped to ISO 15118-2 (DIN parity is a later slice); a `None` field —
-        or no `live_control` at all — falls back to the data-context value.
-        Unchecked, like the EVCC side: the value is whatever the operator typed,
-        bounded only by what the downstream `PhysicalValue` can encode.
+        Live override (ADR-0004, issues #29 / #31): on an SECC the operator
+        console replaces the EVSE's *reported present* (delivered)
+        current/voltage on the DC charge loop — both ISO 15118-2 and DIN SPEC
+        70121 (DIN parity landed in #31). A `None` field — or no `live_control`
+        at all — falls back to the data-context value. Unchecked, like the EVCC
+        side: the value is whatever the operator typed, bounded only by what the
+        downstream `PhysicalValue` can encode.
 
         Note the returned value may be a `float` (the operator override) even
         though the call sites narrow it with `cast(int, ...)`; that cast is a
         static-typing artifact of the data-context fallback's declared type and
         is a runtime no-op — `get_exponent_value_repr` accepts `int` or `float`.
         """
-        if protocol == Protocol.ISO_15118_2 and self.live_control is not None:
+        if (
+            protocol in (Protocol.ISO_15118_2, Protocol.DIN_SPEC_70121)
+            and self.live_control is not None
+        ):
             override = getattr(self.live_control, field)
             if override is not None:
                 return override

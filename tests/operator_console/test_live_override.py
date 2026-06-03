@@ -4,8 +4,8 @@ The override is role-aware *at the read site*: on an EVCC it replaces the EV's
 requested target in `CurrentDemandReq` (sourced from
 `SimEVController.get_dc_charge_params`); on an SECC it replaces the EVSE's
 reported present/delivered value in `CurrentDemandRes` (sourced from
-`get_evse_present_voltage` / `get_evse_present_current`). Scope is ISO 15118-2
-DC; DIN parity is a later slice, so DIN reads are deliberately left alone.
+`get_evse_present_voltage` / `get_evse_present_current`). Scope is the DC charge
+loop on both ISO 15118-2 and DIN SPEC 70121 (DIN parity landed in issue #31).
 """
 
 from __future__ import annotations
@@ -70,11 +70,17 @@ async def test_evcc_override_is_unchecked_out_of_envelope():
     assert _magnitude(params.dc_target_voltage) == over
 
 
-async def test_evcc_din_is_not_overridden():
-    """Scope is ISO 15118-2; DIN reads keep the personality value."""
+async def test_evcc_din_override_replaces_target():
+    """DIN parity (issue #31): DIN reads honour the override too."""
     lc = LiveControl()
     ctrl = _evcc(lc)
     lc.set_override_current(999)
+    lc.set_override_voltage(888)
+    params = await ctrl.get_dc_charge_params(Protocol.DIN_SPEC_70121)
+    assert _magnitude(params.dc_target_current) == 999
+    assert _magnitude(params.dc_target_voltage) == 888
+    # Clearing falls back to the personality value on the DIN path as well.
+    lc.clear_overrides()
     params = await ctrl.get_dc_charge_params(Protocol.DIN_SPEC_70121)
     assert _magnitude(params.dc_target_current) == ctrl.config.ev_dc_target_current_a
 
@@ -122,10 +128,18 @@ async def test_secc_clear_restores_present_values():
     assert _magnitude(c) == 10
 
 
-async def test_secc_din_is_not_overridden():
-    lc = LiveControl(override_voltage_v=750)
+async def test_secc_din_override_replaces_present_values():
+    """DIN parity (issue #31): DIN present-value reads honour the override too."""
+    lc = LiveControl(override_voltage_v=750, override_current_a=42)
     ctrl = _secc(lc)
     ctrl.evse_data_context.present_voltage = 500
+    ctrl.evse_data_context.present_current = 10
+    v = await ctrl.get_evse_present_voltage(Protocol.DIN_SPEC_70121)
+    c = await ctrl.get_evse_present_current(Protocol.DIN_SPEC_70121)
+    assert _magnitude(v) == 750
+    assert _magnitude(c) == 42
+    # Clearing restores the data-context value on the DIN path as well.
+    lc.clear_overrides()
     v = await ctrl.get_evse_present_voltage(Protocol.DIN_SPEC_70121)
     assert _magnitude(v) == 500
 

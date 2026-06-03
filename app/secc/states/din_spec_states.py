@@ -326,6 +326,27 @@ class ContractAuthentication(StateSECC):
             evse_processing = EVSEProcessing.FINISHED
             next_state = ChargeParameterDiscovery
 
+        # Operator authorization-stall (ADR-0004, issues #30 / #31 — DIN parity
+        # of the ISO 15118-2 auth-stall). While the gate is armed the SECC holds
+        # ContractAuthentication open with EVSEProcessing.ONGOING indefinitely —
+        # ignoring whether authorization actually finished above — until the
+        # operator presses [a]dvance, which releases EVSEProcessing.FINISHED
+        # exactly once and lets the session advance to ChargeParameterDiscovery.
+        # The SECC owns the authorization gate, so this is a forceful stall, the
+        # mirror of the EVCC charge-loop stall.
+        live_control = getattr(self.comm_session.evse_controller, "live_control", None)
+        if live_control is not None and live_control.stall_authorization:
+            if live_control.take_authorization_release():
+                logger.info(
+                    "Operator advanced the authorization gate; releasing "
+                    "EVSEProcessing.FINISHED."
+                )
+                evse_processing = EVSEProcessing.FINISHED
+                next_state = ChargeParameterDiscovery
+            else:
+                evse_processing = EVSEProcessing.ONGOING
+                next_state = None
+
         contract_authentication_res: ContractAuthenticationRes = (
             ContractAuthenticationRes(
                 response_code=ResponseCode.OK, evse_processing=evse_processing
