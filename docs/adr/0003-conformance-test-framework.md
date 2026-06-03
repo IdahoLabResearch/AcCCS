@@ -46,7 +46,7 @@ Four layers, each with a distinct seam, oracle, and substrate.
 
 ## Coverage matrix
 
-E2E coverage stays deliberately narrow relative to the full feature matrix, but as of Slice 5 (#15 / #26) it carries **one PnC and one EIM happy-path per ISO protocol**, alongside DIN's single happy-path and a DIN personality-variant regression guard — six [[scenario]]s total, each exercising a representative real-world configuration:
+E2E coverage stays deliberately narrow relative to the full feature matrix, but as of Slice 5 (#15 / #26) it carries **one PnC and one EIM happy-path per ISO protocol**, alongside DIN's single happy-path and a DIN personality-variant regression guard. Issue #36 then added an ISO 15118-20 **AC** happy-path (`iso20-eim-ac`) so the -20 AC charge loop carries the same automated regression guard its DC sibling already had — seven [[scenario]]s total, each exercising a representative real-world configuration:
 
 | Scenario | Protocol | Auth | Energy | TLS | Notes |
 |---|---|---|---|---|---|
@@ -56,12 +56,13 @@ E2E coverage stays deliberately narrow relative to the full feature matrix, but 
 | `iso2-eim-dc.yaml` | ISO 15118-2 | EIM | DC | off | |
 | `iso20-pnc-dc-tls.yaml` | ISO 15118-20 | PnC | DC | on | |
 | `iso20-eim-dc.yaml` | ISO 15118-20 | EIM | DC | on | |
+| `iso20-eim-ac.yaml` | ISO 15118-20 | EIM | AC | on | -20 AC charge-loop guard (#36); stall guarded at the state-machine layer |
 
 DIN 70121 has no PnC/EIM contract-auth split, so its auth column is left blank.
 
 The earlier policy was one canonical happy-path per protocol with EIM excluded from E2E; Slice 5's acceptance criteria broadened E2E to include an EIM happy-path per ISO protocol, and this matrix records that broadening.
 
-The remaining cross-products (AC vs DC, BPT, WPT, ACDP) are *not* covered at the E2E layer. They are pushed down to:
+The remaining cross-products (BPT, WPT, ACDP) are *not* covered at the E2E layer. They are pushed down to:
 
 - **State-machine layer** for per-feature code-path coverage (scripted peers exercise specific transitions).
 - **Codec layer** for encoding-specific concerns.
@@ -69,7 +70,7 @@ The remaining cross-products (AC vs DC, BPT, WPT, ACDP) are *not* covered at the
 
 This is a test-pyramid choice: broad coverage at the cheap layers, narrow coverage at the expensive layer.
 
-The six E2E scenarios are a **hard PR gate from day one**. PRs that break the smoke set do not merge. This is enforced even during the personality YAML rollout, where breakage is expected — each personality slice is responsible for updating scenarios as it lands.
+The seven E2E scenarios are a **hard PR gate from day one**. PRs that break the smoke set do not merge. This is enforced even during the personality YAML rollout, where breakage is expected — each personality slice is responsible for updating scenarios as it lands.
 
 Coverage grows in two ways beyond the smoke floor:
 

@@ -1,0 +1,27 @@
+# Conformance ISO 15118-20 EIM AC EVCC test personality.
+#
+# Mirrors `iso20-eim-evcc.yaml` (DC) but selects the AC energy service
+# (issue #36 — automated parity for the manually-verified -20 AC path of
+# #32). ISO 15118-20 mandates TLS 1.3 regardless of auth mode
+# (`app/secc/secc_settings.py` rejects TLS-off with ISO-20), so this
+# personality keeps TLS on. Pairs with `iso20-eim-ac-secc.yaml` via the
+# `iso20-eim-ac` scenario.
+#
+# `energy_transfer_mode` is a legacy ISO 15118-2 / DIN field; ISO 15118-20
+# negotiates the energy service via `supported_energy_services`, so it is
+# left at its model default (matching `example_iso20_ac_variant.yaml`).
+role: evcc
+identity:
+  evcc_id: 1FMVAA45B63C47DD58Y6
+network:
+  interface: acccs_evcc
+tls:
+  enable_tls_1_3: true
+  use_tls: true
+capabilities:
+  supported_protocols:
+    - ISO_15118_20_AC
+  supported_auth_modes:
+    - EIM
+  supported_energy_services:
+    - AC

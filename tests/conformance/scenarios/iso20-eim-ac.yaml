@@ -1,0 +1,7 @@
+name: iso20-eim-ac
+description: ISO 15118-20 EIM AC TLS-on happy path
+evcc_personality: iso20-eim-ac-evcc
+secc_personality: iso20-eim-ac-secc
+expected_outcome: session_complete
+timeout_seconds: 120
+xfail: false
