@@ -13,4 +13,5 @@ smbus==1.1.post2
 sslkeylog==0.5.1
 tqdm==4.67.1
 typing_extensions==4.14.1
+PyYAML==6.0.2
 Requests==2.32.3
