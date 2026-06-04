@@ -1,0 +1,34 @@
+# Conformance app-protocol fallback EVCC personality (issue #21).
+#
+# Offers all three protocols in descending priority — ISO 15118-20 (DC)
+# first, ISO 15118-2 second, DIN SPEC 70121 third. The priority ordering is
+# the YAML list order (see `EVCCCommunicationSession.create_sap`).
+#
+# TLS is OFF deliberately. This is synthetic: in the field an EVCC offering
+# ISO-20 would do so over TLS 1.3, and the SAP builder strips DIN once the
+# connection is TLS (DIN mandates no transport-layer security, [V2G-DC-618]).
+# Offering ISO-20 *and* DIN in one SupportedAppProtocolReq is only possible
+# with TLS off, and that is exactly what exercises the fallback ladder: the
+# SECC must skip the two higher-priority offers it does not support and land
+# on DIN. The EVCC has no loader rule forbidding an ISO-20 *offer* under TLS
+# off (only the SECC refuses to *run* a -20 session without TLS 1.3, and only
+# the EVCC's runtime sap_states refuses a -20 *selection*); neither fires
+# here because DIN is what gets selected.
+
+role: evcc
+identity:
+  evcc_id: 1FMVAA45B63C47DD58Y6
+network:
+  interface: acccs_evcc
+tls:
+  enable_tls_1_3: false
+  use_tls: false
+  enforce_tls: false
+capabilities:
+  supported_protocols:
+    - ISO_15118_20_DC
+    - ISO_15118_2
+    - DIN_SPEC_70121
+  supported_energy_services:
+    - DC
+  energy_transfer_mode: DC_extended

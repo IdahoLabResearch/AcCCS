@@ -1,0 +1,24 @@
+# Conformance app-protocol fallback SECC personality (issue #21), mirror case.
+#
+# Supports ISO 15118-2 and DIN SPEC 70121 (ISO-2 listed first, its preferred
+# protocol). ISO 15118-20 is intentionally absent: a TLS-off SECC that lists a
+# -20 protocol is hard-refused at load (`app/secc/secc_settings.py`), and DIN
+# mandates TLS off, so a single SECC personality cannot offer both -20 and DIN.
+# Paired with `fallback-evcc-din-only` (DIN-only offer), the negotiation still
+# lands on DIN even though the SECC would have preferred ISO-2 — the mirror of
+# `fallback-evcc-multi` + `fallback-secc-din-only`. TLS off.
+
+role: secc
+identity:
+  evse_id: 49A89A6360
+network:
+  interface: acccs_secc
+tls:
+  enable_tls_1_3: false
+  enforce_tls: false
+capabilities:
+  supported_protocols:
+    - ISO_15118_2
+    - DIN_SPEC_70121
+  supported_energy_services:
+    - DC
