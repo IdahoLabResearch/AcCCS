@@ -174,7 +174,11 @@ def add_runtime_cli_args(parser: argparse.ArgumentParser) -> None:
     `--slacSoundTimeout`) has been removed; authoring a custom personality
     file is the new path.
     """
-    parser.add_argument("--config", required=True, help="Personality file (name or path)")
+    parser.add_argument(
+        "--config",
+        default="din_reference",
+        help="Personality file (name or path); defaults to the DIN reference personality",
+    )
     parser.add_argument("--runtime", default=None, help="Optional runtime.yaml path")
 
     parser.add_argument(

@@ -40,7 +40,8 @@ are CLI-overridable.
 
 ## File search order
 
-The loader resolves `--config <value>` in this order:
+`--config` is optional; when omitted it defaults to `din_reference`. The
+loader resolves `--config <value>` in this order:
 
 1. **Explicit path** — if `<value>` is a path to an existing file, it
    wins.

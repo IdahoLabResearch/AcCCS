@@ -217,8 +217,9 @@ and CLI-override details.
 
 Only two scripts are expected to be run from command line: ```run_evcc.py``` and ```run_secc.py```. The other scripts and files serve as tools and utilities for these scripts to run.
 
-Both scripts take a required `--config <personality.yaml>` flag and an
-optional `--runtime <runtime.yaml>`. Stock personalities live in the
+Both scripts take an optional `--config <personality.yaml>` flag and an
+optional `--runtime <runtime.yaml>`. When `--config` is omitted, both
+scripts default to the `din_reference` personality. Stock personalities live in the
 [`personalities/`](personalities/) directory; the bundled defaults are a
 complete materialised dump of every field with its built-in value:
 
