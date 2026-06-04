@@ -40,6 +40,20 @@ The live control channel through which a human operator issues mid-session comma
 
 The operator console is the deliberate exception to the project's otherwise load-once configuration story: a [[personality]] is immutable and a runtime config is read once at startup, whereas the operator console exists precisely to mutate a device's behaviour and the values it puts on the wire *while the session is in flight*. It carries operator *intent*, not device identity.
 
+The console spans the emulator's whole lifetime — it is live from process startup, through every [[session cycle]], and across the [[idle]] gaps between sessions — not just while a session is in flight. It surfaces the current lifecycle phase to the operator and is the only surface that can quit a running emulator.
+
+## Session cycle
+
+One complete run of a charging exchange by an emulated [[EVCC]] or [[SECC]] — from link establishment (SLAC) through SDP/TLS, the protocol state machine, the charge loop, and SessionStop. A single emulator process runs *many* session cycles over its lifetime: after each cycle ends — whether it completes cleanly or fails partway — the side returns to [[idle]] rather than exiting. SLAC is re-performed at the start of every cycle (it is not a one-time startup step).
+
+## Idle
+
+The ready-to-start resting state a side returns to after a [[session cycle]] ends (cleanly or by failure). The device is dropped back to its initial electrical state (EVCC: CP line State A; SECC: proximity open) and waits. From idle, a side is **re-armed** to begin the next cycle: the [[SECC]] re-arms by re-listening for SLAC; the [[EVCC]] re-arms by re-initiating SLAC. Re-arming is operator-driven by default (an *advance* action on the [[operator-console]]) and the [[SECC]] must be re-armed before the [[EVCC]] initiates. A running emulator never leaves idle on its own and never exits on its own — only an explicit operator *quit* terminates the process.
+
+## Auto-rearm
+
+A per-invocation runtime mode (CLI flag plus a live [[operator-console]] toggle, off by default) in which a side re-arms itself the instant a [[session cycle]] ends, skipping the [[idle]] wait for an operator advance. With both sides in auto-rearm, the emulators cycle sessions continuously until quit. Auto-rearm is a runtime knob (per-invocation, CLI-overridable), never a [[personality]] field.
+
 ## Stall
 
 An operator-controlled behaviour in which an emulated [[EVCC]] or [[SECC]] holds a repeating protocol loop's exit *gate* closed, keeping the peer in that loop indefinitely instead of letting the session advance. Two gates can be stalled:
