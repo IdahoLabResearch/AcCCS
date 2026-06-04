@@ -1,28 +1,29 @@
 # Replay layer
 
 Offline runner for the captured-session corpus under
-[`../captures/`](../captures/). Per ADR-0003 §"Replay layer" and ADR-0002
-Slice 4 (#15), the harness asserts protocol equivalence between the current
-Exificient codec and the EXPy + translation module pipeline that will replace
-it.
+[`../captures/`](../captures/). The codec swap (ADR-0002 Slice 5, #16) is
+complete: the single production EXI pipeline is
+[`EXI`](../../../app/shared/exi_codec.py) over `EXPyEXICodec`. Per ADR-0003
+§"Replay layer", the harness now asserts that the EXPy pipeline faithfully
+round-trips the captured wire bytes for every record in the corpus.
 
 ## Equivalence oracle
 
 For every record in the corpus, deduplicated by `(namespace, root, bytes)`:
 
-1. **Bytes-equal.** EXPy re-encode bytes == captured bytes → PASS.
-2. **Decode-equivalent through Exificient** *(document records only).*
-   Decode both byte strings through the current Exificient codec; compare
-   the resulting Pydantic objects. PASS if equal.
-3. **EXPy decode-self-consistency fallback.** When Exificient cannot
-   decode (DecodeError, schema mismatch), decode both via EXPy and
-   compare. This proves EXPy is self-consistent for that byte sequence,
-   not that EXPy matches Exificient — the codec layer's
-   `expy_authoritative` set is the analogous treatment at the fixture
-   level.
+1. **Bytes-equal.** EXPy decode → translation → EXPy re-encode produces
+   bytes equal to the captured bytes → PASS.
+2. **Decode-equivalent fallback.** When the EXPy re-encode produces
+   different bytes (acceptable for records captured from a different codec
+   implementation), decode both byte strings through EXPy and require the
+   resulting Pydantic models to match. This proves EXPy is self-consistent
+   for that byte sequence — the codec layer's `expy_authoritative` set is
+   the analogous treatment at the fixture level.
 
-The oracle matches the Slice 4 grilling decision recorded on issue #15:
-"EXPy-as-cross-decoder fallback (option a)".
+This is the post-swap form of the Slice 4 grilling decision recorded on
+issue #15 ("EXPy-as-cross-decoder fallback"): with Exificient removed, the
+cross-decoder is no longer available, so the fallback compares EXPy against
+itself.
 
 ## Running
 
@@ -56,26 +57,18 @@ for the coverage matrix and gaps.
 ## Skipped records
 
 The harness emits explicit skip messages (one per record) rather than
-silently passing when the new pipeline cannot reach the bytes:
+silently passing when the EXPy pipeline cannot reach the bytes:
 
-- **Namespace not registered in translation module.** Today: `SAP`
-  (`urn:iso:15118:2:2010:AppProtocol`). Slice 1–3 didn't register SAP;
-  Slice 5 picks it up alongside the rebaseline.
-- **EXPy encode rejects the EVerest dict.** Surfaces translation-shape
-  divergences for messages carrying signed sub-elements
-  (`ChargeParameterDiscoveryRes` with `SalesTariff`+`Signature`,
-  `PaymentDetailsReq`, `ScheduleExchangeRes`, etc.) and several ISO-20
-  paths. Each becomes a rebaseline target at Slice 5.
-- **EXPy cannot decode a fragment / xmldsig payload.** The `SignedInfo`
-  xmldsig records are encoded by Exificient through the standalone
-  XML_DSIG schema; EXPy v1.0 reads only the protocol-rooted xmldsig
-  fragment. This is the well-known divergence already documented for
-  the codec-layer `iso2-xmldsig-signed-info` /
-  `iso20-common-xmldsig-signed-info` fixtures.
-- **Translation module rebuild fails Pydantic validation.** Currently:
-  empty `ConsumptionCost` arrays surface as `{'arrayLen': 0}` from EXPy
-  but the walker reconstructs a single-element with missing required
-  fields. Slice 2 follow-up.
+- **EXPy cannot decode the captured document/fragment bytes.** The record
+  is skipped as a *rebaseline target* — the captured bytes came from a
+  different codec implementation and the corpus will be re-captured against
+  the EXPy pipeline.
+- **EXPy cannot re-encode the decoded model.** Same treatment: skipped as a
+  rebaseline target.
+- **`XML_DSIG` `SignedInfo` records.** Always skipped. Those bytes
+  originate from the historical Exificient standalone XML_DSIG schema;
+  EXPy v1.0 reads only the protocol-rooted xmldsig fragment. The corpus
+  will be re-captured against the EXPy pipeline.
 
-Skip ≠ pass. The maintainer human-verification gate on issue #15 reviews
-the skip list as part of accepting Slice 4.
+Skip ≠ pass. The skip list is reviewed as part of the maintainer
+human-verification gate (issue #15).

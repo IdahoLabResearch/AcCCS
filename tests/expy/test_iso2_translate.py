@@ -16,10 +16,10 @@ Covers all three EXPy root types for ISO-2:
 
 Each test confirms ``pydantic_to_everest_*`` produces an EVerest dict whose
 EXPy encoding equals the checked-in golden, and that decoding the golden via
-EXPy + ``everest_to_pydantic_*`` rebuilds the same Pydantic instance. Slice 5
-will rebaseline the golden corpus against EXPy (ADR-0002); until then a few
-fragment fixtures are flagged ``expy_authoritative=True`` because the legacy
-Exificient codec produces undecodable output for them.
+EXPy + ``everest_to_pydantic_*`` rebuilds the same Pydantic instance. The
+golden corpus was rebaselined against EXPy at ADR-0002 Slice 5; a few fragment
+fixtures are flagged ``expy_authoritative=True`` because the legacy Exificient
+codec produced undecodable output for them.
 """
 from __future__ import annotations
 

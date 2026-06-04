@@ -3,13 +3,15 @@
 Per ADR-0003:
 
     Fixtures are `(pydantic_model, expected_bytes)` pairs.
-    Bootstrapped from the current (Exificient) codec during ADR-0002 Slices 1–3.
-    Rebaselined against EXPy at ADR-0002 Slice 5.
+    Bootstrapped from the legacy (Exificient) codec during ADR-0002 Slices 1–3.
+    Rebaselined against EXPy at ADR-0002 Slice 5 — the golden bytes are now
+    EXPy output.
 
 Each fixture is a `CodecFixture` registered in `FIXTURES`. The codec test
-discovers entries by iterating this list. Per-protocol fixture growth happens
-in EXPy Slices 1–3 (#12 / #13 / #14) — they add entries here. Slice 1 seeds
-the full DIN message-type corpus from the current Exificient codec.
+discovers entries by iterating this list. Per-protocol fixture growth happened
+in EXPy Slices 1–3 (#12 / #13 / #14), which seeded the DIN/ISO message-type
+corpus (bootstrapped from the then-current Exificient codec, since rebaselined
+against EXPy).
 
 Why a Python registry rather than data files: the messages are pydantic
 models, the namespace is an enum, and constructing them in Python is the
@@ -44,8 +46,8 @@ class CodecFixture:
     root_name: Optional[str] = None
     # When set, golden bytes are produced by EXPy via the translation module
     # rather than the legacy Exificient codec. Used for fragment payloads
-    # where Exificient produces output that even Exificient can't decode
-    # (e.g. ``eMAID`` — see ADR-0002 Slice 5 rebaselining plan).
+    # where the legacy Exificient codec produced output that even Exificient
+    # could not decode (e.g. ``eMAID`` — see ADR-0002 Slice 5 rebaselining).
     expy_authoritative: bool = False
     model_cls: Optional[Type[BaseModel]] = None
 
@@ -1429,11 +1431,11 @@ FIXTURES.extend(
             build=_iso2_frag_dh_public_key,
             root_kind="fragment",
         ),
-        # ``eMAID`` fragment encoding: Exificient's output is malformed (it
-        # can't even round-trip its own bytes — confirmed manually). The
-        # golden is therefore EXPy-authoritative. ADR-0002 Slice 5
-        # rebaselining will promote all goldens to EXPy and document
-        # divergences; this is one of them.
+        # ``eMAID`` fragment encoding: the legacy Exificient codec's output
+        # was malformed (it could not even round-trip its own bytes —
+        # confirmed manually). The golden is therefore EXPy-authoritative.
+        # The ADR-0002 Slice 5 rebaselining promoted all goldens to EXPy and
+        # documented divergences; this is one of them.
         CodecFixture(
             id="iso2-frag-emaid",
             protocol="iso15118-2",
@@ -1444,11 +1446,11 @@ FIXTURES.extend(
         ),
         # XmldsigFragment payload (SignedInfo) used by signature creation /
         # verification in ``app/shared/security.py``.
-        # Exificient encodes ``SignedInfo`` via the ``XML_DSIG``
-        # standalone-schema path; libcbv2g decodes only the
-        # ISO-2-rooted xmldsig fragment. The bytes don't round-trip
+        # The legacy Exificient codec encoded ``SignedInfo`` via the
+        # ``XML_DSIG`` standalone-schema path; libcbv2g decodes only the
+        # ISO-2-rooted xmldsig fragment. The bytes did not round-trip
         # between the two, so the golden is EXPy-authoritative — Slice 5
-        # rebaselines the whole corpus on EXPy and documents this as one
+        # rebaselined the whole corpus on EXPy and documented this as one
         # of the expected divergences.
         CodecFixture(
             id="iso2-xmldsig-signed-info",
@@ -1466,9 +1468,9 @@ FIXTURES.extend(
 #
 # ISO-20 splits across five sub-namespaces (`ISO20_COMMON`, `ISO20_AC`,
 # `ISO20_DC`, `ISO20_WPT`, `ISO20_ACDP`). Every fixture here is flagged
-# ``expy_authoritative=True`` — Exificient and EXPy diverge on ISO-20 today
-# (signed-info canonicalisation, optional-key encoding) and ADR-0002 Slice 5
-# rebaselines the whole corpus on EXPy anyway. Roots: every namespace gets
+# ``expy_authoritative=True`` — the legacy Exificient codec and EXPy diverged
+# on ISO-20 (signed-info canonicalisation, optional-key encoding) and ADR-0002
+# Slice 5 rebaselined the whole corpus on EXPy anyway. Roots: every namespace gets
 # Document coverage; ``ISO20_COMMON`` adds Fragment + XmldsigFragment because
 # only the three signed-element namespaces (COMMON/AC/DC) expose those roots
 # in EXPy v1.0.

@@ -7,7 +7,8 @@ name: Conformance suite
 #   - CAP_NET_ADMIN (GitHub-hosted ubuntu-latest provides this; the workflow
 #     calls `sudo ./setup_veth.sh` to provision the acccs_secc/acccs_evcc
 #     veth pair before pytest runs).
-#   - Java (for the Exificient EXI codec — codec layer depends on the JVM).
+#   - A C/C++ build toolchain (CMake >=3.20, Ninja >=1.10, build-essential):
+#     EXPy builds a libcbv2g extension during `pip install` (see ADR-0002).
 #   - Python 3.12 with the project's requirements.txt installed.
 #
 # Self-hosted runners (incl. the AcCCS-box Pi as a pre-merge job under a
@@ -37,14 +38,12 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Set up JDK
-        # Exificient EXI codec is a JAR launched via py4j. Required by codec
-        # and state-machine layers; without Java the layers self-skip and the
-        # gate would silently weaken.
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
+      - name: Set up C/C++ build toolchain
+        # EXPy (the EXI codec) builds a libcbv2g C/C++ extension during
+        # `pip install`, so the runner needs CMake + Ninja + a compiler
+        # before the dependency install step (see ADR-0002). ubuntu-latest
+        # ships cmake/build-essential but not ninja-build.
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build build-essential
 
       - name: Install Python dependencies
         run: |

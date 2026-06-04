@@ -13,9 +13,9 @@ ISO-20 fragment / xmldsig only attach to the three signed-element processors
 (``ISO20_COMMON``, ``ISO20_AC``, ``ISO20_DC``) per EXPy v1.0; WPT and ACDP
 expose Document only.
 
-Every ISO-20 fixture is :attr:`~CodecFixture.expy_authoritative` because
-Exificient and EXPy diverge on ISO-20 today (signed-info canonicalisation,
-optional-key encoding) — see ADR-0002 Slice 5.
+Every ISO-20 fixture is :attr:`~CodecFixture.expy_authoritative` because the
+legacy Exificient codec and EXPy diverged on ISO-20 (signed-info
+canonicalisation, optional-key encoding) — see ADR-0002 Slice 5.
 """
 from __future__ import annotations
 

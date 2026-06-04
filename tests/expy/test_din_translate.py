@@ -3,13 +3,13 @@
 For every DIN ``CodecFixture`` registered in ``tests/conformance/codec/fixtures.py``:
 
 - ``pydantic_to_everest`` produces an EVerest dict, EXPy encodes it, and the
-  resulting bytes equal the Exificient-generated golden (see ADR-0002 Slice 5
-  for the rebaselining plan).
+  resulting bytes equal the checked-in golden (rebaselined against EXPy at
+  ADR-0002 Slice 5).
 - EXPy decodes the same golden bytes, ``everest_to_pydantic`` rebuilds the
   Pydantic model, and the round-tripped instance matches the original.
 
-This module verifies the translation walker only — the production EXI wrapper
-is still wired to Exificient (Slice 5 swaps it).
+This module verifies the translation walker only. The production EXI wrapper
+is wired to EXPy (the swap landed in ADR-0002 Slice 5).
 """
 from __future__ import annotations
 

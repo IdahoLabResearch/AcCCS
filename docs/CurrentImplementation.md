@@ -139,13 +139,21 @@ On the research laptop, configure Wireshark to connect to the Raspberry Pi in th
 ## Port Scanning
 The emulator scripts [EVSE.py](/emulator/EVSE.py) and [PEV.py](/emulator/PEV.py) include some basic functionality for port scanning the EVSE SECC or the EV EVCC. This option can be selected as a command-line argument.  Results of the port scan are displayed along with the progress of the scan.
 
-## Java Decoder
-To encode/decode the XML communications between the EV and EVSE, we are reusing the Java webserver from the [CH4ESE](https://github.com/IdahoLabResearch/CH4ESE.git) project. CH4ESE, in the background, utilizes the ```EXIficient.jar``` file fom the [EXIficient](https://github.com/EXIficient/exificient) project to actually perform the EXI to/from XML conversions, and it is included in the ```connection``` folder. The XSD schema files are organized inside the schema folders for each protocol.
+## EXI Codec
+EXI encode/decode of the V2G communications between the EV and EVSE is handled
+by [EXPy](https://github.com/IdahoLabResearch/EXPy), a Python binding over LF
+Energy EVerest's `libcbv2g` (C/C++). EXPy is a regular Python dependency
+(`requirements.txt`) that builds a native extension at install time — see the
+[README](../README.md#python-module-dependencies) for the CMake/Ninja
+prerequisites. The codec is wired in at `app/shared/exi_codec.py` and
+`app/shared/expy_exi_codec.py`. For the architectural rationale and the
+Pydantic↔EVerest translation boundary, see
+[ADR-0002](adr/0002-expy-codec-replacement.md).
 
-Older release of the AcCCS project used the [V2Gdecoder](https://github.com/FlUxIuS/V2Gdecoder) project for EXI encoding and decoding.
-
-## Schemas
-Currently is DIN Spec 70121 is fully supported and we are working to add support for ISO 15118-2. The XSD schema files for various protocols such as DIN SPEC 70121, ISO 15118-2 (ed 1 and 2) and ISO 15118-20 are included in the [CH4ESE](https://github.com/IdahoLabResearch/CH4ESE.git) submodule.
+Earlier releases of AcCCS used a Java/JVM-based codec (the EXIficient
+library, reused from the CH4ESE project) and, before that, the
+[V2Gdecoder](https://github.com/FlUxIuS/V2Gdecoder) project. Both have been
+removed; there is no longer a JVM runtime dependency.
 
 # References and Credits
 - V2GInjector

@@ -4,7 +4,7 @@ See `tests/conformance/README.md` and `docs/adr/0003-conformance-test-framework.
 
 Three groups of fixtures live here:
 
-1. `exi_codec` — session-scoped JVM-backed Exificient codec, registered on the
+1. `exi_codec` — session-scoped EXPy EXI codec, registered on the
    `EXI` singleton. The codec layer and (transitively) state-machine layer
    depend on this.
 2. `veth_pair` — verifies that the `acccs_secc` / `acccs_evcc` veth pair
