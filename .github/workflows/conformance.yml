@@ -7,6 +7,10 @@ name: Conformance suite
 #   - CAP_NET_ADMIN (GitHub-hosted ubuntu-latest provides this; the workflow
 #     calls `sudo ./setup_veth.sh` to provision the acccs_secc/acccs_evcc
 #     veth pair before pytest runs).
+#   - CAP_NET_RAW on the Python interpreter: the emulator subprocesses open
+#     AF_PACKET/SOCK_RAW sockets for SLAC. The hosted job runs pytest as a
+#     non-root user, so it `setcap cap_net_raw+eip`s the interpreter (the Pi
+#     and local conda interpreters already carry this file capability).
 #   - A C/C++ build toolchain (CMake >=3.20, Ninja >=1.10, build-essential):
 #     EXPy builds a libcbv2g extension during `pip install` (see ADR-0002).
 #   - Python 3.12 with the project's requirements.txt installed.
@@ -53,6 +57,28 @@ jobs:
           # SMBus path via VIRTUAL=True). Install everything else.
           grep -v '^smbus' requirements.txt > /tmp/req.txt
           pip install -r /tmp/req.txt
+
+      - name: Grant CAP_NET_RAW to the Python interpreter
+        # The E2E layer spawns run_evcc.py / run_secc.py, whose SLAC handler
+        # opens an AF_PACKET/SOCK_RAW socket at startup
+        # (app/{secc,evcc}/transport/slac.py: create_socket). That syscall
+        # needs CAP_NET_RAW. pytest here runs as a normal (non-root) user and
+        # the setup-python interpreter carries no file capabilities, so without
+        # this step both emulator subprocesses crash immediately with
+        # `PermissionError: [Errno 1] Operation not permitted` before SLAC
+        # sends a single packet — and every E2E scenario (din-happy included,
+        # since SLAC precedes all TLS/cert work) reports `done=False`. See
+        # issue #46. This mirrors how the AcCCS-box Pi and local conda
+        # interpreters already carry `cap_net_raw=eip` (which is why the suite
+        # passes there). File capabilities are inherited across exec, so
+        # granting them on the interpreter covers the spawned subprocesses too.
+        run: |
+          PYBIN="$(readlink -f "$(which python)")"
+          sudo setcap cap_net_raw+eip "$PYBIN"
+          # Fail loudly *here* if setcap did not take or broke interpreter
+          # startup, rather than later as an opaque batch of `done=False`.
+          getcap "$PYBIN"
+          python -c "import socket; socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0003)); print('CAP_NET_RAW OK')"
 
       - name: Provision veth pair
         # The E2E layer talks over acccs_secc ⇄ acccs_evcc. setup_veth.sh
