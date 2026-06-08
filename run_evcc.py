@@ -10,11 +10,16 @@
 
 import argparse
 import asyncio
+import sys
 
 from app.evcc.controller.pev import PEV
 from app.shared.EmulatorEnum import PEVState
 from app.shared.exi_capture import enable_capture
-from app.shared.personality import add_runtime_cli_args
+from app.shared.personality import (
+    add_runtime_cli_args,
+    format_personality_listing,
+    list_available_personalities,
+)
 from app.shared.process_lifecycle import die_with_parent
 
 
@@ -23,6 +28,10 @@ die_with_parent()
 parser = argparse.ArgumentParser(description="Emulator for EVCC/PEV")
 add_runtime_cli_args(parser)
 args = parser.parse_args()
+
+if args.list_configs:
+    print(format_personality_listing(list_available_personalities()))
+    sys.exit(0)
 
 if args.capture:
     enable_capture(args.capture)

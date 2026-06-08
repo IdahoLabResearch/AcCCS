@@ -13,6 +13,8 @@ from app.shared.personality.loader import (
     REPO_PERSONALITIES,
     USER_PERSONALITIES,
     apply_runtime_overrides,
+    format_personality_listing,
+    list_available_personalities,
     load_personality,
     load_runtime,
 )
@@ -139,3 +141,121 @@ def test_cli_overrides_runtime():
     assert overridden.virtual is True
     assert overridden.log.console_level == "WARNING"
     assert overridden.source_port == 12345
+
+
+# ---------------------------------------------------------------------------
+# list_available_personalities + format_personality_listing
+# ---------------------------------------------------------------------------
+
+
+def _setup_dirs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    repo_files: dict[str, str],
+    user_files: dict[str, str],
+) -> tuple[Path, Path]:
+    """Create fake repo + user-local dirs, monkeypatch the module constants."""
+    repo_dir = tmp_path / "personalities"
+    user_dir = tmp_path / "user" / ".acccs" / "personalities"
+    repo_dir.mkdir(parents=True)
+    user_dir.mkdir(parents=True)
+    for name, content in repo_files.items():
+        (repo_dir / name).write_text(content)
+    for name, content in user_files.items():
+        (user_dir / name).write_text(content)
+    monkeypatch.setattr("app.shared.personality.loader.REPO_PERSONALITIES", repo_dir)
+    monkeypatch.setattr("app.shared.personality.loader.USER_PERSONALITIES", user_dir)
+    return repo_dir, user_dir
+
+
+def test_list_repo_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _setup_dirs(
+        tmp_path,
+        monkeypatch,
+        repo_files={"evcc-a.yaml": "role: evcc\n", "secc-b.yaml": "role: secc\n"},
+        user_files={},
+    )
+    entries = list_available_personalities()
+    assert len(entries) == 2
+    names = [e.name for e in entries]
+    assert "evcc-a" in names
+    assert "secc-b" in names
+    by_name = {e.name: e for e in entries}
+    assert by_name["evcc-a"].source == "repo"
+    assert by_name["evcc-a"].role == "evcc"
+    assert by_name["evcc-a"].shadowed is False
+    assert by_name["secc-b"].role == "secc"
+
+
+def test_list_user_local_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _setup_dirs(
+        tmp_path,
+        monkeypatch,
+        repo_files={},
+        user_files={"custom.yaml": "role: secc\n"},
+    )
+    entries = list_available_personalities()
+    assert len(entries) == 1
+    assert entries[0].name == "custom"
+    assert entries[0].source == "user-local"
+    assert entries[0].role == "secc"
+    assert entries[0].shadowed is False
+
+
+def test_list_no_role_field(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _setup_dirs(
+        tmp_path,
+        monkeypatch,
+        repo_files={"no-role.yaml": "identity:\n  evcc_id: x\n"},
+        user_files={},
+    )
+    entries = list_available_personalities()
+    assert entries[0].role == "none"
+
+
+def test_list_shadowing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A user-local file with the same stem as a repo file is marked shadowed."""
+    _setup_dirs(
+        tmp_path,
+        monkeypatch,
+        repo_files={"shared.yaml": "role: evcc\n"},
+        user_files={
+            "shared.yaml": "role: evcc\n",  # same name — shadows repo
+            "unique.yaml": "role: secc\n",  # different name — not shadowed
+        },
+    )
+    entries = list_available_personalities()
+    by_source = {(e.name, e.source): e for e in entries}
+
+    repo_entry = by_source[("shared", "repo")]
+    assert repo_entry.shadowed is False
+
+    user_shared = by_source[("shared", "user-local")]
+    assert user_shared.shadowed is True
+
+    user_unique = by_source[("unique", "user-local")]
+    assert user_unique.shadowed is False
+
+
+def test_list_empty_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _setup_dirs(tmp_path, monkeypatch, repo_files={}, user_files={})
+    assert list_available_personalities() == []
+
+
+def test_format_listing_includes_all_fields(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _setup_dirs(
+        tmp_path,
+        monkeypatch,
+        repo_files={"my-evcc.yaml": "role: evcc\n"},
+        user_files={"my-evcc.yaml": "role: evcc\n"},
+    )
+    output = format_personality_listing(list_available_personalities())
+    assert "my-evcc" in output
+    assert "repo" in output
+    assert "user-local" in output
+    assert "evcc" in output
+    assert "shadowed" in output
+
+
+def test_format_listing_no_personalities():
+    assert format_personality_listing([]) == "No personalities found."

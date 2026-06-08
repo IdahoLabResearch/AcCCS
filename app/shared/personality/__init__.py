@@ -13,9 +13,12 @@ rationale. The public surface:
 """
 
 from app.shared.personality.loader import (
+    PersonalityInfo,
     PersonalityNotFoundError,
     add_runtime_cli_args,
     apply_runtime_overrides,
+    format_personality_listing,
+    list_available_personalities,
     load_personality,
     load_runtime,
 )
@@ -38,4 +41,7 @@ __all__ = [
     "apply_runtime_overrides",
     "add_runtime_cli_args",
     "PersonalityNotFoundError",
+    "PersonalityInfo",
+    "list_available_personalities",
+    "format_personality_listing",
 ]

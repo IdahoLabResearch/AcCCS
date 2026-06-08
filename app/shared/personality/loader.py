@@ -19,8 +19,9 @@ from __future__ import annotations
 
 import argparse
 import os
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Type, TypeVar
+from typing import List, Optional, Type, TypeVar
 
 import yaml
 
@@ -35,6 +36,17 @@ P = TypeVar("P", bound=_PersonalityBase)
 
 REPO_PERSONALITIES = Path("personalities")
 USER_PERSONALITIES = Path.home() / ".acccs" / "personalities"
+
+
+@dataclass
+class PersonalityInfo:
+    """Metadata for one discovered personality file."""
+
+    name: str
+    path: Path
+    source: str   # "repo" or "user-local"
+    role: str     # "evcc", "secc", or "none"
+    shadowed: bool  # True: user-local entry eclipsed by same-name repo entry
 
 
 class PersonalityNotFoundError(FileNotFoundError):
@@ -78,6 +90,69 @@ def _load_yaml(path: Path) -> dict:
     if not isinstance(data, dict):
         raise ValueError(f"{path}: top-level YAML must be a mapping, got {type(data).__name__}")
     return data
+
+
+def _peek_role(path: Path) -> str:
+    """Return the `role` field from a personality YAML without full validation."""
+    try:
+        return str(_load_yaml(path).get("role") or "none")
+    except Exception:
+        return "none"
+
+
+def list_available_personalities() -> List[PersonalityInfo]:
+    """Return annotated metadata for every discoverable personality file.
+
+    Scans `personalities/` (repo) then `~/.acccs/personalities/` (user-local).
+    Both directories are searched regardless of which run script is calling.
+    A user-local file whose stem matches a repo file is marked `shadowed=True`
+    because `_resolve()` prefers the repo copy — the opposite of the usual
+    user-local-overrides-repo convention.
+    """
+    entries: List[PersonalityInfo] = []
+
+    repo_stems: set[str] = set()
+    if REPO_PERSONALITIES.is_dir():
+        for path in sorted(REPO_PERSONALITIES.iterdir()):
+            if path.suffix in (".yaml", ".yml"):
+                stem = path.stem
+                repo_stems.add(stem)
+                entries.append(PersonalityInfo(
+                    name=stem,
+                    path=path,
+                    source="repo",
+                    role=_peek_role(path),
+                    shadowed=False,
+                ))
+
+    if USER_PERSONALITIES.is_dir():
+        for path in sorted(USER_PERSONALITIES.iterdir()):
+            if path.suffix in (".yaml", ".yml"):
+                stem = path.stem
+                entries.append(PersonalityInfo(
+                    name=stem,
+                    path=path,
+                    source="user-local",
+                    role=_peek_role(path),
+                    shadowed=stem in repo_stems,
+                ))
+
+    return entries
+
+
+def format_personality_listing(entries: List[PersonalityInfo]) -> str:
+    """Format a `list_available_personalities()` result for terminal output."""
+    if not entries:
+        return "No personalities found."
+
+    name_w = max(len(e.name) for e in entries)
+    src_w = max(len(e.source) for e in entries)
+
+    lines = ["Available personalities:", ""]
+    for e in entries:
+        note = "  [shadowed — repo copy loads]" if e.shadowed else ""
+        lines.append(f"  {e.name:<{name_w}}  {e.source:<{src_w}}  {e.role}{note}")
+    return "\n".join(lines)
 
 
 def load_personality(name_or_path: str, role: str) -> _PersonalityBase:
@@ -178,6 +253,16 @@ def add_runtime_cli_args(parser: argparse.ArgumentParser) -> None:
         "--config",
         default="din_reference",
         help="Personality file (name or path); defaults to the DIN reference personality",
+    )
+    parser.add_argument(
+        "--list-configs",
+        dest="list_configs",
+        action="store_true",
+        default=False,
+        help=(
+            "Print all discoverable personalities (repo + user-local) with their "
+            "source and declared role, then exit 0"
+        ),
     )
     parser.add_argument("--runtime", default=None, help="Optional runtime.yaml path")
 
