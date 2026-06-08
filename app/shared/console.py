@@ -318,6 +318,7 @@ def _build_application(live_control: LiveControl, source: str) -> _Console:
     stall_label = "auth stall" if is_secc else "charge-loop stall"
 
     def render_footer():
+        phase = live_control.phase
         armed = (
             live_control.stall_authorization
             if is_secc
@@ -335,6 +336,7 @@ def _build_application(live_control: LiveControl, source: str) -> _Console:
             ]
         parts = [
             ("class:footer", f" AcCCS {source} "),
+            ("class:footer", f"│ {phase} "),
             ("class:footer", f"│ {stall_label}: {state} "),
             ("class:footer", f"│ override I:{cur} V:{volt} "),
             ("class:footer", "│ [s] stall  [a] advance  [c] set-I  [v] set-V  [x] clear "),

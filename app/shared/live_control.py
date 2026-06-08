@@ -49,8 +49,13 @@ class LiveControl:
         stall_authorization: bool = False,
         override_current_a: Optional[float] = None,
         override_voltage_v: Optional[float] = None,
+        phase: str = "Waiting for SLAC",
     ) -> None:
         self.console_enabled = console_enabled
+        # Current lifecycle phase, surfaced by the operator-console footer.
+        # Direct assignment transitions the phase; later slices add phases such
+        # as "Idle" and auto-rearm states without changing the mechanism.
+        self.phase = phase
         self.stall_charge_loop = stall_charge_loop
         # SECC authorization-gate stall (ADR-0004, issue #30): while armed the
         # SECC holds EVSEProcessing.ONGOING on the ISO-2 Authorization loop,

@@ -7,6 +7,7 @@
     and level 3 UDP and TCP communications to the electric vehicle.
 """
 
+import asyncio
 import logging
 
 from app.secc import SECCHandler
@@ -103,22 +104,27 @@ class EVSE:
 
         logger.info(f"SECC MAC address: {self.sourceMAC}")
 
-        self.doSLAC()
-
-        sim_evse_controller = SimEVSEController(
-            personality=self.personality, live_control=self.live_control
-        )
-        await sim_evse_controller.set_status(ServiceStatus.STARTING)
-        session = SECCHandler(
-            exi_codec=EXPyEXICodec(),
-            evse_controller=sim_evse_controller,
-            config=self.config,
-        ).start(self.config.iface)
+        async def _run():
+            # Phase indicator: console is already live when SLAC begins.
+            self.live_control.phase = "Waiting for SLAC"
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, self.doSLAC)
+            self.live_control.phase = "Session active"
+            sim_evse_controller = SimEVSEController(
+                personality=self.personality, live_control=self.live_control
+            )
+            await sim_evse_controller.set_status(ServiceStatus.STARTING)
+            session = SECCHandler(
+                exi_codec=EXPyEXICodec(),
+                evse_controller=sim_evse_controller,
+                config=self.config,
+            ).start(self.config.iface)
+            await session
 
         if self.live_control.console_enabled:
-            await run_with_console(self.live_control, session, source="SECC")
+            await run_with_console(self.live_control, _run(), source="SECC")
         else:
-            await session
+            await _run()
 
     def doSLAC(self):
         self.slac.start()

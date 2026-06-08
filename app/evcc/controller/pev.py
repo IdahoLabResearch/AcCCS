@@ -7,6 +7,7 @@
     and level 3 UDP and TCP communications to the charging station.
 """
 
+import asyncio
 import logging
 import time
 
@@ -102,20 +103,25 @@ class PEV:
 
         logger.info(f"EVCC MAC address: {self.sourceMAC}")
 
-        self.doSLAC()
-
-        session = EVCCHandler(
-            evcc_config=self.evcc_config,
-            iface=self.config.iface,
-            exi_codec=EXPyEXICodec(),
-            ev_controller=SimEVController(self.evcc_config, self.live_control),
-            live_control=self.live_control,
-        ).start()
+        async def _run():
+            # Phase indicator: console is already live when SLAC begins.
+            self.live_control.phase = "Waiting for SLAC"
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, self.doSLAC)
+            self.live_control.phase = "Session active"
+            session = EVCCHandler(
+                evcc_config=self.evcc_config,
+                iface=self.config.iface,
+                exi_codec=EXPyEXICodec(),
+                ev_controller=SimEVController(self.evcc_config, self.live_control),
+                live_control=self.live_control,
+            ).start()
+            await session
 
         if self.live_control.console_enabled:
-            await run_with_console(self.live_control, session, source="EVCC")
+            await run_with_console(self.live_control, _run(), source="EVCC")
         else:
-            await session
+            await _run()
 
     def doSLAC(self):
         logger.info("Starting SLAC")
