@@ -45,8 +45,11 @@ The E2E layer needs the `acccs_secc` ⇄ `acccs_evcc` veth pair from
   reuse the existing pair.
 - **GitHub-hosted runners:** have `CAP_NET_ADMIN` by default. The CI workflow
   invokes `setup_veth.sh` as part of the job.
-- **Self-hosted runners (incl. the AcCCS-box Pi):** must be configured to allow
-  the runner user passwordless `sudo` for `ip link`. See ADR-0003.
+- **AcCCS-box Pi (self-hosted):** does **not** use veth. It has real
+  `acccs_evcc` / `acccs_secc` USB-Ethernet NICs (renamed once by the operator's
+  `rename_eth.sh`), so the E2E layer runs over them directly and
+  `conformance-pi.yml` never calls `setup_veth.sh`. See *Pi runner maintenance*
+  below and ADR-0003 § Substrate and gating.
 
 If the veth pair is not present, the E2E tests are **skipped** rather than
 failing — but those skips will block a merge once F3 lands, because the CI
@@ -65,6 +68,153 @@ personality YAML loader (#6) and the ISO-2 / ISO-20 personality slices
 Per ADR-0003: "PRs that break the smoke set do not merge. This is enforced
 even during the personality YAML rollout, where breakage is expected — each
 personality slice is responsible for updating scenarios as it lands."
+
+## Requesting a Pi run
+
+The hosted `conformance.yml` job runs on every PR but is veth-only on
+GitHub-hosted Ubuntu, with `smbus` stripped and the SMBus path stubbed. It
+cannot catch Pi-specific breakage — the real `smbus` build/import on ARM, PWM
+PCB I/O, or scapy on the Devolo NICs.
+
+The **AcCCS-box Pi** closes that gap. It is registered as a self-hosted runner
+and runs the same suite against real Pi hardware via
+[`conformance-pi.yml`](../../.github/workflows/conformance-pi.yml). Per ADR-0003
+this is a **label-triggered pre-merge gate, not a hard gate on every PR**.
+
+Unlike the hosted job, the Pi runs the E2E layer **non-virtual** (the workflow
+sets `ACCCS_E2E_VIRTUAL=0`) over its real `acccs_evcc` / `acccs_secc` USB NICs,
+so a Pi run actually exercises the SMBus/I2C relay and PWM path the hosted job
+stubs out. That is the whole point of requesting one.
+
+### When to request one
+
+Add the `needs-pi-run` label to a PR when the change is likely to touch
+Pi-specific paths — anything under the `smbus`/I2C, PWM, or NIC/scapy layers,
+or a dependency bump that affects how those build on ARM. Routine
+codec/state-machine/scenario changes do not need it; the hosted job covers them.
+
+### How to request and read the result
+
+1. On the PR, add the **`needs-pi-run`** label. This triggers the
+   `Conformance suite (Pi)` workflow on the Pi runner.
+2. Watch the **`conformance-pi`** check on the PR. Green = the suite passed on
+   real Pi hardware; red = open the check log to see which layer failed.
+3. **To re-run** (e.g. after a new commit), remove the `needs-pi-run` label and
+   add it again. The workflow keys on the *label-added* event, so a fresh add
+   is what re-triggers it; pushing a commit alone does not.
+
+### If the Pi runner is offline
+
+GitHub queues the job against the `acccs-box` runner. If the runner is offline,
+the check sits **pending/queued** rather than failing — it will not go red on
+its own, and it will pick up and run once the runner reconnects.
+
+- Check runner health: GitHub repo → **Settings → Actions → Runners**. A
+  healthy `acccs-box` runner shows **Idle** (green); an offline one shows
+  **Offline** (grey).
+- If it is offline, restart the runner service (see *Pi runner maintenance*
+  below) and the queued job drains automatically.
+- If a Pi run is not coming back in time and the change does not actually touch
+  Pi-specific paths, a maintainer may remove the `needs-pi-run` label and merge
+  on the hosted gate alone — the Pi gate is advisory, not mandatory per ADR-0003.
+
+## Pi runner maintenance
+
+The AcCCS-box Pi is registered as a self-hosted GitHub Actions runner with the
+labels **`self-hosted`** and **`acccs-box`** (the workflow's `runs-on` targets
+that pair). It runs as a service so it survives reboots and reconnects on its
+own. Initial registration and the items below are **operator/maintainer tasks**
+— they require shell access to the Pi and repo admin rights.
+
+### Runner prerequisites (provision once)
+
+These must exist on the Pi before the workflow can pass; the workflow does
+*not* install them:
+
+- **Python 3.13** with the project's `requirements.txt` installable, exposed on
+  the runner service's PATH. The AcCCS-box Pi runs Debian 13 (trixie), whose
+  only interpreter is Python 3.13; deps are installed into a venv whose `bin` is
+  prepended to the runner's `.path` file (e.g. `~/actions-runner/.path`). The
+  systemd runner does **not** source `.bashrc`, so an auto-activated venv is
+  invisible to jobs — `.path` is how the job's `python` resolves to it. (System
+  Python on trixie is PEP-668 externally-managed and refuses `pip install`, so a
+  venv is required.)
+- **i2c headers + a C/C++ build toolchain** (CMake ≥3.20, Ninja, a compiler) so
+  `smbus` and the EXPy `libcbv2g` extension build during `pip install`.
+- **The `cap_net_raw=eip` file capability on the venv interpreter** so the SLAC
+  raw socket opens without a per-run `setcap` (the hosted job sets this itself;
+  the Pi interpreter carries it persistently).
+- **Real `acccs_evcc` / `acccs_secc` USB-Ethernet NICs**, renamed once by the
+  operator's `rename_eth.sh` (MAC-matched systemd `.link` files: "PEV" →
+  `acccs_evcc`, "EVSE" → `acccs_secc`), with both USB adapters connected and
+  coupled. The Pi runs E2E over these real NICs — it does **not** use a veth
+  pair, and the workflow must never call `setup_veth.sh` (its teardown would
+  `ip link delete` the identically-named real NICs).
+
+The workflow generates TLS/PnC certificates itself (`create_certs.sh -v iso-2`)
+each run, so certs are not a provision-once prerequisite.
+
+### Registering / re-registering the runner
+
+From the GitHub repo → **Settings → Actions → Runners → New self-hosted
+runner**, copy the `./config.sh` command and registration token, then on the Pi:
+
+```bash
+# in the runner install dir (e.g. ~/actions-runner)
+./config.sh --url https://github.com/IdahoLabResearch/AcCCS \
+            --token <REGISTRATION_TOKEN> \
+            --labels acccs-box \
+            --name acccs-box
+sudo ./svc.sh install     # install as a service
+sudo ./svc.sh start       # start it; survives reboot
+```
+
+The `--labels acccs-box` is required — the workflow will never schedule onto a
+runner that lacks it.
+
+### Rotating the runner token
+
+Registration tokens are short-lived (they expire ~1 hour after issue) and are
+only used at `config.sh` time, so there is no long-lived secret to rotate for
+normal operation. To re-register (token expired, runner re-imaged, or repo
+moved):
+
+```bash
+sudo ./svc.sh stop
+./config.sh remove --token <REMOVAL_TOKEN>   # token from Settings → Runners
+# then re-run the registration block above with a fresh registration token
+```
+
+Both the registration and removal tokens come from the same **Settings →
+Actions → Runners** page.
+
+### Restarting the service
+
+```bash
+sudo ./svc.sh status      # is it running?
+sudo ./svc.sh stop
+sudo ./svc.sh start
+```
+
+After a restart, any job that was queued while the runner was offline drains
+automatically.
+
+### Where logs live
+
+- **Live job output:** on the PR's `conformance-pi` check, and in the repo's
+  **Actions** tab.
+- **Runner service logs (systemd):** `journalctl -u actions.runner.* -f`.
+- **Per-job worker diagnostics on the Pi:** the `_diag/` directory inside the
+  runner install dir holds `Runner_*.log` and `Worker_*.log` files.
+
+### Security note
+
+A self-hosted runner executes PR code on your own hardware (and the runner has
+passwordless `sudo`). `conformance-pi.yml` therefore guards its job with a
+head-repo check — `github.event.pull_request.head.repo.full_name ==
+github.repository` — so fork-head code can never run on the Pi even if someone
+mislabels a fork PR. Keep that guard in place; don't relax the workflow to run
+on fork PRs.
 
 ## Coverage gaps
 

@@ -1,5 +1,6 @@
 # Ignore all zip files (probably a backup)
 .vscode/
+.claude/
 __pycache__/
 logs/
 scan_results/

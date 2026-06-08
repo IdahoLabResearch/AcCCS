@@ -1,0 +1,99 @@
+name: Conformance suite (Pi)
+
+# Label-triggered pre-merge gate that runs the conformance suite on the
+# AcCCS-box Raspberry Pi (a self-hosted runner) instead of a GitHub-hosted
+# runner. See ADR-0003 § "Substrate and gating" and
+# tests/conformance/README.md § "Requesting a Pi run".
+#
+# Why a Pi job at all: the GitHub-hosted `conformance.yml` job runs on
+# ubuntu-latest with `smbus` stripped from requirements.txt and the SMBus
+# path stubbed (VIRTUAL=True). That can never catch Pi-specific breakage —
+# the real `smbus` build/import on ARM, PWM PCB I/O, or scapy on the Devolo
+# NICs. This job installs the *full* requirements.txt (smbus included) on
+# real Pi hardware so those paths are exercised.
+#
+# This is NOT a hard gate on every PR. It fires only when a reviewer applies
+# the `needs-pi-run` label, so it can be requested on changes likely to touch
+# Pi-specific code without taxing every PR.
+#
+# Runner requirements (provisioned once during runner setup — NOT by this
+# workflow; see the README maintenance section):
+#   - Registered as a self-hosted runner with the labels `self-hosted` and
+#     `acccs-box` (the `if`/`runs-on` below target that label set).
+#   - Python 3.13 with the project's `requirements.txt` installable, exposed on
+#     the runner service's PATH via the runner `.path` file (the AcCCS-box Pi
+#     runs Debian 13/trixie whose only interpreter is Python 3.13; the deps are
+#     installed into a venv whose bin is prepended to `.path`). The systemd
+#     runner does not source bashrc, so `.path` — not an auto-activated venv —
+#     is how jobs see that interpreter.
+#   - i2c headers + a C/C++ build toolchain (CMake >=3.20, Ninja, compiler)
+#     so `smbus` and the EXPy libcbv2g extension build during `pip install`.
+#   - Real `acccs_evcc` / `acccs_secc` USB-Ethernet NICs, MAC-renamed once by
+#     the operator's `rename_eth.sh`, both adapters connected and coupled. The
+#     E2E layer runs over these REAL NICs — this workflow does NOT provision a
+#     veth pair (setup_veth.sh would delete the identically-named real NICs).
+#   - The runner's interpreter carries the `cap_net_raw=eip` file capability so
+#     the SLAC raw socket opens without a per-run setcap (unlike the hosted job).
+#
+# SECURITY: a self-hosted runner executes PR code on your own hardware. The job
+# `if` below gates on the PR head repo being this repo, so fork-head code can
+# never run here even if a maintainer mislabels a fork PR. Keep that guard.
+
+on:
+  pull_request:
+    types: [labeled]
+
+# GitHub serialises jobs on a single self-hosted runner (one at a time), so
+# concurrent Pi runs queue rather than collide. Multi-PR concurrency hardening
+# is explicitly out of scope (ADR-0003 / issue #20) — revisit if it bottlenecks.
+
+jobs:
+  conformance-pi:
+    # Only run when the triggering label is `needs-pi-run` AND the PR head is a
+    # branch in THIS repo (not a fork). `pull_request: types: [labeled]` fires
+    # on every label add; this gate narrows it to our label and, critically,
+    # refuses fork-head code — a self-hosted runner executes PR code on real
+    # hardware with passwordless sudo, so a documentation-only "never for forks"
+    # rule is not enough defense-in-depth.
+    if: >-
+      github.event.label.name == 'needs-pi-run' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, acccs-box]
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Python dependencies
+        # Full requirements.txt — including smbus — unlike the hosted job which
+        # strips it. Building/importing smbus on real ARM hardware is the whole
+        # point of the Pi gate. Python 3.13 + build toolchain + i2c headers are
+        # pre-provisioned on the runner (see README maintenance section).
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Generate TLS/PnC certificates
+        # The ISO-2 / ISO-20 TLS and PnC E2E scenarios need a cert chain; the
+        # emulators read it from app/shared/pki/iso15118_2/certs (CertPath in
+        # app/shared/security.py resolves every protocol there). create_certs.sh
+        # writes paths relative to its CWD, so it must run from app/shared/pki.
+        # `-v iso-2` generates the whole tree the scenarios use; `-v iso-20` is
+        # currently broken (#48) and is not needed — iso-20 scenarios read the
+        # same iso15118_2/certs tree.
+        working-directory: app/shared/pki
+        run: bash create_certs.sh -v iso-2
+
+      - name: Run conformance suite
+        # E2E runs over the Pi's REAL acccs_evcc/acccs_secc USB NICs — no veth
+        # provisioning (setup_veth.sh would delete the identically-named real
+        # NICs). ACCCS_E2E_VIRTUAL=0 drops `--virtual` so the emulators drive
+        # the real SMBus/I2C relay + PWM path — the whole reason for the Pi gate
+        # (ADR-0003 § Substrate and gating).
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          ACCCS_E2E_VIRTUAL: "0"
+        run: pytest tests/conformance/ -v

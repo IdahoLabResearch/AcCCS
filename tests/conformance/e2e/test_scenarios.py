@@ -38,8 +38,20 @@ from app.shared.personality import load_personality
 
 SCENARIOS_DIR = Path(__file__).resolve().parents[1] / "scenarios"
 PERSONALITIES_DIR = Path(__file__).resolve().parents[1] / "personalities"
+PKI_CERTS_DIR = (
+    Path(__file__).resolve().parents[3]
+    / "app"
+    / "shared"
+    / "pki"
+    / "iso15118_2"
+    / "certs"
+)
 EVCC_SUCCESS_MARKER = "SessionStopRes received"
 SECC_SUCCESS_MARKER = "Sent SessionStopRes"
+
+
+def _pki_certs_present() -> bool:
+    return (PKI_CERTS_DIR / "contractLeafCert.pem").exists()
 
 
 @dataclass(frozen=True)
@@ -129,8 +141,24 @@ def test_scenario(scenario: Scenario, launch_emulator):
     # malformed test personality before two subprocesses are launched and
     # surfaces the Pydantic error in the test report rather than buried in
     # subprocess stdout.
-    load_personality(str(scenario.evcc_personality), role="evcc")
-    load_personality(str(scenario.secc_personality), role="secc")
+    evcc_p = load_personality(str(scenario.evcc_personality), role="evcc")
+    secc_p = load_personality(str(scenario.secc_personality), role="secc")
+
+    # Defense-in-depth: if either personality requires TLS and the PKI cert
+    # material has not been generated, skip rather than fail — a missing-cert
+    # environment should be yellow, not red (AC3 of issue #49).
+    needs_tls = (
+        evcc_p.tls.use_tls
+        or evcc_p.tls.enforce_tls
+        or secc_p.tls.use_tls
+        or secc_p.tls.enforce_tls
+    )
+    if needs_tls and not _pki_certs_present():
+        pytest.skip(
+            f"scenario {scenario.name!r} requires TLS but PKI cert material "
+            f"is absent at {PKI_CERTS_DIR} — generate with "
+            "`bash app/shared/pki/create_certs.sh -v iso-2`"
+        )
 
     secc = launch_emulator("secc", scenario.secc_personality)
     # Tiny grace period so the SECC TCP listener is up before EVCC dials.

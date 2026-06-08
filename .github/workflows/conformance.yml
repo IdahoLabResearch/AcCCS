@@ -86,6 +86,17 @@ jobs:
         # this via sudo by default.
         run: sudo ./setup_veth.sh
 
+      - name: Generate TLS/PnC certificates
+        # The ISO-2 / ISO-20 TLS and PnC E2E scenarios need a cert chain; the
+        # emulators read it from app/shared/pki/iso15118_2/certs (CertPath in
+        # app/shared/security.py resolves every protocol there). create_certs.sh
+        # writes paths relative to its CWD, so it must run from app/shared/pki.
+        # `-v iso-2` generates the whole tree the scenarios use; `-v iso-20` is
+        # currently broken (#48) and is not needed — iso-20 scenarios read the
+        # same iso15118_2/certs tree.
+        working-directory: app/shared/pki
+        run: bash create_certs.sh -v iso-2
+
       - name: Run conformance suite
         env:
           PYTHONPATH: ${{ github.workspace }}

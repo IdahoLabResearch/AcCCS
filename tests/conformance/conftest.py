@@ -42,6 +42,18 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SECC_IFACE = "acccs_secc"
 EVCC_IFACE = "acccs_evcc"
 
+# E2E emulators default to `--virtual`, which stubs the SMBus/I2C relay and PWM
+# path — correct for hosted CI and developer machines, which have no EV-harness
+# PCB attached. The AcCCS-box Pi *does* carry that hardware, and exercising the
+# real relay/PWM path is the whole reason for the Pi gate (ADR-0003 § Substrate
+# and gating), so the Pi workflow sets ``ACCCS_E2E_VIRTUAL=0`` to drop the flag
+# and drive the real relays. Default (unset) keeps virtual mode on.
+_VIRTUAL_OFF_VALUES = frozenset({"0", "false", "no", "off", ""})
+
+
+def _virtual_mode_enabled() -> bool:
+    return os.environ.get("ACCCS_E2E_VIRTUAL", "1").strip().lower() not in _VIRTUAL_OFF_VALUES
+
 
 # ---------------------------------------------------------------------------
 # Codec
@@ -104,8 +116,11 @@ def launch_emulator(veth_pair):
 
     Personality YAML lands in ADR-0001 Slice 1, so this fixture passes
     `--config <path>` to the subprocess rather than a translated env. The
-    spawned process is launched in `--virtual` mode (no SMBus / I2C
-    relays); CI / dev environments do not have the EV harness PCB attached.
+    spawned process is launched in `--virtual` mode (no SMBus / I2C relays)
+    by default, since CI / dev environments do not have the EV harness PCB
+    attached. Set ``ACCCS_E2E_VIRTUAL=0`` (the AcCCS-box Pi gate does this) to
+    drop the flag and exercise the real relay/PWM path — see
+    `_virtual_mode_enabled` and ADR-0003 § Substrate and gating.
 
     Returns a callable `(role, personality_path, extra_args=None) -> Popen`.
     All spawned processes are torn down at fixture teardown.
@@ -125,9 +140,10 @@ def launch_emulator(veth_pair):
             f"run_{role}.py",
             "--config",
             str(personality_path),
-            "--virtual",
-            *(list(extra_args) if extra_args else []),
         ]
+        if _virtual_mode_enabled():
+            cmd.append("--virtual")
+        cmd.extend(list(extra_args) if extra_args else [])
         proc = subprocess.Popen(
             cmd,
             cwd=REPO_ROOT,
