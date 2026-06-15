@@ -74,9 +74,10 @@ class SLACHandler:
         Safe to call from another thread (the operator-console quit handler runs
         on the event-loop thread). Sets the stop flag, closes the raw socket to
         unblock the thread parked in `recv()` so `handleSLAC` can observe `stop`
-        and return, and stops the neighbor-solicitation sniffer. Idempotent: a
-        second call (e.g. quit during a phase where SLAC already finished) is a
-        cheap no-op.
+        and return, and stops the neighbor-solicitation sniffer. A send racing
+        this close is absorbed by `_send` (it sees `quit`/`stop` set), so no
+        `OSError` traceback escapes the SLAC thread. Idempotent: a second call
+        (e.g. quit during a phase where SLAC already finished) is a cheap no-op.
         """
         # `quit` is sticky so a re-arm in `start()` (this cycle's spin-up, or a
         # future re-arm cycle) can't undo the operator quit; `stop` ends the
@@ -97,12 +98,29 @@ class SLACHandler:
                 pass
 
     def receive(self) -> Optional[Packet]:
+        """Read one frame, distinguishing idle from a genuine link failure (#51).
+
+        The raw socket polls on a 0.5s timeout (see `create_socket`) so the
+        handleSLAC loop can wake to observe `stop`/`quit`. Three `recv()`
+        outcomes are kept apart rather than all collapsed to silent idle:
+
+        - `socket.timeout` — the expected poll wake; no packet this tick.
+        - close under us — `stop_handler` (operator quit) closed the fd while we
+          were parked here; `quit`/`stop` is already set, so return cleanly
+          instead of crashing the SLAC thread with a traceback.
+        - any other `OSError` — a genuine failure on a live run (interface drop,
+          `ENETDOWN`, ...). Surface it (log) and end the loop, rather than mask
+          a dead link as ordinary idle.
+        """
         try:
             raw_packet = self.sock.recv(65535)
-        except OSError:
-            # Socket closed under us (operator quit via stop_handler) — return
-            # None so handleSLAC's `while not self.stop` loop ends cleanly
-            # instead of crashing the SLAC thread with a traceback.
+        except socket.timeout:
+            return None
+        except OSError as err:
+            if self.quit or self.stop:
+                return None
+            logger.error("SLAC socket error during recv: %s", err)
+            self.stop = True
             return None
 
         try:
@@ -114,6 +132,27 @@ class SLACHandler:
             return packet
         except Exception as err:
             logger.error(err)
+
+    def _send(self, pkt: Packet) -> bool:
+        """Send a built packet on the raw socket, tolerating the quit-close race.
+
+        `stop_handler` closes the socket from the event-loop thread while the
+        handshake runs in an executor thread, so a 'q' landing between a loop's
+        `stop`/`quit` check and a send would otherwise raise `OSError` and crash
+        the SLAC thread with a traceback (#51). Returns True on success. On the
+        quit-close (`quit`/`stop` already set) it swallows the error and returns
+        False. A genuine failure on a live run is surfaced and ends the loop,
+        mirroring `receive()`.
+        """
+        try:
+            self.sock.send(bytes(pkt))
+            return True
+        except OSError as err:
+            if self.quit or self.stop:
+                return False
+            logger.error("SLAC socket error during send: %s", err)
+            self.stop = True
+            return False
 
     # This method starts the slac process and will stop
     def start(self):
@@ -172,11 +211,7 @@ class SLACHandler:
         if self.stop:
             return
         logger.info("Timed out... Sending SLAC_PARM_REQ")
-        try:
-            self.sock.send(bytes(self.buildSlacParmReq()))
-        except OSError:
-            # Socket closed by a concurrent stop_handler (operator quit) between
-            # the loop's stop check and this send — nothing left to do.
+        if not self._send(self.buildSlacParmReq()):
             return
         self.timeSinceLastPkt = int(time.time())
                 
@@ -186,7 +221,7 @@ class SLACHandler:
         if self.quit:
             return
         logger.info("Sending CM_SLAC_PARM_REQ")
-        self.sock.send(bytes(self.buildSlacParmReq()))
+        self._send(self.buildSlacParmReq())
         while not self.stop and not self.quit:
             packet = self.receive()
             if not packet:
@@ -208,16 +243,16 @@ class SLACHandler:
         logger.info("Sending 3 CM_START_ATTEN_CHAR_IND")
         self.slac_sound_start = int(time.time() * 1000)
         self.CM_START_ATTEN_CHAR_IND_sent = True
-        self.sock.send(bytes(self.buildStartAttenCharInd()))
+        self._send(self.buildStartAttenCharInd())
         for i in range(2):
             time.sleep(0.02)
-            self.sock.send(bytes(self.buildStartAttenCharInd()))
-        
+            self._send(self.buildStartAttenCharInd())
+
         logger.info(f"Sending {self.numSounds} CM_MNBC_SOUND_IND")
-        self.sock.send(bytes(self.buildMNBCSoundInd()))
+        self._send(self.buildMNBCSoundInd())
         for i in range(self.numSounds - 1):
             time.sleep(0.02)
-            self.sock.send(bytes(self.buildMNBCSoundInd()))
+            self._send(self.buildMNBCSoundInd())
         return
 
     def handle_CM_ATTEN_CHAR_IND(self):
@@ -227,9 +262,9 @@ class SLACHandler:
         if self.CM_ATTEN_CHAR_IND_recved == False:
             self.CM_ATTEN_CHAR_IND_recved = True
             logger.info("Sending ATTEN_CHAR_RES")
-            self.sock.send(bytes(self.buildAttenCharRes()))
+            self._send(self.buildAttenCharRes())
             logger.info("Sending SLAC_MATCH_REQ")
-            self.sock.send(bytes(self.buildSlacMatchReq()))
+            self._send(self.buildSlacMatchReq())
         self.timeSinceLastPkt = int(time.time())
         return
 
@@ -238,7 +273,7 @@ class SLACHandler:
         self.NID = packet[CM_SLAC_MATCH_CNF].VariableField.NetworkID
         self.NMK = packet[CM_SLAC_MATCH_CNF].VariableField.NMK
         logger.info("Sending SET_KEY_REQ")
-        self.sock.send(bytes(self.buildSetKeyReq()))
+        self._send(self.buildSetKeyReq())
         self.stop = True
         return
 

@@ -14,6 +14,7 @@ drives.
 
 from __future__ import annotations
 
+import logging
 import socket
 import threading
 import time
@@ -84,24 +85,92 @@ def test_evcc_stop_handler_stops_sniffer():
     assert stopped == [True]
 
 
-@pytest.mark.parametrize(
-    "handler_cls, fake, exc",
-    [
-        (EvccSLAC, _fake_evcc(), socket.timeout()),
-        (EvccSLAC, _fake_evcc(), OSError("bad fd")),
-        (SeccSLAC, _fake_secc(), socket.timeout()),
-        (SeccSLAC, _fake_secc(), OSError("bad fd")),
-    ],
-)
-def test_receive_tolerates_recv_errors(handler_cls, fake, exc):
-    """A timed-out or closed socket must yield None, not crash the SLAC thread."""
-    slac = handler_cls(fake)
+# -- receive() three-way OSError split (issue #51) --------------------------
 
+
+def _sock_recv_raises(exc):
     def _raise(_n):
         raise exc
 
-    slac.sock = types.SimpleNamespace(recv=_raise)
+    return types.SimpleNamespace(recv=_raise)
+
+
+@pytest.mark.parametrize(
+    "handler_cls, fake",
+    [(EvccSLAC, _fake_evcc()), (SeccSLAC, _fake_secc())],
+)
+def test_receive_timeout_is_idle(handler_cls, fake):
+    """The 0.5s poll timeout is ordinary idle: None, and not treated as failure."""
+    slac = handler_cls(fake)
+    slac.sock = _sock_recv_raises(socket.timeout())
     assert slac.receive() is None
+    assert slac.stop is False  # a poll wake must not end the SLAC loop
+
+
+@pytest.mark.parametrize(
+    "handler_cls, fake",
+    [(EvccSLAC, _fake_evcc()), (SeccSLAC, _fake_secc())],
+)
+def test_receive_quit_close_is_clean(handler_cls, fake):
+    """A close raced by stop_handler (quit set) is a clean exit, not a failure."""
+    slac = handler_cls(fake)
+    slac.quit = True
+    slac.stop = True
+    slac.sock = _sock_recv_raises(OSError("bad fd"))
+    assert slac.receive() is None
+
+
+@pytest.mark.parametrize(
+    "handler_cls, fake",
+    [(EvccSLAC, _fake_evcc()), (SeccSLAC, _fake_secc())],
+)
+def test_receive_surfaces_genuine_error(handler_cls, fake, caplog):
+    """A genuine socket failure on a live run must be surfaced, not masked as idle."""
+    slac = handler_cls(fake)
+    slac.sock = _sock_recv_raises(OSError(100, "Network is down"))
+    with caplog.at_level(logging.ERROR, logger="SLAC"):
+        assert slac.receive() is None
+    assert slac.stop is True  # ended the loop rather than spin on a dead link
+    assert "socket error" in caplog.text.lower()
+
+
+# -- _send() guards the quit-close race (issue #51) -------------------------
+
+
+@pytest.mark.parametrize(
+    "handler_cls, fake",
+    [(EvccSLAC, _fake_evcc()), (SeccSLAC, _fake_secc())],
+)
+def test_send_tolerates_quit_close(handler_cls, fake):
+    """A send racing a real stop_handler close must not raise an OSError traceback.
+
+    Uses a real socketpair so the OSError is the genuine EBADF from the kernel,
+    not a mock — the exact condition a 'q' during the handshake produces.
+    """
+    ours, peer = socket.socketpair()
+    slac = handler_cls(fake)
+    slac.sock = ours
+    slac.stop_handler()  # closes ours, sets quit + stop
+    assert slac._send(b"\x00") is False  # swallowed, no exception escapes
+    peer.close()
+
+
+@pytest.mark.parametrize(
+    "handler_cls, fake",
+    [(EvccSLAC, _fake_evcc()), (SeccSLAC, _fake_secc())],
+)
+def test_send_surfaces_genuine_error(handler_cls, fake, caplog):
+    """A send failure on a live run (no quit) is surfaced and ends the loop."""
+    slac = handler_cls(fake)
+
+    def _raise(_n):
+        raise OSError(100, "Network is down")
+
+    slac.sock = types.SimpleNamespace(send=_raise)
+    with caplog.at_level(logging.ERROR, logger="SLAC"):
+        assert slac._send(b"\x00") is False
+    assert slac.stop is True
+    assert "socket error" in caplog.text.lower()
 
 
 # -- threaded unblock: the actual bug pattern -------------------------------
