@@ -172,6 +172,15 @@ sudo ./svc.sh start       # start it; survives reboot
 The `--labels acccs-box` is required — the workflow will never schedule onto a
 runner that lacks it.
 
+> **GitHub auto-deregisters idle runners.** A self-hosted runner that has not
+> connected for a sustained period (~2 weeks; observed pruned after ~10 days
+> idle) is removed server-side, so `acccs-box` will silently vanish from
+> **Settings → Runners** even though the Pi's service still exists. If the runner
+> shows offline/deregistered, re-register: `./config.sh remove --local`, then
+> re-run the registration block above with a fresh token, and **re-apply the venv
+> `bin` prepend to `.path`** — `config.sh` regenerates `.path` without it, which
+> otherwise leaves the job's `python` unable to resolve project deps.
+
 ### Rotating the runner token
 
 Registration tokens are short-lived (they expire ~1 hour after issue) and are
