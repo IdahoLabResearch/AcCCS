@@ -148,3 +148,42 @@ def test_clear_overrides_restores_none():
     lc.clear_overrides()
     assert lc.override_current_a is None
     assert lc.override_voltage_v is None
+
+
+# -- operator quit + teardown hooks (issue #40) -----------------------------
+
+
+def test_request_quit_sets_flag():
+    lc = LiveControl()
+    assert lc.quit_requested is False
+    lc.request_quit()
+    assert lc.quit_requested is True
+
+
+def test_request_quit_runs_registered_hooks():
+    """The controller registers SLAC teardown here; quit must invoke it.
+
+    Without this, 'q' tears down only the TUI while the SLAC thread keeps
+    sending and the process hangs (issue #40).
+    """
+    lc = LiveControl()
+    calls = []
+    lc.register_quit_hook(lambda: calls.append("a"))
+    lc.register_quit_hook(lambda: calls.append("b"))
+    lc.request_quit()
+    assert calls == ["a", "b"]
+
+
+def test_request_quit_hooks_are_best_effort():
+    """A raising hook is swallowed so it can't strand the quit or block siblings."""
+    lc = LiveControl()
+    calls = []
+
+    def _boom():
+        raise RuntimeError("teardown blew up")
+
+    lc.register_quit_hook(_boom)
+    lc.register_quit_hook(lambda: calls.append("ran"))
+    lc.request_quit()  # must not raise
+    assert lc.quit_requested is True
+    assert calls == ["ran"]  # sibling hook still ran

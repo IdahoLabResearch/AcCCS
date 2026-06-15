@@ -77,6 +77,12 @@ class PEV:
         self.destinationPort = None
         self.slac = None
 
+        # Operator 'q' quit must stop the SLAC handler, whose blocking recv()
+        # and timeout thread run in a thread pool that asyncio cancellation
+        # can't reach (issue #40). Late-binds to the current `self.slac` so a
+        # future re-armed cycle's handler is the one torn down.
+        self.live_control.register_quit_hook(self._teardown_slac)
+
         self.virtual = self.config.virtual
 
         if not self.virtual:
@@ -92,6 +98,11 @@ class PEV:
             self.PEV_CP2 = 0b100
             self.PEV_PP = 0b10000
             self.ALL_OFF = 0b0
+
+    def _teardown_slac(self) -> None:
+        """Stop the in-flight SLAC handler on operator quit (issue #40)."""
+        if self.slac is not None:
+            self.slac.stop_handler()
 
     async def start(self):
         if not self.virtual:

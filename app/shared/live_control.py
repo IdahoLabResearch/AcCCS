@@ -17,7 +17,10 @@ holds role-aware override values, a per-gate stall arm flag, and a per-gate
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
+import logging
+from typing import Callable, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class LiveControl:
@@ -56,6 +59,17 @@ class LiveControl:
         # Direct assignment transitions the phase; later slices add phases such
         # as "Idle" and auto-rearm states without changing the mechanism.
         self.phase = phase
+        # Set to True when the operator presses 'q'; run_with_console inspects
+        # this to return normally (rather than re-raising CancelledError) so the
+        # run scripts' teardown code (setState A / openProximity) still executes.
+        self.quit_requested: bool = False
+        # Teardown callbacks run synchronously when the operator presses 'q'.
+        # The controller registers one here to stop in-flight background work
+        # the asyncio layer can't reach — chiefly the SLAC handler, whose
+        # blocking recv() and timeout thread run in a thread pool that task
+        # cancellation cannot interrupt (issue #40). Without this, 'q' tears
+        # down only the TUI while SLAC keeps sending and the process hangs.
+        self._quit_hooks: list[Callable[[], None]] = []
         self.stall_charge_loop = stall_charge_loop
         # SECC authorization-gate stall (ADR-0004, issue #30): while armed the
         # SECC holds EVSEProcessing.ONGOING on the ISO-2 Authorization loop,
@@ -163,3 +177,33 @@ class LiveControl:
         """Clear both overrides so the read site falls back to the personality value."""
         self.override_current_a = None
         self.override_voltage_v = None
+
+    # -- operator quit ---------------------------------------------------------
+
+    def register_quit_hook(self, hook: Callable[[], None]) -> None:
+        """Register a teardown callback invoked synchronously on operator quit.
+
+        Hooks run on the console's event-loop thread inside `request_quit`, so
+        they must be quick and thread-safe. The canonical hook closes the SLAC
+        raw socket to unblock a thread parked in `recv()` — work that lives in a
+        thread pool and is therefore beyond the reach of asyncio task
+        cancellation (issue #40).
+        """
+        self._quit_hooks.append(hook)
+
+    def request_quit(self) -> None:
+        """Signal that the operator has requested a graceful quit (the 'q' key).
+
+        Sets `quit_requested` (which `run_with_console` inspects after the TUI
+        exits, returning normally instead of re-raising CancelledError so the
+        run scripts' teardown — setState A / openProximity — still executes) and
+        runs every registered teardown hook. Hooks are best-effort: a raising
+        hook is logged and the rest still run, so one failure can't strand the
+        quit.
+        """
+        self.quit_requested = True
+        for hook in self._quit_hooks:
+            try:
+                hook()
+            except Exception:  # noqa: BLE001 - teardown is best-effort
+                logger.debug("Operator-quit teardown hook raised", exc_info=True)

@@ -278,6 +278,11 @@ def _build_application(live_control: LiveControl, source: str) -> _Console:
         entry.message = "overrides cleared"
         event.app.invalidate()
 
+    @kb.add("q", filter=not_entry)
+    def _quit(event) -> None:
+        live_control.request_quit()
+        event.app.exit()
+
     # Value-entry keys, live only while a value is being typed.
     for _ch in "0123456789.-":
 
@@ -339,7 +344,7 @@ def _build_application(live_control: LiveControl, source: str) -> _Console:
             ("class:footer", f"│ {phase} "),
             ("class:footer", f"│ {stall_label}: {state} "),
             ("class:footer", f"│ override I:{cur} V:{volt} "),
-            ("class:footer", "│ [s] stall  [a] advance  [c] set-I  [v] set-V  [x] clear "),
+            ("class:footer", "│ [s] stall  [a] advance  [c] set-I  [v] set-V  [x] clear  [q] quit "),
         ]
         if entry.message:
             parts.append(("class:footer", f"│ {entry.message} "))
@@ -507,6 +512,16 @@ async def run_with_console(
         # unaffected by the console's handler swap.
         console.handler.unbind_loop()
         _restore_logging(console.handler, removed)
+
+    # If the operator pressed 'q', the TUI exit was intentional. Drain the
+    # cancelled main task silently and return normally so the caller's teardown
+    # code (setState A / openProximity in the run scripts) still executes.
+    if live_control.quit_requested:
+        try:
+            await main_task
+        except (asyncio.CancelledError, Exception):
+            pass
+        return
 
     # Propagate the session's own result/exception. If the UI died first and we
     # tore the session down, this re-raises CancelledError — the right signal that

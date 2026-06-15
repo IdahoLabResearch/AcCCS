@@ -18,7 +18,12 @@ class _FakeEvent:
     """Minimal stand-in for a prompt_toolkit key-press event."""
 
     def __init__(self):
+        self.exit_called = False
         self.app = types.SimpleNamespace(invalidate=lambda: None)
+        self.app.exit = self._on_exit
+
+    def _on_exit(self):
+        self.exit_called = True
 
 
 def _handler_for(app, key: str):
@@ -176,3 +181,39 @@ def test_action_keys_are_inert_while_entering_a_value():
         if any(str(k) == "s" for k in b.keys)
     )
     assert not stall_binding.filter()  # 's' action disabled while entering
+
+
+# -- quit key (issue #40) ---------------------------------------------------
+
+
+def test_q_sets_quit_requested_and_exits_evcc():
+    """[q] on the EVCC console sets quit_requested and exits the app."""
+    lc = LiveControl()
+    console = _build_application(lc, "EVCC")
+    event = _FakeEvent()
+    _handler_for(console.app, "q")(event)
+    assert lc.quit_requested is True
+    assert event.exit_called is True
+
+
+def test_q_sets_quit_requested_and_exits_secc():
+    """[q] on the SECC console sets quit_requested and exits the app."""
+    lc = LiveControl()
+    console = _build_application(lc, "SECC")
+    event = _FakeEvent()
+    _handler_for(console.app, "q")(event)
+    assert lc.quit_requested is True
+    assert event.exit_called is True
+
+
+def test_q_is_suppressed_during_entry():
+    """[q] must not fire while the operator is typing a numeric override."""
+    lc = LiveControl()
+    console = _build_application(lc, "EVCC")
+    _handler_for(console.app, "c")(_FakeEvent())  # enter current-input mode
+    q_binding = next(
+        b
+        for b in console.app.key_bindings.bindings
+        if any(str(k) == "q" for k in b.keys)
+    )
+    assert not q_binding.filter()  # 'q' disabled while entering
