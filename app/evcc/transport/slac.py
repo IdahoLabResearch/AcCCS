@@ -51,6 +51,13 @@ class SLACHandler:
         self.CM_START_ATTEN_CHAR_IND_sent = False
         
     def create_socket(self):
+        # Re-arming a new cycle (ADR-0005) calls this again; close the prior
+        # cycle's socket first so repeated cycles don't leak raw-socket fds.
+        if self.sock is not None:
+            try:
+                self.sock.close()
+            except OSError:
+                pass
         # Create a raw socket
         self.sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))
         # Bind to a specific network interface (e.g., "eth0")
@@ -116,7 +123,18 @@ class SLACHandler:
         if self.quit:
             return
         self.runID = os.urandom(8)
+        # Re-initialise every per-cycle flag so a re-armed cycle (ADR-0005)
+        # starts clean. The one-shot code only ever reset these inside
+        # `restart()`, so on a second `start()` the handshake booleans would
+        # still read True from the prior cycle and `handle_CM_ATTEN_CHAR_IND`
+        # would skip sending ATTEN_CHAR_RES / SLAC_MATCH_REQ — stalling the
+        # second SLAC. `stop` clears here; the sticky `quit` deliberately does
+        # not (issue #40).
         self.stop = False
+        self.stopSounds = False
+        self.CM_ATTEN_CHAR_IND_recved = False
+        self.CM_START_ATTEN_CHAR_IND_sent = False
+        self.timeSinceLastPkt = int(time.time())
 
         # Thread to determine if PEV timed out or SLAC error occured and restart SLAC process
         self.timeoutThread = Thread(target=self.checkForTimeout)

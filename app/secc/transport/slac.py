@@ -42,6 +42,13 @@ class SLACHandler:
         self.quit = False
 
     def create_socket(self):
+        # Re-arming a new cycle (ADR-0005) calls this again; close the prior
+        # cycle's socket first so repeated cycles don't leak raw-socket fds.
+        if self.sock is not None:
+            try:
+                self.sock.close()
+            except OSError:
+                pass
         # Create a raw socket
         self.sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0003))
         # Bind to a specific network interface (e.g., "eth0")
@@ -99,7 +106,16 @@ class SLACHandler:
         # hanging the process (issue #40).
         if self.quit:
             return
+        # Re-initialise per-cycle state so a re-armed cycle (ADR-0005) starts
+        # clean. `runID` is cleared because the EVCC draws a fresh RunID each
+        # cycle; a stale value from the prior cycle would make `receive()`
+        # filter out the new SLAC_PARM_REQ (RunID mismatch) and the SECC would
+        # never answer. `timeSinceLastPkt` is reset so the timeout thread does
+        # not fire immediately on the stale timestamp. `stop` clears here; the
+        # sticky `quit` deliberately does not (issue #40).
         self.stop = False
+        self.runID = None
+        self.timeSinceLastPkt = int(time.time())
         self.create_socket()
         self.handleSLAC()
 

@@ -256,10 +256,10 @@ def _build_application(live_control: LiveControl, source: str) -> _Console:
 
     @kb.add("a", filter=not_entry)
     def _advance(event) -> None:
-        if is_secc:
-            live_control.release_authorization()
-        else:
-            live_control.release_charge_loop()
+        # Phase-dependent (ADR-0005): re-arms from idle, else releases this
+        # role's stall gate. The decision lives on LiveControl, keyed off the
+        # phase field — see `LiveControl.advance`.
+        live_control.advance(is_secc=is_secc)
         event.app.invalidate()
 
     @kb.add("c", filter=not_entry)

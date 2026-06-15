@@ -17,7 +17,12 @@ from app.secc.secc_settings import Config
 from app.secc.transport.slac import SLACHandler
 from app.shared.console import resolve_console_enabled, run_with_console
 from app.shared.expy_exi_codec import EXPyEXICodec
-from app.shared.live_control import LiveControl
+from app.shared.live_control import (
+    PHASE_IDLE,
+    PHASE_SESSION_ACTIVE,
+    PHASE_WAITING_FOR_SLAC,
+    LiveControl,
+)
 from app.shared.logging import _init_logger
 from app.shared.network import (
     get_link_local_addr,
@@ -104,6 +109,19 @@ class EVSE:
         if self.slac is not None:
             self.slac.stop_handler()
 
+    async def _await_rearm(self) -> None:
+        """Block in [[idle]] until the operator advances (re-arm) or quits.
+
+        Polls rather than awaits the re-arm signal so an operator quit pressed
+        while idle also breaks the wait (mirrors the gate-release polling on
+        LiveControl). Returns once a re-arm is consumed or `quit_requested` is
+        set; the caller re-checks `quit_requested` to decide whether to loop.
+        """
+        while not self.live_control.quit_requested:
+            if self.live_control.take_advance():
+                return
+            await asyncio.sleep(0.05)
+
     async def start(self):
         if not self.virtual:
             # Initialize the smbus for I2C commands
@@ -111,26 +129,52 @@ class EVSE:
             self.toggleProximity()
 
         self.iface = self.config.iface
+        # Reused across cycles: SLAC's `start()` re-initialises its per-cycle
+        # state each call (ADR-0005), and the sticky operator-quit flag must
+        # survive a re-arm (issue #40), so the handler persists for the whole
+        # process lifetime rather than being rebuilt per cycle.
         self.slac = SLACHandler(self)
 
         logger.info(f"SECC MAC address: {self.sourceMAC}")
 
         async def _run():
-            # Phase indicator: console is already live when SLAC begins.
-            self.live_control.phase = "Waiting for SLAC"
+            # Outer lifecycle loop (ADR-0005): run a session cycle, reset to a
+            # clean idle state, wait to be re-armed, repeat. The only thing that
+            # leaves this loop is an operator quit — neither a clean SessionStop
+            # nor a failure exits the process.
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, self.doSLAC)
-            self.live_control.phase = "Session active"
-            sim_evse_controller = SimEVSEController(
-                personality=self.personality, live_control=self.live_control
-            )
-            await sim_evse_controller.set_status(ServiceStatus.STARTING)
-            session = SECCHandler(
-                exi_codec=EXPyEXICodec(),
-                evse_controller=sim_evse_controller,
-                config=self.config,
-            ).start(self.config.iface)
-            await session
+            while not self.live_control.quit_requested:
+                # Console is already live when SLAC begins; re-performed every
+                # cycle (the SECC re-arms by re-listening for SLAC).
+                self.live_control.phase = PHASE_WAITING_FOR_SLAC
+                await loop.run_in_executor(None, self.doSLAC)
+                if self.live_control.quit_requested:
+                    break
+                self.live_control.phase = PHASE_SESSION_ACTIVE
+                # Fresh controller + handler per cycle so no stale session
+                # context carries over; the handler's receive loop returns once
+                # the session terminates (ADR-0005).
+                sim_evse_controller = SimEVSEController(
+                    personality=self.personality, live_control=self.live_control
+                )
+                await sim_evse_controller.set_status(ServiceStatus.STARTING)
+                try:
+                    await SECCHandler(
+                        exi_codec=EXPyEXICodec(),
+                        evse_controller=sim_evse_controller,
+                        config=self.config,
+                    ).start(self.config.iface)
+                except Exception as exc:  # noqa: BLE001 - failures return to idle
+                    # SLAC timeout, SDP failure, or a mid-session error all drop
+                    # the side back to idle for a harmless retry (ADR-0005)
+                    # rather than killing the process.
+                    logger.error(f"SECC session cycle ended with an error: {exc}")
+                # Session cycle ended (clean or failure) -> reset to clean idle.
+                self.openProximity()  # proximity open
+                if self.live_control.quit_requested:
+                    break
+                self.live_control.phase = PHASE_IDLE
+                await self._await_rearm()
 
         if self.live_control.console_enabled:
             await run_with_console(self.live_control, _run(), source="SECC")

@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from app.shared.live_control import LiveControl
+from app.shared.live_control import (
+    PHASE_IDLE,
+    PHASE_SESSION_ACTIVE,
+    PHASE_WAITING_FOR_SLAC,
+    LiveControl,
+)
 
 
 def test_defaults_are_inert():
@@ -106,6 +111,62 @@ def test_two_gates_are_independent():
     lc.release_authorization()
     assert lc.take_charge_loop_release() is False  # charge gate untouched
     assert lc.take_authorization_release() is True
+
+
+# -- lifecycle advance / re-arm (ADR-0005, issue #41) -----------------------
+
+
+def test_default_phase_is_waiting_for_slac():
+    assert LiveControl().phase == PHASE_WAITING_FOR_SLAC
+
+
+def test_advance_signal_defaults_inert():
+    assert LiveControl().take_advance() is False
+
+
+def test_advance_signal_is_one_shot():
+    lc = LiveControl()
+    lc.signal_advance()
+    assert lc.take_advance() is True
+    assert lc.take_advance() is False
+
+
+def test_advance_while_idle_rearms_not_releases_gate():
+    """While idle, [a] arms the re-arm signal and touches no stall gate."""
+    lc = LiveControl(phase=PHASE_IDLE)
+    lc.advance(is_secc=False)
+    assert lc.take_advance() is True
+    # The charge-loop gate must not have been pulsed by an idle advance.
+    assert lc.take_charge_loop_release() is False
+
+
+def test_advance_while_idle_secc_rearms_not_releases_gate():
+    lc = LiveControl(phase=PHASE_IDLE)
+    lc.advance(is_secc=True)
+    assert lc.take_advance() is True
+    assert lc.take_authorization_release() is False
+
+
+def test_advance_during_active_session_releases_evcc_gate():
+    """During a session [a] keeps its ADR-0004 meaning: release the role's gate."""
+    lc = LiveControl(phase=PHASE_SESSION_ACTIVE, stall_charge_loop=True)
+    lc.advance(is_secc=False)
+    assert lc.take_charge_loop_release() is True
+    assert lc.take_advance() is False  # no re-arm queued mid-session
+
+
+def test_advance_during_active_session_releases_secc_gate():
+    lc = LiveControl(phase=PHASE_SESSION_ACTIVE, stall_authorization=True)
+    lc.advance(is_secc=True)
+    assert lc.take_authorization_release() is True
+    assert lc.take_advance() is False
+
+
+def test_advance_while_waiting_for_slac_does_not_rearm():
+    """A pre-session [a] is non-idle, so it must not queue a re-arm."""
+    lc = LiveControl(phase=PHASE_WAITING_FOR_SLAC)
+    lc.advance(is_secc=False)
+    assert lc.take_advance() is False
 
 
 # -- live override (ADR-0004, issue #29) ------------------------------------

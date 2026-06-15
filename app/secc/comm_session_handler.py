@@ -16,7 +16,7 @@ at once, i.e. creating, storing, and deleting those sessions as needed.
 import os, asyncio, logging, socket, nmap, threading
 from datetime import datetime
 from asyncio.streams import StreamReader, StreamWriter
-from typing import Any, Coroutine, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from app.secc.controller.ev_data import EVSessionContext15118
 from app.secc.controller.interface import EVSEControllerInterface, ServiceStatus
@@ -63,7 +63,7 @@ from app.shared.notifications import (
     TCPClientNotification,
     UDPPacketNotification,
 )
-from app.shared.utils import cancel_task, wait_for_tasks
+from app.shared.utils import cancel_task
 
 from app.shared.settings import SettingKey, shared_settings
 
@@ -181,7 +181,6 @@ class CommunicationSessionHandler:
     def __init__(
         self, config: Config, codec: EXPyEXICodec, evse_controller: EVSEControllerInterface
     ):
-        self.list_of_tasks: List[Coroutine] = []
         self.udp_server: Optional[UDPServer] = None
         self.tcp_server: Optional[TCPServer] = None
         self.tcp_server_handler: Optional[asyncio.Task[Any]] = None
@@ -220,26 +219,35 @@ class CommunicationSessionHandler:
         constructor.
         """
 
+        udp_task: Optional[asyncio.Task] = None
         if start_udp_server:
             self.udp_server = UDPServer(self._rcv_queue, iface)
             udp_ready_event: asyncio.Event = asyncio.Event()
             self.status_event_list.append(udp_ready_event)
-            self.list_of_tasks.append(self.udp_server.start(udp_ready_event))
+            udp_task = asyncio.create_task(self.udp_server.start(udp_ready_event))
         else:
             logger.info(f"UDP server disabled on {iface}")
 
         self.tcp_server = TCPServer(self._rcv_queue, iface)
 
-        self.list_of_tasks.extend(
-            [
-                self.get_from_rcv_queue(self._rcv_queue),
-                self.check_status_task(True),
-            ]
-        )
+        status_task = asyncio.create_task(self.check_status_task(True))
+        rcv_task = asyncio.create_task(self.get_from_rcv_queue(self._rcv_queue))
 
         logger.info("Communication session handler started")
 
-        await wait_for_tasks(self.list_of_tasks)
+        # The receive loop drives a single session cycle and returns once the
+        # session terminates (ADR-0005), so the SECC is symmetric with the EVCC:
+        # one cycle per handler, the controller's outer loop re-arms. The UDP
+        # server and the status task are background work for this cycle — tear
+        # them down (and free the bound SDP port) when the cycle ends so the
+        # next cycle re-binds cleanly. Exceptions from the receive loop
+        # propagate so a mid-session error reaches the controller, which returns
+        # the side to idle for a harmless retry rather than exiting.
+        try:
+            await rcv_task
+        finally:
+            await cancel_task(status_task)
+            await self._shutdown_servers(udp_task)
 
     def check_events(self) -> bool:
         result: bool = True
@@ -337,6 +345,14 @@ class CommunicationSessionHandler:
                         )
                     except KeyError:
                         pass
+                    # One session cycle per handler (ADR-0005): a terminated
+                    # session returns control to the controller's lifecycle
+                    # loop, which drops the side to idle and re-arms. A PAUSE
+                    # keeps the loop alive so the paused session can resume on
+                    # the same servers. The `finally` below runs `task_done()`
+                    # on the way out.
+                    if notification.stop_action == SessionStopAction.TERMINATE:
+                        return
                 else:
                     logger.warning(
                         f"Communication session handler "
@@ -404,6 +420,29 @@ class CommunicationSessionHandler:
         self._current_peer_ip = None
         if self.udp_server:
             self.udp_server.resume_udp_server()
+
+    async def _shutdown_servers(self, udp_task: Optional[asyncio.Task] = None):
+        """Tear down this cycle's TCP/UDP servers so the next cycle re-binds clean.
+
+        Called when the receive loop returns at the end of a session cycle
+        (ADR-0005). A clean session has usually already cancelled the TCP server
+        handler via `end_current_session`; this is the catch-all (e.g. a
+        mid-session error path) plus the UDP transport close that frees the
+        fixed SDP port for the re-armed cycle. `udp_server.close()` cancels the
+        server's own receive task, so awaiting `udp_task` (the `start()`
+        coroutine) here lets it finish cleanly rather than being cancelled
+        mid-await and orphaning that child task.
+        """
+        if self.tcp_server_handler is not None:
+            try:
+                await cancel_task(self.tcp_server_handler)
+            except Exception as exc:  # noqa: BLE001 - best-effort teardown
+                logger.warning(f"Error cancelling tcp server handler: {exc}")
+            self.tcp_server_handler = None
+        if self.udp_server is not None:
+            self.udp_server.close()
+        if udp_task is not None:
+            await cancel_task(udp_task)
 
     async def start_tcp_server(self, with_tls: bool):
         if self.tcp_server_handler:

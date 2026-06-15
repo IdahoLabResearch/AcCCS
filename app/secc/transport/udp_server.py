@@ -16,7 +16,6 @@ from app.shared.notifications import (
     ReceiveTimeoutNotification,
     UDPPacketNotification,
 )
-from app.shared.utils import wait_for_tasks
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +43,11 @@ class UDPServer(asyncio.DatagramProtocol):
         self._session_handler_queue: asyncio.Queue = session_handler_queue
         self._rcv_queue: asyncio.Queue = asyncio.Queue()
         self._transport: Optional[DatagramTransport] = None
+        # The internal receive loop, owned here so `close()` can cancel it
+        # explicitly. The lifecycle teardown (ADR-0005) cancels the `start()`
+        # task; without owning this child task, cancelling the parent leaves the
+        # receive loop pending (a "Task was destroyed but it is pending" orphan).
+        self._rcv_task: Optional[asyncio.Task] = None
         self.pause_server: bool = False
 
     @staticmethod
@@ -126,8 +130,14 @@ class UDPServer(asyncio.DatagramProtocol):
             f"and port {SDP_SERVER_PORT}"
         )
         ready_event.set()
-        tasks = [self.rcv_task()]
-        await wait_for_tasks(tasks)
+        # Own the receive task so `close()` can cancel it cleanly at the end of
+        # a session cycle (ADR-0005); cancelling the parent `start()` task alone
+        # would orphan it.
+        self._rcv_task = asyncio.create_task(self.rcv_task())
+        try:
+            await self._rcv_task
+        except asyncio.CancelledError:
+            pass
 
     def connection_made(self, transport):
         """
@@ -181,9 +191,14 @@ class UDPServer(asyncio.DatagramProtocol):
             EOF is received, or the connection was aborted or closed by this
             side of the connection.
         """
-        reason = f". Reason: {exc}" if exc else ""
-        logger.exception(f"UDP server closed. {reason}")
         self.started = False
+        # A clean lifecycle teardown (ADR-0005) closes the transport with no
+        # error; don't log that at ERROR with a phantom "NoneType: None"
+        # traceback. Only a real loss (exc set) is an error.
+        if exc is None:
+            logger.debug("UDP server transport closed cleanly")
+            return
+        logger.error(f"UDP server closed. Reason: {exc}", exc_info=exc)
 
     def send(self, message: V2GTPMessage, addr: Tuple[str, int]):
         """
@@ -191,6 +206,23 @@ class UDPServer(asyncio.DatagramProtocol):
         name of the last message sent for debugging purposes.
         """
         self._transport.sendto(message.to_bytes(), addr)
+
+    def close(self):
+        """Close the datagram transport, freeing the bound SDP port.
+
+        The idle-and-re-arm lifecycle (ADR-0005) tears the SECC's per-cycle
+        servers down between session cycles. Cancelling the `start()` task alone
+        cancels `rcv_task` but leaves the socket bound to the fixed SDP port, so
+        the next cycle's bind would fail; closing the transport here releases it
+        (UDP frees the port immediately, with no TIME_WAIT).
+        """
+        if self._rcv_task is not None and not self._rcv_task.done():
+            self._rcv_task.cancel()
+        self._rcv_task = None
+        if self._transport is not None:
+            self._transport.close()
+            self._transport = None
+        self.started = False
 
     def pause_udp_server(self):
         """

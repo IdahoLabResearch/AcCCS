@@ -22,6 +22,16 @@ from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
+# Lifecycle phases surfaced by the operator-console footer (ADR-0005). The
+# string is the literal footer text. `advance()` compares the live phase against
+# PHASE_IDLE to make the [a] key phase-dependent, and the controllers set these
+# same values as they move through a session cycle — so the dispatch and the
+# indicator must agree on the exact string, which is why they share a constant
+# rather than each spelling out a literal.
+PHASE_WAITING_FOR_SLAC = "Waiting for SLAC"
+PHASE_SESSION_ACTIVE = "Session active"
+PHASE_IDLE = "Idle - press 'a' to start"
+
 
 class LiveControl:
     """One source of truth for live, mid-session operator intent.
@@ -52,7 +62,7 @@ class LiveControl:
         stall_authorization: bool = False,
         override_current_a: Optional[float] = None,
         override_voltage_v: Optional[float] = None,
-        phase: str = "Waiting for SLAC",
+        phase: str = PHASE_WAITING_FOR_SLAC,
     ) -> None:
         self.console_enabled = console_enabled
         # Current lifecycle phase, surfaced by the operator-console footer.
@@ -93,6 +103,14 @@ class LiveControl:
         # rationale as the charge-loop release above: it is constructed before
         # asyncio.run and only ever polled/set, never awaited.
         self._authorization_release = asyncio.Event()
+        # One-shot re-arm signal for the idle-and-re-arm lifecycle (ADR-0005).
+        # Distinct from the per-gate releases above: those pass a stall gate
+        # mid-session, whereas this re-arms a side sitting in [[idle]] to begin
+        # the next session cycle. Same lazy-loop-binding / poll-not-await
+        # rationale — the controller's idle wait polls `take_advance` so an
+        # operator quit can break the wait too. Only ever set while idle (see
+        # `advance`), so it can't leak into the next idle stretch.
+        self._advance_signal = asyncio.Event()
 
     # -- charge-loop stall arming -------------------------------------------
 
@@ -160,6 +178,38 @@ class LiveControl:
         """Consume a pending release. Returns True exactly once per signal."""
         if self._authorization_release.is_set():
             self._authorization_release.clear()
+            return True
+        return False
+
+    # -- lifecycle advance (re-arm from idle) -------------------------------
+
+    def advance(self, *, is_secc: bool) -> None:
+        """Dispatch the operator advance (the footer's ``[a]``) by lifecycle phase.
+
+        The [a] key is phase-dependent (ADR-0005): while the side sits in
+        [[idle]] it re-arms to begin the next [[session cycle]]; during an
+        active session it releases this role's stall gate once (the ADR-0004
+        behaviour, unchanged). The live `phase` field is the single source of
+        truth for that decision, so the same string that drives the footer
+        indicator also drives the dispatch here. The role owns exactly one gate
+        — the EVCC the charge loop, the SECC the Authorization gate — so the
+        caller passes which one this run is.
+        """
+        if self.phase == PHASE_IDLE:
+            self.signal_advance()
+        elif is_secc:
+            self.release_authorization()
+        else:
+            self.release_charge_loop()
+
+    def signal_advance(self) -> None:
+        """Re-arm the side from idle to begin the next session cycle (ADR-0005)."""
+        self._advance_signal.set()
+
+    def take_advance(self) -> bool:
+        """Consume a pending re-arm signal. Returns True exactly once per signal."""
+        if self._advance_signal.is_set():
+            self._advance_signal.clear()
             return True
         return False
 
