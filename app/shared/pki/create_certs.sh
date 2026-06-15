@@ -42,6 +42,13 @@ VALIDITY_CPO_SUBCA1_CERT=1460
 VALIDITY_CPO_SUBCA2_CERT=365
 VALIDITY_V2G_ROOT_CERT=3650
 
+# Run from the script's own directory so the relative paths below (configs/,
+# iso15118_2/, iso15118_20/) resolve regardless of the caller's working
+# directory. This lets the documented repo-root invocation
+# (bash app/shared/pki/create_certs.sh ...) work as well as invocation from
+# within the PKI directory.
+cd "$(dirname "$0")" || exit 1
+
 ISO_2="iso-2"
 ISO_20="iso-20"
 
@@ -131,10 +138,13 @@ then
     EC_CURVE=prime256v1
 else
     ISO_FOLDER=iso15118_20
-    SYMMETRIC_CIPHER=-aes-256-cbc  # TODO Check correct version for ISO 15118-20
-    SYMMETRIC_CIPHER_PKCS12=-aes256  # TODO Check correct version for ISO 15118-20
-    SHA=-sha512  # TODO Check correct version for ISO 15118-20
-    EC_CURVE=prime521r1  # TODO Check correct version for ISO 15118-20
+    SYMMETRIC_CIPHER=-aes-256-cbc
+    SYMMETRIC_CIPHER_PKCS12=-aes256
+    SHA=-sha512
+    # Note: OpenSSL spells the NIST P-521 curve (named 'secp521r1' in
+    # ISO 15118-20) as 'secp521r1'. There is no 'prime521r1' equivalent —
+    # unlike P-256, where OpenSSL uses 'prime256v1' for 'secp256r1'.
+    EC_CURVE=secp521r1
     # TODO: Also enable cipher suite TLS_CHACHA20_POLY1305_SHA256
 fi
 
