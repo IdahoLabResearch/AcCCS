@@ -144,12 +144,20 @@ def launch_emulator(veth_pair):
         if _virtual_mode_enabled():
             cmd.append("--virtual")
         cmd.extend(list(extra_args) if extra_args else [])
+        # Force unbuffered child stdout. Python block-buffers stdout to a pipe,
+        # so without this the end-of-session success marker can stay stranded
+        # in the buffer once the emulator idles-and-re-arms (#41) instead of
+        # exiting — the harness then times out on a marker the child already
+        # logged. This is the root-cause fix for the flaky E2E run in #47.
+        env = dict(os.environ)
+        env["PYTHONUNBUFFERED"] = "1"
         proc = subprocess.Popen(
             cmd,
             cwd=REPO_ROOT,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             start_new_session=True,
+            env=env,
         )
         processes.append(proc)
         return proc

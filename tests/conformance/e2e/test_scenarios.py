@@ -26,6 +26,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,6 +49,73 @@ PKI_CERTS_DIR = (
 )
 EVCC_SUCCESS_MARKER = "SessionStopRes received"
 SECC_SUCCESS_MARKER = "Sent SessionStopRes"
+
+# The SECC logs this the instant its SLAC receive loop is up — the first thing
+# the EVCC talks to. We wait for it instead of a blind sleep before dialling
+# (issue #47). SLAC runs below the protocol layer, so the marker is emitted for
+# DIN, ISO 15118-2 and ISO 15118-20 alike.
+SECC_READY_MARKER = "Sending SET_KEY_REQ"
+
+# Upper bound on how long to wait for the SECC listener to come up before
+# launching the EVCC. Generous so a loaded runner (the AcCCS-box Pi under a
+# full-suite run) still clears it; if it elapses we launch anyway and let the
+# scenario timeout plus captured output surface a genuinely dead SECC.
+SECC_READY_TIMEOUT_SECONDS = 15.0
+
+
+class _ProcessReader:
+    """Drain a subprocess's stdout in a background thread (issue #47).
+
+    The runner used to read the EVCC stream to completion and only then read
+    the SECC stream. That left the undrained pipe to fill (a latent writer
+    deadlock) and, more importantly, discarded every line — so a flaky failure
+    reported only ``done=False`` with no clue where the session stalled.
+
+    Each reader thread:
+
+    * captures every line for post-mortem diagnostics (``tail``),
+    * sets ``ready`` when the optional readiness marker appears, and
+    * sets ``seen`` when the success marker appears.
+
+    On EOF (the process exited) ``ready`` is set so a readiness waiter never
+    blocks on a dead process; ``seen`` is deliberately left untouched so an
+    early exit reads as failure, not success. Emulators are spawned with
+    ``PYTHONUNBUFFERED=1`` (see ``launch_emulator``) so lines flush immediately
+    rather than stranding the end-of-session marker in a block buffer when the
+    process idles-and-re-arms (#41).
+    """
+
+    def __init__(
+        self,
+        proc: subprocess.Popen,
+        marker: str,
+        readiness_marker: Optional[str] = None,
+    ) -> None:
+        self._proc = proc
+        self._marker = marker
+        self._readiness_marker = readiness_marker
+        self.lines: list[str] = []
+        self.seen = threading.Event()
+        self.ready = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        assert self._proc.stdout is not None
+        for raw in iter(self._proc.stdout.readline, b""):
+            line = raw.decode("utf-8", errors="replace")
+            self.lines.append(line)
+            if self._readiness_marker and self._readiness_marker in line:
+                self.ready.set()
+            if self._marker in line:
+                self.seen.set()
+        # EOF: the process closed its stdout (exited). Unblock readiness
+        # waiters; leave `seen` as-is so an early exit is not mistaken for the
+        # success marker.
+        self.ready.set()
+
+    def tail(self, n: int = 50) -> str:
+        return "".join(self.lines[-n:])
 
 
 def _pki_certs_present() -> bool:
@@ -107,24 +175,6 @@ def _scenario_params() -> list:
     return params
 
 
-def _wait_for_success(proc: subprocess.Popen, marker: str, deadline: float) -> bool:
-    """Read `proc.stdout` line-by-line until the given marker or the deadline.
-
-    Returns True when the marker is seen. Returns False if the process exits
-    or the deadline passes first.
-    """
-    assert proc.stdout is not None
-    while time.monotonic() < deadline:
-        line = proc.stdout.readline()
-        if not line:
-            if proc.poll() is not None:
-                return False
-            continue
-        if marker in line.decode("utf-8", errors="replace"):
-            return True
-    return False
-
-
 @pytest.mark.parametrize("scenario", _scenario_params())
 def test_scenario(scenario: Scenario, launch_emulator):
     if scenario.expected_outcome != "session_complete":
@@ -161,18 +211,27 @@ def test_scenario(scenario: Scenario, launch_emulator):
         )
 
     secc = launch_emulator("secc", scenario.secc_personality)
-    # Tiny grace period so the SECC TCP listener is up before EVCC dials.
-    time.sleep(0.5)
+    secc_reader = _ProcessReader(
+        secc, SECC_SUCCESS_MARKER, readiness_marker=SECC_READY_MARKER
+    )
+    # Wait for the SECC's SLAC listener to come up before the EVCC dials,
+    # rather than a blind 0.5s sleep that a loaded runner can outrun (#47). If
+    # the readiness marker never arrives within the bound (e.g. the SECC died
+    # at startup), `ready` is also set on EOF, so we fall through and let the
+    # scenario timeout plus captured output report the real failure.
+    secc_reader.ready.wait(timeout=SECC_READY_TIMEOUT_SECONDS)
+
     evcc = launch_emulator("evcc", scenario.evcc_personality)
+    evcc_reader = _ProcessReader(evcc, EVCC_SUCCESS_MARKER)
 
     deadline = time.monotonic() + scenario.timeout_seconds
-    evcc_done = _wait_for_success(evcc, EVCC_SUCCESS_MARKER, deadline)
-    secc_done = (
-        _wait_for_success(secc, SECC_SUCCESS_MARKER, deadline) if evcc_done else False
-    )
+    evcc_done = evcc_reader.seen.wait(timeout=max(0.0, deadline - time.monotonic()))
+    secc_done = secc_reader.seen.wait(timeout=max(0.0, deadline - time.monotonic()))
 
     assert evcc_done and secc_done, (
         f"scenario {scenario.name!r}: expected EVCC to log "
         f"{EVCC_SUCCESS_MARKER!r} and SECC to log {SECC_SUCCESS_MARKER!r}; "
-        f"EVCC done={evcc_done}, SECC done={secc_done}"
+        f"EVCC done={evcc_done}, SECC done={secc_done}\n"
+        f"--- SECC output (tail) ---\n{secc_reader.tail()}\n"
+        f"--- EVCC output (tail) ---\n{evcc_reader.tail()}"
     )
