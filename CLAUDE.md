@@ -14,6 +14,14 @@ Five canonical triage roles using default label strings (`needs-triage`, `needs-
 
 Single-context layout: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
+## Commit conventions
+
+Do **not** add a `Co-Authored-By: Claude ...` trailer (or any other AI
+co-author/attribution trailer) to commit messages. This overrides the default
+harness behavior. Otherwise mirror the existing log style: an imperative
+summary line ending with the issue number in `(#N)` form, plus a body
+paragraph explaining the *why*.
+
 ## Configuration
 
 Emulator configuration follows [ADR-0001](docs/adr/0001-personality-yaml-config.md):
