@@ -91,7 +91,8 @@ Coverage grows in two ways beyond the smoke floor:
 ## Tooling
 
 - **Test runner:** `pytest` + `pytest-asyncio` (the codebase is asyncio-heavy).
-- **Dependencies** folded into `requirements.txt`: `pytest`, `pytest-asyncio`.
+- **Dependencies** folded into `requirements.txt`: `pytest`, `pytest-asyncio`,
+  `pytest-timeout` (the per-test wall-clock backstop on the E2E layer; issue #62).
 - **Layout:** under `tests/conformance/`. Structure:
 
 ```
@@ -152,4 +153,4 @@ The framework itself lands in slices, interleaved with the in-flight upgrades:
 - HomePlug GreenPHY / SLAC is not covered short of hardware-in-the-loop. This is an accepted gap, documented in the framework README.
 - The codec-layer fixture corpus is bootstrapped from the current implementation (Exificient → EXPy). It can only catch *regressions from today's behavior*, not pre-existing bugs. The hardware-tagged replay corpus and the major-release real-device-acceptance gate are the mitigations.
 - Veth captures and operational personalities live in distinct directories from their test-fixture counterparts (`captures/` and `personalities/test/` under `tests/conformance/`, vs the repo-root operational locations). This is deliberate: test fixtures and operational artifacts have different audiences and lifecycles.
-- Framework tooling deps (`pytest`, `pytest-asyncio`) are folded into `requirements.txt` rather than split into a separate dev requirements file.
+- Framework tooling deps (`pytest`, `pytest-asyncio`, `pytest-timeout`) are folded into `requirements.txt` rather than split into a separate dev requirements file.

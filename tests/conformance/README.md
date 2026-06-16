@@ -35,6 +35,20 @@ From the repo root:
 pytest tests/conformance/
 ```
 
+### Stale-emulator pre-flight
+
+Before any E2E test starts, a session pre-flight (in
+[`e2e/conftest.py`](e2e/conftest.py)) checks that no `run_secc.py` /
+`run_evcc.py` process is already alive. The E2E pairs share the veth pair via
+link-local multicast, so a stray emulator — e.g. a backgrounded `--auto-rearm`
+run, which never self-exits (ADR-0005) — collides with the suite's own
+handshakes and hangs it for minutes. If one is found, the session aborts in
+under a second naming the offending PID(s); kill them
+(`pkill -f run_secc.py; pkill -f run_evcc.py`) and re-run. A per-test
+`pytest-timeout` backstop additionally bounds any hang that slips past the
+in-test deadlines. This guard scopes to the E2E layer only; codec and
+state-machine runs are unaffected.
+
 ### Veth requirement
 
 The E2E layer needs the `acccs_secc` ⇄ `acccs_evcc` veth pair from
