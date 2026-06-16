@@ -17,8 +17,17 @@
 # Copyright 2022, Switch
 #
 # Author: Md Sahabul Hossain
-# Copyright 2025, Ford Motor Company  
+# Copyright 2025, Ford Motor Company
 # ===============================================================================================================
+
+# Fail loudly: abort on the first failing generation step instead of running
+# on to produce empty cert/chain files (issue #57).
+#   -e            exit on any command that returns non-zero
+#   -u            treat references to unset variables as an error
+#   -o pipefail   a pipeline fails if *any* stage fails, not just the last —
+#                 needed because every key is built via `ecparam | ec`, so a
+#                 bad curve must abort rather than be masked by the `ec` exit.
+set -euo pipefail
 
 
 # Change the validity periods (given in number of days) to test
@@ -96,20 +105,26 @@ validate_option() {
 }
 
 
-if [ -z $1 ]; then echo "No options were provided"; usage; fi
+# Optional flags default to empty so `set -u` does not trip on an unset
+# reference when the corresponding option (or its argument) is omitted.
+version=""
+password=""
+keysight_certs=""
 
-while [ -n "$1" ]; do
+if [ -z "${1:-}" ]; then echo "No options were provided"; usage; fi
+
+while [ -n "${1:-}" ]; do
     case "$1" in
         -h|--help)
             usage
             ;;
         -v|--version)
-            validate_option $2
-            version=$2
+            validate_option "${2:-}"
+            version="${2:-}"
             shift  # params with args need an extra shift
             ;;
         -p|--password)
-            password=$2
+            password="${2:-}"
             shift
             ;;
         -k|--keysight)
@@ -127,7 +142,7 @@ done
 # Set the cryptographic parameters, depending on whether to create certificates and key
 # material for ISO 15118-2 or ISO 15118-20
 
-if [ $version == $ISO_2 ];
+if [ "$version" == "$ISO_2" ];
 then
     ISO_FOLDER=iso15118_2
     SYMMETRIC_CIPHER=-aes-128-cbc
@@ -150,7 +165,7 @@ fi
 
 # The password used to encrypt (and decrypt) private keys
 # Security note: this is for testing purposes only!
-if [ -z $password ]; then
+if [ -z "$password" ]; then
     password=12345
 fi
 

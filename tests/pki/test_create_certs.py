@@ -134,3 +134,45 @@ def test_create_certs_generates_full_chain(
     assert "contract_leaf_cert" in info.stdout, (
         f"{version}: moCertChain.p12 missing the contract leaf entry\n{info.stdout}"
     )
+
+
+def test_create_certs_aborts_on_per_step_failure(
+    staged_pki: Path,
+    tmp_path: Path,
+    openssl: str,
+):
+    """A failing generation step must abort the script non-zero (issue #57).
+
+    Before ``set -euo pipefail``, a per-step ``openssl`` failure (here: a
+    missing config) was swallowed — the script ran to completion, exited 0,
+    and the downstream ``cat …Cert.pem > …Chain.pem`` lines still produced
+    *empty* chain files. We simulate an early-step failure by removing the
+    config the very first CSR depends on, then assert the script (a) exits
+    non-zero and (b) never reaches the downstream chain concatenation, so no
+    empty chain artifact is left behind.
+    """
+    # Break the first CSR step (1.2): remove the V2G root CA config.
+    (staged_pki.parent / "configs" / "v2gRootCACert.cnf").unlink()
+
+    result = subprocess.run(
+        ["bash", str(staged_pki), "-v", "iso-2"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+
+    assert result.returncode != 0, (
+        "create_certs.sh swallowed a per-step openssl failure and still "
+        f"exited 0 (the #57 silent-failure mode)\nstdout tail:\n"
+        f"{result.stdout[-2000:]}"
+    )
+
+    # The CPO chain is concatenated at step 4.1, well after the broken step 1.
+    # Aborting on the first failure means we never get there, so no empty
+    # chain file should exist.
+    chain = staged_pki.parent / "iso15118_2" / "certs" / "cpoCertChain.pem"
+    assert not chain.exists(), (
+        "create_certs.sh continued past a failed step and produced a "
+        f"downstream chain artifact: {chain}"
+    )
