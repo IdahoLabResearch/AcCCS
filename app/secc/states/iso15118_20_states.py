@@ -1275,6 +1275,15 @@ class SessionStop(StateSECC):
             session_stop_state = SessionStopAction.PAUSE
         elif session_stop_req.charging_session == ChargingSession.TERMINATE:
             session_stop_state = SessionStopAction.TERMINATE
+        elif (
+            session_stop_req.charging_session == ChargingSession.SERVICE_RENEGOTIATION
+        ):
+            # Renegotiation requested but unsupported (the supported case was
+            # consumed above): next_state already fell through to Terminate, so
+            # label this TERMINATE to match. A PAUSE here would keep the handler
+            # holding its servers up for a resume the terminating next_state has
+            # already foreclosed (#61).
+            session_stop_state = SessionStopAction.TERMINATE
         else:
             session_stop_state = SessionStopAction.PAUSE
 

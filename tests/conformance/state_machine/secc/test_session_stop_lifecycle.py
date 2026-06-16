@@ -149,11 +149,11 @@ async def test_iso20_unsupported_renegotiation_terminates(exi_codec):
 
     next_state falls through to Terminate (the default), so the shared rcv_loop
     ends the cycle rather than hanging waiting for a ServiceDiscoveryReq the SECC
-    never offered to accept. Note this path still labels the StopNotification
-    PAUSE (the ``else`` branch), so the *handler* keeps servers up for a resume
-    rather than re-arming -- a latent inconsistency that is unreachable with the
-    stock simulator (it never emits EVSENotification.SERVICE_RENEGOTIATION while
-    reporting renegotiation unsupported); this test only locks the next_state.
+    never offered to accept. The StopNotification must label this TERMINATE to
+    match: a PAUSE here would tell the *handler* to keep servers up for a resume
+    that the terminating next_state has already foreclosed (the inconsistency
+    fixed in #61). Locking stop_action == TERMINATE alongside next_state keeps
+    the two ends of this path agreeing.
     """
     from app.secc.states.iso15118_20_states import SessionStop
     from app.shared.messages.iso15118_20.common_messages import ChargingSession
@@ -166,6 +166,7 @@ async def test_iso20_unsupported_renegotiation_terminates(exi_codec):
     )
 
     assert result.next_state is Terminate
+    assert session.stop_reason.stop_action == SessionStopAction.TERMINATE
 
 
 @pytest.mark.asyncio

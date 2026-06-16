@@ -208,3 +208,40 @@ def test_secc_rcv_loop_keeps_running_on_pause():
 
     calls = asyncio.run(scenario())
     assert calls == [SessionStopAction.PAUSE, SessionStopAction.TERMINATE]
+
+
+def test_secc_unsupported_renegotiation_rearms_to_idle():
+    """The ISO-20 unsupported-renegotiation path re-arms instead of pausing (#61).
+
+    The ISO 15118-20 ``SessionStop`` state emits a TERMINATE StopNotification on
+    this path (locked by
+    ``tests/conformance/state_machine/secc/test_session_stop_lifecycle.py::
+    test_iso20_unsupported_renegotiation_terminates``). This asserts the
+    *handler* end of that contract: fed the TERMINATE action that path produces,
+    the receive loop returns so the controller re-arms to idle rather than
+    holding servers up for a resume the terminating next_state has foreclosed.
+    """
+
+    async def scenario():
+        handler = _make_secc_handler()
+        calls = []
+
+        async def fake_end(peer, action):
+            calls.append(action)
+
+        handler.end_current_session = fake_end
+        queue = handler._rcv_queue
+        queue.put_nowait(
+            StopNotification(
+                True,
+                "renegotiation unsupported",
+                ("::1", 0),
+                SessionStopAction.TERMINATE,
+            )
+        )
+        await asyncio.wait_for(handler.get_from_rcv_queue(queue), timeout=2)
+        return calls
+
+    calls = asyncio.run(scenario())
+    # The loop returned after a single TERMINATE -> controller re-arms to idle.
+    assert calls == [SessionStopAction.TERMINATE]
