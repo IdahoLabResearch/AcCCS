@@ -169,6 +169,38 @@ def test_advance_while_waiting_for_slac_does_not_rearm():
     assert lc.take_advance() is False
 
 
+# -- auto-rearm mode (ADR-0005, issue #43) ----------------------------------
+
+
+def test_auto_rearm_defaults_off():
+    """Auto-rearm is opt-in: a bare LiveControl has it off."""
+    assert LiveControl().auto_rearm is False
+
+
+def test_auto_rearm_via_constructor():
+    """The controller seeds auto_rearm from runtime.rearm.auto at startup."""
+    assert LiveControl(auto_rearm=True).auto_rearm is True
+
+
+def test_toggle_auto_rearm_flips_in_both_directions():
+    lc = LiveControl()
+    lc.toggle_auto_rearm()
+    assert lc.auto_rearm is True
+    lc.toggle_auto_rearm()
+    assert lc.auto_rearm is False
+
+
+def test_toggle_auto_rearm_does_not_queue_advance():
+    """Flipping the mode is not a one-shot advance — no re-arm signal is queued.
+
+    The idle wait reads `auto_rearm` directly, so toggling must not also pulse
+    `_advance_signal` (which would leak a spurious advance into a later cycle).
+    """
+    lc = LiveControl()
+    lc.toggle_auto_rearm()
+    assert lc.take_advance() is False
+
+
 # -- live override (ADR-0004, issue #29) ------------------------------------
 
 

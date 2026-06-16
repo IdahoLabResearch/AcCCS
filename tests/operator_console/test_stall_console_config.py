@@ -28,6 +28,7 @@ def test_defaults():
     assert r.stall.charge_loop is False
     assert r.stall.authorization is False
     assert r.console.mode == "auto"
+    assert r.rearm.auto is False  # auto-rearm is opt-in (ADR-0005)
 
 
 def test_runtime_yaml_arms_stall(tmp_path: Path):
@@ -64,6 +65,41 @@ def test_stall_authorization_flag():
     assert args.stall_authorization is True
     overridden = apply_runtime_overrides(Runtime(), args)
     assert overridden.stall.authorization is True
+
+
+# -- auto-rearm (ADR-0005, issue #43) ---------------------------------------
+
+
+def test_runtime_yaml_enables_auto_rearm(tmp_path: Path):
+    path = tmp_path / "runtime.yaml"
+    path.write_text(
+        textwrap.dedent(
+            """
+            rearm:
+              auto: true
+            """
+        )
+    )
+    assert load_runtime(str(path)).rearm.auto is True
+
+
+def test_auto_rearm_flag():
+    args = _parse(["--auto-rearm"])
+    assert args.auto_rearm is True
+    assert apply_runtime_overrides(Runtime(), args).rearm.auto is True
+
+
+def test_cli_auto_rearm_overrides_runtime_yaml():
+    """CLI --auto-rearm flips on a runtime that left it off."""
+    args = _parse(["--auto-rearm"])
+    assert apply_runtime_overrides(Runtime(), args).rearm.auto is True
+
+
+def test_absent_auto_rearm_flag_leaves_runtime_untouched():
+    """argparse defaults --auto-rearm to None, so a runtime.yaml value survives."""
+    runtime = Runtime(rearm={"auto": True})
+    args = _parse([])  # no --auto-rearm
+    assert apply_runtime_overrides(runtime, args).rearm.auto is True
 
 
 def test_no_console_flag():

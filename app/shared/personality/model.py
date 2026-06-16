@@ -600,6 +600,21 @@ class StallRuntime(_StrictBase):
     authorization: bool = False
 
 
+class RearmRuntime(_StrictBase):
+    """Auto-rearm mode, per ADR-0005.
+
+    `auto` opts into [[auto-rearm]]: instead of returning to [[idle]] and
+    waiting for an operator advance after a [[session cycle]] ends, the side
+    re-arms itself the instant the cycle ends and runs the next one. With both
+    sides in auto-rearm the emulators cycle sessions continuously until quit.
+    Like the stall flags it is a per-invocation, CLI-overridable operator
+    decision (`--auto-rearm`, live `r` toggle), off by default, and never a
+    [[personality]] field.
+    """
+
+    auto: bool = False
+
+
 class ConsoleRuntime(_StrictBase):
     """Operator console activation mode, per ADR-0004.
 
@@ -643,6 +658,10 @@ class Runtime(_StrictBase):
     # operator intent, CLI-overridable, and deliberately not personality fields.
     stall: StallRuntime = Field(default_factory=StallRuntime)
     console: ConsoleRuntime = Field(default_factory=ConsoleRuntime)
+    # Auto-rearm (ADR-0005): opt-in continuous session cycling. Per-invocation
+    # operator intent, CLI-overridable (--auto-rearm), off by default, and
+    # deliberately not a personality field.
+    rearm: RearmRuntime = Field(default_factory=RearmRuntime)
     # Source port for the EVCC/SECC TCP listener. `None` means "random in
     # the dynamic range" (EVCC) or 25565 (SECC); both run scripts retain
     # their historical defaults when this is unset.

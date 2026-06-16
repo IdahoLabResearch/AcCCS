@@ -62,6 +62,7 @@ class LiveControl:
         stall_authorization: bool = False,
         override_current_a: Optional[float] = None,
         override_voltage_v: Optional[float] = None,
+        auto_rearm: bool = False,
         phase: str = PHASE_WAITING_FOR_SLAC,
     ) -> None:
         self.console_enabled = console_enabled
@@ -103,6 +104,12 @@ class LiveControl:
         # rationale as the charge-loop release above: it is constructed before
         # asyncio.run and only ever polled/set, never awaited.
         self._authorization_release = asyncio.Event()
+        # Auto-rearm mode (ADR-0005, issue #43). When True a side skips the
+        # idle wait and re-arms itself the instant a session cycle ends; the
+        # controllers read this each time a cycle returns to idle, and the
+        # console `r` key flips it live. A plain flag (not an Event) because it
+        # is a persistent mode, not a one-shot signal like `_advance_signal`.
+        self.auto_rearm = auto_rearm
         # One-shot re-arm signal for the idle-and-re-arm lifecycle (ADR-0005).
         # Distinct from the per-gate releases above: those pass a stall gate
         # mid-session, whereas this re-arms a side sitting in [[idle]] to begin
@@ -212,6 +219,18 @@ class LiveControl:
             self._advance_signal.clear()
             return True
         return False
+
+    # -- auto-rearm mode (ADR-0005, issue #43) ------------------------------
+
+    def toggle_auto_rearm(self) -> None:
+        """Flip auto-rearm on/off live (the footer's ``[r]`` action).
+
+        A side sitting in [[idle]] re-arms as soon as this flips on (its idle
+        wait polls `auto_rearm`); a continuously cycling side returns to the
+        manual advance once it flips off. No re-arm signal is queued — the
+        flag itself is what the idle wait reads.
+        """
+        self.auto_rearm = not self.auto_rearm
 
     # -- live current/voltage override --------------------------------------
 

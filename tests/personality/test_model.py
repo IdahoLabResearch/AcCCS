@@ -76,3 +76,16 @@ def test_runtime_constructs_from_empty_dict():
 def test_runtime_rejects_unknown_field():
     with pytest.raises(ValidationError):
         Runtime.model_validate({"surprise": "yes"})
+
+
+def test_rearm_is_a_runtime_field_not_a_personality_field():
+    """Auto-rearm is a runtime knob, never a personality field (ADR-0005).
+
+    It must validate on Runtime but be rejected on either personality, the
+    same contract the stall/console knobs hold.
+    """
+    assert Runtime.model_validate({"rearm": {"auto": True}}).rearm.auto is True
+    with pytest.raises(ValidationError):
+        EVCCPersonality.model_validate({"rearm": {"auto": True}})
+    with pytest.raises(ValidationError):
+        SECCPersonality.model_validate({"rearm": {"auto": True}})

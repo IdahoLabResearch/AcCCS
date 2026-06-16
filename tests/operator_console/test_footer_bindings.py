@@ -90,6 +90,56 @@ def test_evcc_s_still_toggles_charge_loop_stall():
     assert lc.stall_authorization is False
 
 
+# -- auto-rearm toggle (ADR-0005, issue #43) --------------------------------
+
+
+def test_r_toggles_auto_rearm_evcc():
+    """[r] flips auto-rearm on the EVCC console in both directions."""
+    lc = LiveControl()
+    app = _build_application(lc, "EVCC").app
+    handler = _handler_for(app, "r")
+
+    handler(_FakeEvent())
+    assert lc.auto_rearm is True
+    handler(_FakeEvent())
+    assert lc.auto_rearm is False
+
+
+def test_r_toggles_auto_rearm_secc():
+    """[r] is available on the SECC console too (auto-rearm is role-symmetric)."""
+    lc = LiveControl()
+    app = _build_application(lc, "SECC").app
+    _handler_for(app, "r")(_FakeEvent())
+    assert lc.auto_rearm is True
+
+
+def test_r_is_suppressed_during_entry():
+    """[r] must not fire while the operator is typing a numeric override."""
+    lc = LiveControl()
+    console = _build_application(lc, "EVCC")
+    _handler_for(console.app, "c")(_FakeEvent())  # enter current-input mode
+    r_binding = next(
+        b
+        for b in console.app.key_bindings.bindings
+        if any(str(k) == "r" for k in b.keys)
+    )
+    assert not r_binding.filter()  # 'r' disabled while entering
+
+
+def test_footer_reflects_auto_rearm_state():
+    """The footer shows the live auto-rearm state (ON/off), per ADR-0005."""
+    lc = LiveControl()
+    console = _build_application(lc, "EVCC")
+    footer = console.app.layout.container.children[1].content
+
+    text_off = "".join(seg[1] for seg in footer.text())
+    assert "auto-rearm: off" in text_off
+
+    lc.toggle_auto_rearm()
+    text_on = "".join(seg[1] for seg in footer.text())
+    assert "auto-rearm: ON" in text_on
+
+
 # -- live override set/clear (ADR-0004, issue #29) --------------------------
 
 

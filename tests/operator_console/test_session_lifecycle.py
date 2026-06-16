@@ -245,3 +245,100 @@ def test_secc_unsupported_renegotiation_rearms_to_idle():
     calls = asyncio.run(scenario())
     # The loop returned after a single TERMINATE -> controller re-arms to idle.
     assert calls == [SessionStopAction.TERMINATE]
+
+
+# -- auto-rearm: re-arm without an operator advance (ADR-0005, issue #43) ----
+#
+# Build the controllers via __new__ so the heavy __init__ (personality load,
+# NIC MAC lookup, logger) is skipped — these methods only touch live_control
+# and the per-role _AUTO_REARM_DELAY_S class attribute.
+
+from app.evcc.controller.pev import PEV  # noqa: E402
+from app.secc.controller.evse import EVSE  # noqa: E402
+from app.shared.live_control import LiveControl  # noqa: E402
+
+
+@pytest.mark.parametrize("controller_cls", [PEV, EVSE])
+def test_await_rearm_returns_immediately_when_auto_rearm_on(controller_cls):
+    """With auto-rearm on, the idle wait must not block on an operator advance.
+
+    No advance is signalled; the wait returns purely because `auto_rearm` is
+    set, which is what lets a live `r` toggle (or the --auto-rearm flag) re-arm
+    a side sitting in idle.
+    """
+    ctrl = controller_cls.__new__(controller_cls)
+    ctrl.live_control = LiveControl(auto_rearm=True)
+
+    async def scenario():
+        await asyncio.wait_for(ctrl._await_rearm(), timeout=1.0)
+
+    asyncio.run(scenario())  # would raise TimeoutError if it blocked
+
+
+@pytest.mark.parametrize("controller_cls", [PEV, EVSE])
+def test_await_rearm_blocks_until_advance_when_auto_rearm_off(controller_cls):
+    """Default (auto-rearm off): the wait blocks until an advance is signalled."""
+    ctrl = controller_cls.__new__(controller_cls)
+    ctrl.live_control = LiveControl(auto_rearm=False)
+
+    async def scenario():
+        task = asyncio.ensure_future(ctrl._await_rearm())
+        await asyncio.sleep(0.15)
+        assert not task.done()  # still waiting — no advance yet
+        ctrl.live_control.signal_advance()
+        await asyncio.wait_for(task, timeout=1.0)
+
+    asyncio.run(scenario())
+
+
+def test_evcc_auto_rearm_delay_paces_between_cycles():
+    """The EVCC inter-cycle delay is non-trivial so it can't hammer SLAC."""
+    assert PEV._AUTO_REARM_DELAY_S >= 1.0
+
+    pev = PEV.__new__(PEV)
+    pev.live_control = LiveControl(auto_rearm=True)
+
+    async def scenario():
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        await pev._auto_rearm_delay()
+        return loop.time() - start
+
+    elapsed = asyncio.run(scenario())
+    # Allow slack for the 0.05 s poll granularity, but it must actually wait.
+    assert elapsed >= PEV._AUTO_REARM_DELAY_S - 0.1
+
+
+def test_secc_auto_rearm_has_no_inter_cycle_delay():
+    """The SECC just re-listens, so its auto-rearm delay is zero (ADR-0005)."""
+    assert EVSE._AUTO_REARM_DELAY_S == 0.0
+
+    evse = EVSE.__new__(EVSE)
+    evse.live_control = LiveControl(auto_rearm=True)
+
+    async def scenario():
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        await evse._auto_rearm_delay()
+        return loop.time() - start
+
+    elapsed = asyncio.run(scenario())
+    assert elapsed < 0.05  # returns essentially immediately
+
+
+def test_auto_rearm_delay_breaks_promptly_on_quit():
+    """An operator quit during the EVCC delay must break out without waiting it out."""
+    pev = PEV.__new__(PEV)
+    pev.live_control = LiveControl(auto_rearm=True)
+
+    async def scenario():
+        loop = asyncio.get_running_loop()
+        task = asyncio.ensure_future(pev._auto_rearm_delay())
+        await asyncio.sleep(0.1)
+        pev.live_control.request_quit()
+        start = loop.time()
+        await asyncio.wait_for(task, timeout=1.0)
+        return loop.time() - start
+
+    # After quit is set the poll loop exits within a tick, well under the full delay.
+    assert asyncio.run(scenario()) < 0.5

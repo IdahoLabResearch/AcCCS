@@ -41,6 +41,12 @@ logger = logging.getLogger(__name__)
 
 class EVSE:
 
+    # The SECC re-arms by re-listening for SLAC, so [[auto-rearm]] needs no
+    # inter-cycle pacing (ADR-0005) — only the EVCC, which initiates, throttles
+    # itself. Kept as a symmetric attribute so the shared `_auto_rearm_delay`
+    # logic reads identically on both sides.
+    _AUTO_REARM_DELAY_S = 0.0
+
     def __init__(self, args):
         personality = load_personality(args.config, role="secc")
         assert isinstance(personality, SECCPersonality)
@@ -75,6 +81,7 @@ class EVSE:
             console_enabled=resolve_console_enabled(runtime.console.mode),
             stall_charge_loop=runtime.stall.charge_loop,
             stall_authorization=runtime.stall.authorization,
+            auto_rearm=runtime.rearm.auto,
         )
 
         self.destinationMAC = None
@@ -114,13 +121,32 @@ class EVSE:
 
         Polls rather than awaits the re-arm signal so an operator quit pressed
         while idle also breaks the wait (mirrors the gate-release polling on
-        LiveControl). Returns once a re-arm is consumed or `quit_requested` is
-        set; the caller re-checks `quit_requested` to decide whether to loop.
+        LiveControl). Also returns the instant [[auto-rearm]] is flipped on
+        live (`r`), so the lifecycle loop re-arms without a manual advance.
+        Returns once a re-arm is consumed, auto-rearm turns on, or
+        `quit_requested` is set; the caller re-checks `quit_requested` to
+        decide whether to loop.
         """
         while not self.live_control.quit_requested:
-            if self.live_control.take_advance():
+            if self.live_control.auto_rearm or self.live_control.take_advance():
                 return
             await asyncio.sleep(0.05)
+
+    async def _auto_rearm_delay(self) -> None:
+        """Pace [[auto-rearm]] before re-arming the next cycle (ADR-0005).
+
+        The SECC's `_AUTO_REARM_DELAY_S` is 0, so this returns immediately —
+        it re-listens with no added delay. Kept symmetric with the EVCC so the
+        lifecycle loop reads the same on both sides; the poll loop also lets an
+        operator quit during any (EVCC) delay break out promptly.
+        """
+        elapsed = 0.0
+        while (
+            elapsed < self._AUTO_REARM_DELAY_S
+            and not self.live_control.quit_requested
+        ):
+            await asyncio.sleep(0.05)
+            elapsed += 0.05
 
     async def start(self):
         if not self.virtual:
@@ -174,7 +200,14 @@ class EVSE:
                 if self.live_control.quit_requested:
                     break
                 self.live_control.phase = PHASE_IDLE
-                await self._await_rearm()
+                if self.live_control.auto_rearm:
+                    # Auto-rearm (ADR-0005): skip the idle wait and re-listen
+                    # immediately. The SECC needs no inter-cycle delay (its
+                    # `_auto_rearm_delay` is a no-op); only the initiating EVCC
+                    # paces itself.
+                    await self._auto_rearm_delay()
+                else:
+                    await self._await_rearm()
 
         if self.live_control.console_enabled:
             await run_with_console(self.live_control, _run(), source="SECC")

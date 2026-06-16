@@ -216,6 +216,8 @@ _CLI_FIELD_MAP = {
     "stall_charge_loop": "stall.charge_loop",
     "stall_authorization": "stall.authorization",
     "console_mode": "console.mode",
+    # Auto-rearm (ADR-0005).
+    "auto_rearm": "rearm.auto",
 }
 
 
@@ -350,6 +352,20 @@ def add_runtime_cli_args(parser: argparse.ArgumentParser) -> None:
             "SECC: arm the authorization stall — hold the ISO 15118-2 "
             "Authorization gate (EVSEProcessing=ONGOING) until released via "
             "the console [a]dvance"
+        ),
+    )
+    # Auto-rearm (ADR-0005). A runtime knob like the stall flags: off by
+    # default, CLI-overridable, never a personality field. The live `r`
+    # console key toggles it mid-run.
+    parser.add_argument(
+        "--auto-rearm",
+        dest="auto_rearm",
+        action="store_true",
+        default=None,
+        help=(
+            "Re-arm automatically after each session cycle instead of waiting "
+            "for the console [a]dvance; with both sides set, cycle sessions "
+            "continuously until quit (the EVCC paces itself between cycles)"
         ),
     )
     # --console / --no-console both write console.mode. argparse keeps the last

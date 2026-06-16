@@ -262,6 +262,13 @@ def _build_application(live_control: LiveControl, source: str) -> _Console:
         live_control.advance(is_secc=is_secc)
         event.app.invalidate()
 
+    @kb.add("r", filter=not_entry)
+    def _toggle_auto_rearm(event) -> None:
+        # Auto-rearm toggle (ADR-0005, issue #43): flip continuous cycling
+        # on/off live. The footer's auto-rearm indicator reflects the new state.
+        live_control.toggle_auto_rearm()
+        event.app.invalidate()
+
     @kb.add("c", filter=not_entry)
     def _set_current(event) -> None:
         _enter_mode("current")
@@ -330,6 +337,7 @@ def _build_application(live_control: LiveControl, source: str) -> _Console:
             else live_control.stall_charge_loop
         )
         state = "ARMED" if armed else "off"
+        rearm_state = "ON" if live_control.auto_rearm else "off"
         cur = _fmt(live_control.override_current_a, "A")
         volt = _fmt(live_control.override_voltage_v, "V")
         if entry.mode:
@@ -342,9 +350,10 @@ def _build_application(live_control: LiveControl, source: str) -> _Console:
         parts = [
             ("class:footer", f" AcCCS {source} "),
             ("class:footer", f"│ {phase} "),
+            ("class:footer", f"│ auto-rearm: {rearm_state} "),
             ("class:footer", f"│ {stall_label}: {state} "),
             ("class:footer", f"│ override I:{cur} V:{volt} "),
-            ("class:footer", "│ [s] stall  [a] advance  [c] set-I  [v] set-V  [x] clear  [q] quit "),
+            ("class:footer", "│ [s] stall  [a] advance  [r] auto-rearm  [c] set-I  [v] set-V  [x] clear  [q] quit "),
         ]
         if entry.message:
             parts.append(("class:footer", f"│ {entry.message} "))
