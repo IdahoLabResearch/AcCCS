@@ -57,11 +57,24 @@ workflow always provisions the pair.
 
 ## Gating policy
 
-The three smoke scenarios (`scenarios/din-happy.yaml`,
-`scenarios/iso2-pnc-dc-tls.yaml`, `scenarios/iso20-pnc-dc-tls.yaml`) are a
-**hard PR gate from this PR forward**.
+The seven E2E scenarios are a **hard PR gate**:
 
-All three scenarios run as hard gates — no `xfail` markers. Once the
+| Scenario | Protocol | Auth | Energy | TLS |
+|---|---|---|---|---|
+| `scenarios/din-happy.yaml` | DIN 70121 | — | DC | off |
+| `scenarios/din-variant.yaml` | DIN 70121 | — | DC | off |
+| `scenarios/iso2-pnc-dc-tls.yaml` | ISO 15118-2 | PnC | DC | on |
+| `scenarios/iso2-eim-dc.yaml` | ISO 15118-2 | EIM | DC | off |
+| `scenarios/iso20-pnc-dc-tls.yaml` | ISO 15118-20 | PnC | DC | on |
+| `scenarios/iso20-eim-dc.yaml` | ISO 15118-20 | EIM | DC | on |
+| `scenarios/iso20-eim-ac.yaml` | ISO 15118-20 | EIM | AC | on |
+
+This is one PnC and one EIM happy-path per ISO protocol, DIN's single
+happy-path, a DIN personality-variant regression guard, and the ISO 15118-20
+AC happy-path (added in #36). ADR-0003's coverage matrix is the authoritative
+definition; this table mirrors it.
+
+All seven scenarios run as hard gates — no `xfail` markers. Once the
 personality YAML loader (#6) and the ISO-2 / ISO-20 personality slices
 (#7, #8, #9) landed, F3 was completed and the smoke set was un-xfailed.
 
