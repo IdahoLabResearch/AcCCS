@@ -342,3 +342,127 @@ def test_auto_rearm_delay_breaks_promptly_on_quit():
 
     # After quit is set the poll loop exits within a tick, well under the full delay.
     assert asyncio.run(scenario()) < 0.5
+
+
+# -- re-arm re-asserts the "present" electrical state (issue #52) -------------
+#
+# The idle-and-re-arm loop drops each side to its idle electrical state at the
+# end of a cycle (EVCC -> CP State A, SECC -> relay open). The pre-loop
+# toggleProximity() asserts the "present" state once, but only for the first
+# cycle; on re-arm the loop re-ran SLAC with the device still idle, so on real
+# hardware the EVSE never detected the EV and cycle 2+ SLAC never engaged. The
+# fix re-asserts "present" (EVCC closeProximity = CP State B, SECC closeProximity
+# = relay closed) at the top of every cycle, guarded by `not self.virtual`.
+#
+# These drive the real `start()` lifecycle loop through two stubbed cycles and
+# assert the call ordering — the per-cycle re-assert lands *before* each SLAC.
+
+
+async def _drive_two_cycles(monkeypatch, *, role, virtual):
+    """Run a controller's `start()` through two stubbed cycles; return the
+    ordered list of proximity / SLAC events.
+
+    The heavy session handler, SLAC handler, codec, and per-cycle controller are
+    stubbed so no socket or capture is needed; the proximity/SLAC methods are
+    replaced with recorders so we observe only the loop's call ordering. The
+    fake session handler quits after the second cycle so the loop exits.
+    """
+    events: list[str] = []
+    cycles = {"n": 0}
+
+    async def _no_delay() -> None:  # skip the EVCC's 1.5 s inter-cycle pace
+        return
+
+    if role == "evcc":
+        module = "app.evcc.controller.pev"
+        ctrl = PEV.__new__(PEV)
+        ctrl.evcc_config = object()
+        ctrl.sourceMAC = "02:00:00:00:00:01"
+
+        class _FakeHandler:
+            def __init__(self, **_kwargs):
+                pass
+
+            async def start(self):
+                events.append("session")
+                cycles["n"] += 1
+                if cycles["n"] >= 2:
+                    ctrl.live_control.request_quit()
+
+        monkeypatch.setattr(f"{module}.EVCCHandler", _FakeHandler)
+        monkeypatch.setattr(f"{module}.SimEVController", lambda *a, **k: object())
+    else:
+        module = "app.secc.controller.evse"
+        ctrl = EVSE.__new__(EVSE)
+        ctrl.personality = object()
+        ctrl.sourceMAC = "02:00:00:00:00:02"
+
+        class _FakeController:
+            def __init__(self, **_kwargs):
+                pass
+
+            async def set_status(self, _status):
+                pass
+
+        class _FakeHandler:
+            def __init__(self, **_kwargs):
+                pass
+
+            async def start(self, _iface):
+                events.append("session")
+                cycles["n"] += 1
+                if cycles["n"] >= 2:
+                    ctrl.live_control.request_quit()
+
+        monkeypatch.setattr(f"{module}.SimEVSEController", _FakeController)
+        monkeypatch.setattr(f"{module}.SECCHandler", _FakeHandler)
+
+    monkeypatch.setattr(f"{module}.SLACHandler", lambda _owner: object())
+    monkeypatch.setattr(f"{module}.EXPyEXICodec", lambda *a, **k: object())
+
+    ctrl.virtual = virtual
+    ctrl.config = types.SimpleNamespace(iface="lo")
+    ctrl.slac = None
+    ctrl.live_control = LiveControl(console_enabled=False, auto_rearm=True)
+    ctrl.bus = types.SimpleNamespace(write_byte_data=lambda *a, **k: None)
+    ctrl.I2C_ADDR = 0x20
+    ctrl.toggleProximity = lambda *a, **k: events.append("toggle")
+    ctrl.closeProximity = lambda: events.append("close")
+    ctrl.openProximity = lambda: events.append("open")
+    ctrl.doSLAC = lambda: events.append("slac")
+    ctrl._auto_rearm_delay = _no_delay
+
+    await asyncio.wait_for(ctrl.start(), timeout=5)
+    return events
+
+
+@pytest.mark.parametrize("role", ["evcc", "secc"])
+def test_rearm_reasserts_present_before_every_slac(role, monkeypatch):
+    """On real hardware, each cycle (incl. re-arm) closes proximity before SLAC.
+
+    Two cycles run; every SLAC must be immediately preceded by a closeProximity
+    (CP State B / relay closed). Without the fix the second cycle re-ran SLAC
+    straight from the idle state and the count of pre-SLAC closes would be 1.
+    """
+    events = asyncio.run(_drive_two_cycles(monkeypatch, role=role, virtual=False))
+
+    slac_indices = [i for i, e in enumerate(events) if e == "slac"]
+    assert len(slac_indices) == 2  # two full cycles ran
+    # Every SLAC — first cycle and the re-armed second — is preceded by a close.
+    assert all(events[i - 1] == "close" for i in slac_indices)
+    assert events.count("close") == 2
+
+
+@pytest.mark.parametrize("role", ["evcc", "secc"])
+def test_rearm_present_reassert_is_noop_under_virtual(role, monkeypatch):
+    """`--virtual` skips the presence re-assert (and the pre-loop toggle).
+
+    The guard keeps the virtual demo's log/electrical-call stream unchanged:
+    closeProximity and toggleProximity must never fire, while the loop still
+    runs SLAC each cycle.
+    """
+    events = asyncio.run(_drive_two_cycles(monkeypatch, role=role, virtual=True))
+
+    assert "close" not in events
+    assert "toggle" not in events
+    assert events.count("slac") == 2  # the lifecycle loop still cycled

@@ -170,6 +170,16 @@ class EVSE:
             # nor a failure exits the process.
             loop = asyncio.get_running_loop()
             while not self.live_control.quit_requested:
+                # Re-assert the relay-closed ("present") state so the EV side is
+                # seen before SLAC. The pre-loop toggleProximity() does this for
+                # the first cycle; on re-arm we're returning from the relay-open
+                # state set at the end of the prior cycle (openProximity below),
+                # so the cycle-end open + this re-close is the edge real hardware
+                # needs — without it cycle 2+ SLAC never engages (#52). No-op
+                # under --virtual (closeProximity guards on it); the outer guard
+                # keeps the virtual log stream unchanged.
+                if not self.virtual:
+                    self.closeProximity()  # proximity closed
                 # Console is already live when SLAC begins; re-performed every
                 # cycle (the SECC re-arms by re-listening for SLAC).
                 self.live_control.phase = PHASE_WAITING_FOR_SLAC
