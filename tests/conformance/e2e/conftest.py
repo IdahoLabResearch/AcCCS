@@ -34,7 +34,8 @@ import psutil
 import pytest
 
 # Emulator entry-point scripts whose presence in the process table signals a
-# live emulator. Matched by basename against each token of a process cmdline.
+# live emulator. Matched by basename against the script position (argv1) of a
+# process cmdline.
 EMULATOR_SCRIPTS = ("run_secc.py", "run_evcc.py")
 
 # Veth interfaces the E2E pairs share — named in the diagnostic so the operator
@@ -59,17 +60,21 @@ E2E_TIMEOUT_SECONDS = 180
 def _cmdline_runs_emulator(cmdline: list[str]) -> bool:
     """True if ``cmdline`` looks like a launched emulator (`python run_*.py`).
 
-    Requires a Python interpreter as argv0 and an emulator script among the
-    remaining tokens (matched by basename). The interpreter check keeps an
-    editor or grep that merely *names* ``run_secc.py`` from being flagged — the
-    orphans we care about are always spawned as ``python run_{secc,evcc}.py``.
+    Requires a Python interpreter as argv0 and an emulator script in the
+    *script position* — ``cmdline[1]``, the first token after the interpreter —
+    matched by basename. An orphan emulator is always spawned as
+    ``python run_{secc,evcc}.py ...``, so the script is argv1; matching only
+    that position keeps a Python process that merely *passes* the script path
+    as a later argument from false-positiving the abort (issue #64). The argv0
+    interpreter check additionally keeps an editor or grep that names the
+    script out.
     """
-    if not cmdline:
+    if len(cmdline) < 2:
         return False
     argv0 = cmdline[0].rsplit("/", 1)[-1].lower()
     if not argv0.startswith("python"):
         return False
-    return any(token.rsplit("/", 1)[-1] in EMULATOR_SCRIPTS for token in cmdline[1:])
+    return cmdline[1].rsplit("/", 1)[-1] in EMULATOR_SCRIPTS
 
 
 def _scan_emulator_processes() -> list[tuple[int, str]]:

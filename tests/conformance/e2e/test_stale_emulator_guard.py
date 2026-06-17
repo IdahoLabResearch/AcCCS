@@ -41,11 +41,32 @@ def test_matcher_ignores_non_emulator_cmdlines():
     assert not _cmdline_runs_emulator(["python"])
 
 
-def test_scan_detects_a_live_emulator_named_process():
-    """A live `python ... run_secc.py` process is found and reported by PID."""
-    proc = subprocess.Popen(
-        [sys.executable, "-c", "import time; time.sleep(30)", "run_secc.py"]
+def test_matcher_ignores_emulator_script_as_later_argument():
+    """The script must be in argv1, not merely somewhere in the args (#64).
+
+    A launched emulator is always ``python run_{secc,evcc}.py ...``, so the
+    script is the first token after the interpreter. A Python tool that just
+    *passes* the script path as a later argument is not a live emulator and
+    must not trip the pre-flight abort.
+    """
+    assert not _cmdline_runs_emulator(["python", "sometool.py", "run_secc.py"])
+    assert not _cmdline_runs_emulator(["python", "-m", "sometool", "run_evcc.py"])
+    assert not _cmdline_runs_emulator(
+        ["/usr/bin/python3", "-c", "import time; time.sleep(30)", "run_secc.py"]
     )
+
+
+def test_scan_detects_a_live_emulator_named_process(tmp_path):
+    """A live `python run_secc.py` process is found and reported by PID.
+
+    The stand-in is spawned with the emulator script in argv1 — the real
+    invocation shape (`python run_secc.py`) — so the scan exercises the
+    script-position match (#64) rather than a path that merely appears as a
+    later argument.
+    """
+    standin = tmp_path / "run_secc.py"
+    standin.write_text("import time\n\ntime.sleep(30)\n")
+    proc = subprocess.Popen([sys.executable, str(standin)])
     try:
         # Give the OS a beat to publish the new process's cmdline.
         deadline = time.monotonic() + 5.0
