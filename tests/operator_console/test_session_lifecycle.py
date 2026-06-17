@@ -247,6 +247,142 @@ def test_secc_unsupported_renegotiation_rearms_to_idle():
     assert calls == [SessionStopAction.TERMINATE]
 
 
+# -- SECC per-cycle background-task supervision (issue #54) -----------------
+#
+# `start_session_handler` runs the receive loop (the cycle driver) alongside the
+# UDP server and the status task as background work. Awaiting the receive loop
+# *alone* hangs the cycle if a background task dies: a UDP/SDP-port bind failure
+# or a status-task error means no notification ever reaches the queue, so the
+# receive loop blocks on `queue.get()` forever instead of erroring out and
+# dropping the controller back to idle (ADR-0005). These drive
+# `start_session_handler` with stubbed transports — the failing background task
+# must end the cycle, while the normal clean return still ends it and tears the
+# servers down.
+
+
+class _IdleUDPServer:
+    """A UDP server that binds, then serves forever (the healthy-cycle case)."""
+
+    def __init__(self, *args, **kwargs):
+        self.closed = False
+
+    async def start(self, ready_event: asyncio.Event) -> None:
+        ready_event.set()
+        await asyncio.Event().wait()  # serve until cancelled at teardown
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakeTCPServer:
+    def __init__(self, *args, **kwargs):
+        pass
+
+
+def _stub_transports(monkeypatch, udp_server_cls):
+    module = "app.secc.comm_session_handler"
+    monkeypatch.setattr(f"{module}.UDPServer", udp_server_cls)
+    monkeypatch.setattr(f"{module}.TCPServer", _FakeTCPServer)
+
+
+def test_secc_udp_bind_failure_ends_cycle_instead_of_hanging(monkeypatch):
+    """A UDP-server start/bind failure ends the cycle, not a hang (#54, AC#1)."""
+
+    class _FailingUDPServer(_IdleUDPServer):
+        async def start(self, ready_event: asyncio.Event) -> None:
+            raise OSError("address already in use")
+
+    _stub_transports(monkeypatch, _FailingUDPServer)
+
+    async def scenario():
+        handler = _make_secc_handler()
+
+        async def _never_returns(queue):
+            # The bug: with the UDP server dead, no notification ever arrives,
+            # so the real receive loop would block here forever.
+            await asyncio.Event().wait()
+
+        async def _status_ok(send_status_update):
+            return None
+
+        handler.get_from_rcv_queue = _never_returns
+        handler.check_status_task = _status_ok
+
+        # The bind error must surface *promptly* — `match` rejects a bare
+        # asyncio.TimeoutError (which is itself an OSError subclass), and the
+        # elapsed check rejects the buggy "hang until the wait_for safety net
+        # fires" path. The fixed supervisor ends the cycle the instant the UDP
+        # task fails.
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        with pytest.raises(OSError, match="address already in use"):
+            await asyncio.wait_for(handler.start_session_handler("lo"), timeout=5)
+        assert loop.time() - started < 1.0  # surfaced, not hung
+        # Teardown still freed the bound SDP port for the next cycle.
+        assert handler.udp_server.closed is True
+
+    asyncio.run(scenario())
+
+
+def test_secc_status_task_failure_is_surfaced(monkeypatch):
+    """A non-TimeoutError from the status task is surfaced, not swallowed (#54, AC#2)."""
+
+    _stub_transports(monkeypatch, _IdleUDPServer)
+
+    async def scenario():
+        handler = _make_secc_handler()
+
+        async def _never_returns(queue):
+            await asyncio.Event().wait()
+
+        async def _status_boom(send_status_update):
+            raise RuntimeError("status task blew up")
+
+        handler.get_from_rcv_queue = _never_returns
+        handler.check_status_task = _status_boom
+
+        # Surfaced promptly: the buggy "await rcv_task" only re-raised this from
+        # the finally's cancel_task after the wait_for safety net fired, so the
+        # elapsed bound is what rejects the hang, not the exception type.
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        with pytest.raises(RuntimeError, match="status task blew up"):
+            await asyncio.wait_for(handler.start_session_handler("lo"), timeout=5)
+        assert loop.time() - started < 1.0  # surfaced, not hung
+
+    asyncio.run(scenario())
+
+
+def test_secc_clean_session_ends_cycle_and_tears_down_servers(monkeypatch):
+    """The clean path still ends on the receive loop's return and re-binds clean (#54, AC#3).
+
+    The status task completes early and cleanly every healthy cycle and the UDP
+    server serves forever; neither must end the cycle prematurely nor leave it
+    hanging once the receive loop returns.
+    """
+
+    _stub_transports(monkeypatch, _IdleUDPServer)
+
+    async def scenario():
+        handler = _make_secc_handler()
+
+        async def _rcv_returns(queue):
+            return None  # session terminated -> controller re-arms
+
+        async def _status_ok(send_status_update):
+            return None
+
+        handler.get_from_rcv_queue = _rcv_returns
+        handler.check_status_task = _status_ok
+
+        # Returns (no exception) well within the timeout despite the forever UDP
+        # server, and the server is torn down so the next cycle re-binds.
+        await asyncio.wait_for(handler.start_session_handler("lo"), timeout=2)
+        assert handler.udp_server.closed is True
+
+    asyncio.run(scenario())
+
+
 # -- auto-rearm: re-arm without an operator advance (ADR-0005, issue #43) ----
 #
 # Build the controllers via __new__ so the heavy __init__ (personality load,

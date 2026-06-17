@@ -237,17 +237,93 @@ class CommunicationSessionHandler:
 
         # The receive loop drives a single session cycle and returns once the
         # session terminates (ADR-0005), so the SECC is symmetric with the EVCC:
-        # one cycle per handler, the controller's outer loop re-arms. The UDP
-        # server and the status task are background work for this cycle — tear
-        # them down (and free the bound SDP port) when the cycle ends so the
-        # next cycle re-binds cleanly. Exceptions from the receive loop
-        # propagate so a mid-session error reaches the controller, which returns
-        # the side to idle for a harmless retry rather than exiting.
+        # one cycle per handler, the controller's outer loop re-arms. But the
+        # loop only makes progress while the background work it depends on is
+        # alive: if the UDP server fails to bind the fixed SDP port, or the
+        # status task raises, no notification ever reaches the queue and
+        # `await rcv_task` alone would block on `queue.get()` forever — the cycle
+        # hangs instead of returning to idle (#54). So supervise the per-cycle
+        # background tasks concurrently with the receive loop (restoring the
+        # pre-#41 group behavior without the always-on infinite loop): the cycle
+        # ends as soon as the receive loop returns *or* a background task fails,
+        # surfacing that failure to the controller, which returns the side to
+        # idle for a harmless retry (ADR-0005). Either way the servers are torn
+        # down so the next cycle re-binds the SDP port cleanly.
+        background_tasks = [status_task]
+        if udp_task is not None:
+            background_tasks.append(udp_task)
         try:
-            await rcv_task
+            await self._supervise_session_cycle(rcv_task, background_tasks)
         finally:
-            await cancel_task(status_task)
+            # Settle (cancel-if-pending + drain) the receive loop and status
+            # task whatever ended the cycle: a background failure leaves the
+            # receive loop blocked on the queue, and a failed background task's
+            # exception has already been surfaced — neither should warn about a
+            # pending task or an unretrieved exception at teardown.
+            await self._settle_task(rcv_task)
+            await self._settle_task(status_task)
             await self._shutdown_servers(udp_task)
+
+    async def _supervise_session_cycle(
+        self,
+        rcv_task: asyncio.Task,
+        background_tasks: List[asyncio.Task],
+    ) -> None:
+        """Wait for the session cycle to end, surfacing background-task failures.
+
+        The receive loop (``rcv_task``) is the cycle driver: it returns when the
+        session terminates (ADR-0005). The UDP server and the status task are
+        background work it depends on, so this waits on all of them together and
+        ends the cycle on whichever resolves first:
+
+        - the receive loop finishing -> the cycle is over; a clean return ends
+          it cleanly, a mid-session error is re-raised for the controller;
+        - a background task *failing* -> surfaced (raised) so the controller
+          returns the side to idle instead of the receive loop hanging forever
+          on an empty queue (a UDP/SDP-port bind failure or a status-task error).
+
+        A background task finishing *cleanly* is expected — the status task sets
+        READY and returns early on every healthy cycle — so it is ignored and
+        the remaining tasks are still supervised.
+        """
+        pending = {rcv_task, *background_tasks}
+        while pending:
+            done, pending = await asyncio.wait(
+                pending, return_when=asyncio.FIRST_COMPLETED
+            )
+            if rcv_task in done:
+                # Cycle over: re-raise a mid-session error, else return clean.
+                rcv_task.result()
+                return
+            # Only background tasks resolved. A clean completion (status task
+            # set READY) is not the end of the cycle — keep waiting. A failure
+            # ends it: raise so the controller's lifecycle guard logs it and
+            # returns the side to idle.
+            for task in done:
+                exc = task.exception()
+                if exc is not None:
+                    raise exc
+
+    @staticmethod
+    async def _settle_task(task: Optional[asyncio.Task]) -> None:
+        """Cancel ``task`` if still running and absorb its result/exception.
+
+        Used in the per-cycle teardown so neither a still-blocked receive loop
+        (cancelled here) nor an already-failed background task (its exception
+        already surfaced by the supervisor) is left to warn about a pending task
+        or an unretrieved exception. Teardown must not raise, so every outcome
+        is swallowed.
+        """
+        if task is None:
+            return
+        if not task.done():
+            task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception:  # noqa: BLE001 - teardown swallows surfaced failures
+            pass
 
     def check_events(self) -> bool:
         result: bool = True
@@ -441,8 +517,12 @@ class CommunicationSessionHandler:
             self.tcp_server_handler = None
         if self.udp_server is not None:
             self.udp_server.close()
-        if udp_task is not None:
-            await cancel_task(udp_task)
+        # `close()` above cancels the server's own receive task; settling the
+        # `start()` task here lets it finish cleanly rather than being orphaned.
+        # `_settle_task` (not `cancel_task`) so a UDP server that already failed
+        # to bind — the task is done with its bind error, already surfaced by
+        # the supervisor — is drained here instead of re-raising mid-teardown.
+        await self._settle_task(udp_task)
 
     async def start_tcp_server(self, with_tls: bool):
         if self.tcp_server_handler:
