@@ -36,6 +36,7 @@ class EVCCHandler(CommunicationSessionHandler):
             await self.start_session_handler()
         except Exception as exc:
             logger.error(f"EVCC terminated: {exc}")
-            # Re-raise so the process ends with a non-zero exit code and the
-            # watchdog can restart the service
+            # Re-raise so the controller's per-cycle lifecycle guard can log the
+            # failure and return the EVCC to idle for re-arming (ADR-0005); the
+            # process exits only on an operator quit, not on a session failure.
             raise
