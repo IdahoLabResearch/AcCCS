@@ -175,43 +175,59 @@ class EVSE:
                 # stall gate (issue #55). Arm flags persist (a CLI-armed stall
                 # engages every cycle); only the one-shot releases are reset.
                 self.live_control.begin_cycle()
-                # Re-assert the relay-closed ("present") state so the EV side is
-                # seen before SLAC. The pre-loop toggleProximity() does this for
-                # the first cycle; on re-arm we're returning from the relay-open
-                # state set at the end of the prior cycle (openProximity below),
-                # so the cycle-end open + this re-close is the edge real hardware
-                # needs — without it cycle 2+ SLAC never engages (#52). No-op
-                # under --virtual (closeProximity guards on it); the outer guard
-                # keeps the virtual log stream unchanged.
-                if not self.virtual:
-                    self.closeProximity()  # proximity closed
-                # Console is already live when SLAC begins; re-performed every
-                # cycle (the SECC re-arms by re-listening for SLAC).
-                self.live_control.phase = PHASE_WAITING_FOR_SLAC
-                await loop.run_in_executor(None, self.doSLAC)
-                if self.live_control.quit_requested:
-                    break
-                self.live_control.phase = PHASE_SESSION_ACTIVE
-                # Fresh controller + handler per cycle so no stale session
-                # context carries over; the handler's receive loop returns once
-                # the session terminates (ADR-0005).
-                sim_evse_controller = SimEVSEController(
-                    personality=self.personality, live_control=self.live_control
-                )
-                await sim_evse_controller.set_status(ServiceStatus.STARTING)
+                # The full per-cycle body runs under one return-to-idle guard
+                # (ADR-0005, #56): SLAC (run in an executor), the session, and
+                # the electrical-state writes all sit here, so an unexpected
+                # exception in any of them is logged and drops the side back to
+                # idle for a harmless retry rather than propagating out of the
+                # loop and exiting the process. Only an operator quit leaves it.
                 try:
+                    # Re-assert the relay-closed ("present") state so the EV side
+                    # is seen before SLAC. The pre-loop toggleProximity() does
+                    # this for the first cycle; on re-arm we're returning from the
+                    # relay-open state set at the end of the prior cycle
+                    # (openProximity below), so the cycle-end open + this re-close
+                    # is the edge real hardware needs — without it cycle 2+ SLAC
+                    # never engages (#52). No-op under --virtual (closeProximity
+                    # guards on it); the outer guard keeps the virtual log stream
+                    # unchanged.
+                    if not self.virtual:
+                        self.closeProximity()  # proximity closed
+                    # Console is already live when SLAC begins; re-performed every
+                    # cycle (the SECC re-arms by re-listening for SLAC).
+                    self.live_control.phase = PHASE_WAITING_FOR_SLAC
+                    await loop.run_in_executor(None, self.doSLAC)
+                    if self.live_control.quit_requested:
+                        break
+                    self.live_control.phase = PHASE_SESSION_ACTIVE
+                    # Fresh controller + handler per cycle so no stale session
+                    # context carries over; the handler's receive loop returns
+                    # once the session terminates (ADR-0005).
+                    sim_evse_controller = SimEVSEController(
+                        personality=self.personality, live_control=self.live_control
+                    )
+                    await sim_evse_controller.set_status(ServiceStatus.STARTING)
                     await SECCHandler(
                         exi_codec=EXPyEXICodec(),
                         evse_controller=sim_evse_controller,
                         config=self.config,
                     ).start(self.config.iface)
                 except Exception as exc:  # noqa: BLE001 - failures return to idle
-                    # SLAC timeout, SDP failure, or a mid-session error all drop
-                    # the side back to idle for a harmless retry (ADR-0005)
-                    # rather than killing the process.
+                    # An unexpected SLAC exception, an SDP failure, a mid-session
+                    # error, or a relay write failure all drop the side back to
+                    # idle for a harmless retry (ADR-0005) rather than killing the
+                    # process.
                     logger.error(f"SECC session cycle ended with an error: {exc}")
                 # Session cycle ended (clean or failure) -> reset to clean idle.
-                self.openProximity()  # proximity open
+                # The relay reset is itself guarded so an openProximity I2C error
+                # also returns to idle, and it runs after a clean session or a
+                # failure so the next cycle gets its present-state edge (#52).
+                try:
+                    self.openProximity()  # proximity open
+                except Exception as exc:  # noqa: BLE001 - failures return to idle
+                    logger.error(
+                        f"SECC failed to reset to idle electrical state: {exc}"
+                    )
                 if self.live_control.quit_requested:
                     break
                 self.live_control.phase = PHASE_IDLE

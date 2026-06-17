@@ -358,7 +358,9 @@ def test_auto_rearm_delay_breaks_promptly_on_quit():
 # assert the call ordering — the per-cycle re-assert lands *before* each SLAC.
 
 
-async def _drive_two_cycles(monkeypatch, *, role, virtual, live_control=None, on_slac=None):
+async def _drive_two_cycles(
+    monkeypatch, *, role, virtual, live_control=None, on_slac=None, on_open=None
+):
     """Run a controller's `start()` through two stubbed cycles; return the
     ordered list of proximity / SLAC events.
 
@@ -371,6 +373,10 @@ async def _drive_two_cycles(monkeypatch, *, role, virtual, live_control=None, on
     the run; `on_slac(cycle_index)` is invoked from inside each cycle's stubbed
     `doSLAC` (phase is `Waiting for SLAC` at that point), so a test can simulate
     an operator key press during the pre-session window (issue #55).
+    `on_open(cycle_index)` is invoked from inside each cycle's stubbed
+    `openProximity` (the end-of-cycle idle reset), so a test can make the
+    electrical-state reset raise (issue #56). Either hook may raise to simulate
+    a failure in that phase.
     """
     events: list[str] = []
     cycles = {"n": 0}
@@ -437,7 +443,13 @@ async def _drive_two_cycles(monkeypatch, *, role, virtual, live_control=None, on
     ctrl.I2C_ADDR = 0x20
     ctrl.toggleProximity = lambda *a, **k: events.append("toggle")
     ctrl.closeProximity = lambda: events.append("close")
-    ctrl.openProximity = lambda: events.append("open")
+
+    def _open() -> None:
+        events.append("open")
+        if on_open is not None:
+            on_open(cycles["n"])
+
+    ctrl.openProximity = _open
 
     def _do_slac():
         # `doSLAC` runs while the footer shows "Waiting for SLAC"; fire the hook
@@ -528,3 +540,101 @@ def test_advance_during_rearm_slac_does_not_prerelease_stall(
     # No release leaked out of the pre-session [a], and the stall is still armed.
     assert getattr(lc, take_release)() is False
     assert getattr(lc, arm_attr) is True
+
+
+# -- SLAC / electrical-state failures are non-fatal (ADR-0005, issue #56) ------
+#
+# ADR-0005's governing principle: only an operator quit exits the process;
+# every failure returns the side to idle. `doSLAC` (run in an executor) and
+# `openProximity` (an I2C electrical-state write on hardware) sit in the
+# per-cycle body, so an unexpected exception in either must be caught and drop
+# the side back to idle for a harmless retry — not propagate out of the
+# lifecycle loop and kill the process. These drive the real `start()` loop and
+# assert it survives a raise in each phase, symmetrically for both roles.
+
+
+@pytest.mark.parametrize("role", ["evcc", "secc"])
+def test_doslac_exception_is_non_fatal(role, monkeypatch):
+    """An unexpected exception in `doSLAC` returns to idle, not process exit.
+
+    SLAC raises on the first cycle; the loop must log-and-rearm rather than let
+    the exception escape `start()`. The next cycles run their session normally
+    and quit, so a returning `start()` proves the SLAC failure was non-fatal.
+    """
+    raised = {"done": False}
+
+    def _raise_first_slac(_cycle_index):
+        if not raised["done"]:
+            raised["done"] = True
+            raise RuntimeError("SLAC blew up")
+
+    events = asyncio.run(
+        _drive_two_cycles(
+            monkeypatch, role=role, virtual=True, on_slac=_raise_first_slac
+        )
+    )
+
+    # start() returned (no escape). The first SLAC raised and was swallowed, so
+    # its cycle ran no session; the loop kept cycling and two later sessions ran.
+    assert raised["done"] is True
+    assert events.count("slac") == 3  # failed cycle + two clean cycles
+    assert events.count("session") == 2
+    # The failed cycle still ran its end-of-cycle idle reset (openProximity
+    # fires after the except), so the reset runs once per cycle including it.
+    assert events[:2] == ["slac", "open"]
+    assert events.count("open") == 3
+
+
+@pytest.mark.parametrize("role", ["evcc", "secc"])
+def test_openproximity_exception_is_non_fatal(role, monkeypatch):
+    """An exception in the end-of-cycle `openProximity` reset returns to idle.
+
+    The CP-line / relay reset is an I2C write that can fail on hardware. A raise
+    there must be caught so the side re-arms instead of the process exiting.
+    """
+    raised = {"done": False}
+
+    def _raise_first_open(_cycle_index):
+        if not raised["done"]:
+            raised["done"] = True
+            raise RuntimeError("I2C reset failed")
+
+    events = asyncio.run(
+        _drive_two_cycles(
+            monkeypatch, role=role, virtual=True, on_open=_raise_first_open
+        )
+    )
+
+    # start() returned despite the reset failure; the loop kept cycling to quit.
+    assert raised["done"] is True
+    assert events.count("session") == 2
+
+
+@pytest.mark.parametrize("role", ["evcc", "secc"])
+def test_quit_during_slac_window_exits_without_session(role, monkeypatch):
+    """An operator quit in the SLAC window exits cleanly, skipping the session.
+
+    The quit check sits between `doSLAC` and the session; a quit there breaks
+    the loop before any session work and before the idle reset (preserving the
+    pre-#56 control flow), and `start()` returns rather than running a session.
+    """
+    lc = LiveControl(console_enabled=False, auto_rearm=True)
+
+    def _quit_during_slac(cycle_index):
+        if cycle_index == 0:
+            lc.request_quit()
+
+    events = asyncio.run(
+        _drive_two_cycles(
+            monkeypatch,
+            role=role,
+            virtual=True,
+            live_control=lc,
+            on_slac=_quit_during_slac,
+        )
+    )
+
+    # Quit in the SLAC window: one SLAC attempt, no session, no idle reset.
+    assert events.count("slac") == 1
+    assert "session" not in events
+    assert "open" not in events
