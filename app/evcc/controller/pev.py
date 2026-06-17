@@ -169,6 +169,11 @@ class PEV:
             # failure exits the process.
             loop = asyncio.get_running_loop()
             while not self.live_control.quit_requested:
+                # Start each cycle from a clean gate state: a stall release left
+                # pending from a prior cycle must not pre-release this cycle's
+                # stall gate (issue #55). Arm flags persist (a CLI-armed stall
+                # engages every cycle); only the one-shot releases are reset.
+                self.live_control.begin_cycle()
                 # Re-assert CP State B ("EV present") so the EVSE detects the EV
                 # before SLAC. The pre-loop toggleProximity() does this for the
                 # first cycle; on re-arm we're returning from the State A set at

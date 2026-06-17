@@ -11,7 +11,7 @@ from __future__ import annotations
 import types
 
 from app.shared.console import _apply_override, _build_application
-from app.shared.live_control import LiveControl
+from app.shared.live_control import PHASE_SESSION_ACTIVE, LiveControl
 
 
 class _FakeEvent:
@@ -45,7 +45,9 @@ def test_s_toggles_charge_loop_stall():
 
 
 def test_a_releases_charge_loop_gate():
-    lc = LiveControl(stall_charge_loop=True)
+    # The footer's [a] gate-release is an active-session action (ADR-0004); in a
+    # pre-session phase it is a deliberate no-op (issue #55).
+    lc = LiveControl(stall_charge_loop=True, phase=PHASE_SESSION_ACTIVE)
     app = _build_application(lc, "EVCC").app
     handler = _handler_for(app, "a")
 
@@ -71,7 +73,7 @@ def test_secc_s_toggles_authorization_stall_not_charge_loop():
 
 
 def test_secc_a_releases_authorization_gate():
-    lc = LiveControl(stall_authorization=True)
+    lc = LiveControl(stall_authorization=True, phase=PHASE_SESSION_ACTIVE)
     app = _build_application(lc, "SECC").app
     handler = _handler_for(app, "a")
 

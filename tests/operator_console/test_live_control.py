@@ -169,6 +169,60 @@ def test_advance_while_waiting_for_slac_does_not_rearm():
     assert lc.take_advance() is False
 
 
+def test_advance_while_waiting_for_slac_does_not_release_evcc_gate():
+    """A pre-session [a] must not pre-release the EVCC's stall gate (issue #55).
+
+    The charge loop hasn't started yet, so there is no gate to pass. Pulsing the
+    release here persists on the one-shot Event and is consumed by the *next*
+    session's first poll, silently skipping the stall the operator armed.
+    """
+    lc = LiveControl(phase=PHASE_WAITING_FOR_SLAC, stall_charge_loop=True)
+    lc.advance(is_secc=False)
+    assert lc.take_charge_loop_release() is False
+
+
+def test_advance_while_waiting_for_slac_does_not_release_secc_gate():
+    """A pre-session [a] must not pre-release the SECC's auth gate (issue #55)."""
+    lc = LiveControl(phase=PHASE_WAITING_FOR_SLAC, stall_authorization=True)
+    lc.advance(is_secc=True)
+    assert lc.take_authorization_release() is False
+
+
+# -- per-cycle gate reset (ADR-0005, issue #55) -----------------------------
+
+
+def test_begin_cycle_clears_pending_charge_loop_release():
+    """A release left pending from a prior cycle must not leak into the next.
+
+    Mirrors the cross-cycle hazard of issue #55: a second [a] after the gate
+    already passed sets the Event again, and without a per-cycle reset the next
+    session consumes it on its first poll and skips the armed stall.
+    """
+    lc = LiveControl(stall_charge_loop=True)
+    lc.release_charge_loop()  # stale release carried over from a prior cycle
+    lc.begin_cycle()
+    assert lc.take_charge_loop_release() is False
+
+
+def test_begin_cycle_clears_pending_authorization_release():
+    lc = LiveControl(stall_authorization=True)
+    lc.release_authorization()
+    lc.begin_cycle()
+    assert lc.take_authorization_release() is False
+
+
+def test_begin_cycle_preserves_arm_flags():
+    """The standing stall intent persists across cycles; only releases reset.
+
+    A CLI-armed stall must engage on every cycle (acceptance #2), so begin_cycle
+    clears the one-shot releases without disarming the gates.
+    """
+    lc = LiveControl(stall_charge_loop=True, stall_authorization=True)
+    lc.begin_cycle()
+    assert lc.stall_charge_loop is True
+    assert lc.stall_authorization is True
+
+
 # -- auto-rearm mode (ADR-0005, issue #43) ----------------------------------
 
 

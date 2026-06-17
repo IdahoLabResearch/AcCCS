@@ -193,21 +193,50 @@ class LiveControl:
     def advance(self, *, is_secc: bool) -> None:
         """Dispatch the operator advance (the footer's ``[a]``) by lifecycle phase.
 
-        The [a] key is phase-dependent (ADR-0005): while the side sits in
-        [[idle]] it re-arms to begin the next [[session cycle]]; during an
-        active session it releases this role's stall gate once (the ADR-0004
-        behaviour, unchanged). The live `phase` field is the single source of
-        truth for that decision, so the same string that drives the footer
-        indicator also drives the dispatch here. The role owns exactly one gate
-        — the EVCC the charge loop, the SECC the Authorization gate — so the
-        caller passes which one this run is.
+        The [a] key is phase-dependent (ADR-0005). The live `phase` field is the
+        single source of truth, so the same string that drives the footer
+        indicator also drives the dispatch here:
+
+        - **Idle** — re-arm to begin the next [[session cycle]].
+        - **Session active** — release this role's stall gate once (the ADR-0004
+          behaviour, unchanged). The role owns exactly one gate — the EVCC the
+          charge loop, the SECC the Authorization gate — so the caller passes
+          which one this run is.
+        - **Anything else** (notably `Waiting for SLAC`, a re-armed cycle's
+          pre-session window) — a deliberate no-op. The charge/auth loop hasn't
+          started, so there is no gate to pass; pulsing a release here would
+          persist on the gate's one-shot Event and be consumed by the *next*
+          session's first poll, silently skipping the stall the operator armed
+          (issue #55).
         """
         if self.phase == PHASE_IDLE:
             self.signal_advance()
-        elif is_secc:
-            self.release_authorization()
+        elif self.phase == PHASE_SESSION_ACTIVE:
+            if is_secc:
+                self.release_authorization()
+            else:
+                self.release_charge_loop()
         else:
-            self.release_charge_loop()
+            logger.debug(
+                "Advance pressed during '%s'; no stall gate to release yet, "
+                "ignoring (issue #55)",
+                self.phase,
+            )
+
+    def begin_cycle(self) -> None:
+        """Reset per-cycle gate state at the start of a session cycle (ADR-0005).
+
+        The lifecycle loop calls this at the top of every cycle. The stall *arm*
+        flags are the operator's standing intent and deliberately persist across
+        cycles — a CLI-armed stall must engage on every cycle — so they are left
+        untouched; only the one-shot release Events are cleared. This guarantees
+        a release left pending from a prior cycle (e.g. a second [a] press after
+        a gate had already passed) can't leak into this cycle's first gate poll
+        and pre-release the stall the operator still expects (issue #55). Mirrors
+        the clear-on-arm in `arm_charge_loop_stall` / `arm_authorization_stall`.
+        """
+        self._charge_loop_release.clear()
+        self._authorization_release.clear()
 
     def signal_advance(self) -> None:
         """Re-arm the side from idle to begin the next session cycle (ADR-0005)."""

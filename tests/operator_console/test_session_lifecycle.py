@@ -358,7 +358,7 @@ def test_auto_rearm_delay_breaks_promptly_on_quit():
 # assert the call ordering — the per-cycle re-assert lands *before* each SLAC.
 
 
-async def _drive_two_cycles(monkeypatch, *, role, virtual):
+async def _drive_two_cycles(monkeypatch, *, role, virtual, live_control=None, on_slac=None):
     """Run a controller's `start()` through two stubbed cycles; return the
     ordered list of proximity / SLAC events.
 
@@ -366,6 +366,11 @@ async def _drive_two_cycles(monkeypatch, *, role, virtual):
     stubbed so no socket or capture is needed; the proximity/SLAC methods are
     replaced with recorders so we observe only the loop's call ordering. The
     fake session handler quits after the second cycle so the loop exits.
+
+    Pass `live_control` to inject a pre-armed `LiveControl` and inspect it after
+    the run; `on_slac(cycle_index)` is invoked from inside each cycle's stubbed
+    `doSLAC` (phase is `Waiting for SLAC` at that point), so a test can simulate
+    an operator key press during the pre-session window (issue #55).
     """
     events: list[str] = []
     cycles = {"n": 0}
@@ -423,13 +428,27 @@ async def _drive_two_cycles(monkeypatch, *, role, virtual):
     ctrl.virtual = virtual
     ctrl.config = types.SimpleNamespace(iface="lo")
     ctrl.slac = None
-    ctrl.live_control = LiveControl(console_enabled=False, auto_rearm=True)
+    ctrl.live_control = (
+        live_control
+        if live_control is not None
+        else LiveControl(console_enabled=False, auto_rearm=True)
+    )
     ctrl.bus = types.SimpleNamespace(write_byte_data=lambda *a, **k: None)
     ctrl.I2C_ADDR = 0x20
     ctrl.toggleProximity = lambda *a, **k: events.append("toggle")
     ctrl.closeProximity = lambda: events.append("close")
     ctrl.openProximity = lambda: events.append("open")
-    ctrl.doSLAC = lambda: events.append("slac")
+
+    def _do_slac():
+        # `doSLAC` runs while the footer shows "Waiting for SLAC"; fire the hook
+        # here so a test can press [a] in that pre-session window. `cycles["n"]`
+        # is still the 0-based index of the cycle about to run (the session
+        # handler increments it afterwards).
+        events.append("slac")
+        if on_slac is not None:
+            on_slac(cycles["n"])
+
+    ctrl.doSLAC = _do_slac
     ctrl._auto_rearm_delay = _no_delay
 
     await asyncio.wait_for(ctrl.start(), timeout=5)
@@ -466,3 +485,46 @@ def test_rearm_present_reassert_is_noop_under_virtual(role, monkeypatch):
     assert "close" not in events
     assert "toggle" not in events
     assert events.count("slac") == 2  # the lifecycle loop still cycled
+
+
+# -- cross-cycle stall pre-release through the real loop (issue #55) ----------
+
+
+@pytest.mark.parametrize(
+    "role, is_secc, arm_attr, take_release",
+    [
+        ("evcc", False, "stall_charge_loop", "take_charge_loop_release"),
+        ("secc", True, "stall_authorization", "take_authorization_release"),
+    ],
+)
+def test_advance_during_rearm_slac_does_not_prerelease_stall(
+    role, is_secc, arm_attr, take_release, monkeypatch
+):
+    """An [a] during a re-armed cycle's 'Waiting for SLAC' can't skip the stall.
+
+    Drives the real `start()` lifecycle loop through two cycles with a CLI-armed
+    stall. During the second cycle's SLAC window (phase == Waiting for SLAC) the
+    operator advance is simulated. With the bug that pulses the gate release,
+    which survives into the session and the first gate poll consumes it — the
+    stall the operator armed is silently skipped. After the fix the gate stays
+    closed (no pending release) and the arm flag still stands for the next cycle.
+    """
+    lc = LiveControl(console_enabled=False, auto_rearm=True, **{arm_attr: True})
+
+    def _press_advance_during_slac(cycle_index):
+        if cycle_index == 1:  # the re-armed second cycle's pre-session window
+            lc.advance(is_secc=is_secc)
+
+    asyncio.run(
+        _drive_two_cycles(
+            monkeypatch,
+            role=role,
+            virtual=True,
+            live_control=lc,
+            on_slac=_press_advance_during_slac,
+        )
+    )
+
+    # No release leaked out of the pre-session [a], and the stall is still armed.
+    assert getattr(lc, take_release)() is False
+    assert getattr(lc, arm_attr) is True
