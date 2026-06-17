@@ -328,7 +328,16 @@ class CommunicationSessionHandler:
 
         logger.info("Communication session handler started")
 
-        await wait_for_tasks(self.list_of_tasks)
+        # One cycle per handler (ADR-0005): the controller's outer loop builds a
+        # fresh handler — and so a fresh UDPClient and datagram endpoint — for
+        # every re-arm. Close the client when the cycle ends, clean or failure,
+        # so its socket fd is released instead of leaking each cycle (#53). This
+        # mirrors the SECC handler's per-cycle server teardown.
+        try:
+            await wait_for_tasks(self.list_of_tasks)
+        finally:
+            if self.udp_client is not None:
+                self.udp_client.close()
 
     async def send_sdp(self):
         """

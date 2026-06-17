@@ -186,3 +186,20 @@ class UDPClient(DatagramProtocol):
     async def send_and_receive(self, message: V2GTPMessage):
         self.send(message)
         await self.receive()
+
+    def close(self):
+        """Close the datagram transport, freeing the client's UDP socket fd.
+
+        The idle-and-re-arm lifecycle (ADR-0005) builds a fresh UDPClient — and
+        a fresh datagram endpoint — for every session cycle. Without this, each
+        re-arm leaks the prior cycle's socket fd; the SECC's UDPServer already
+        frees its bound SDP port the same way (see `UDPServer.close()`). The
+        client's port is ephemeral so there's no bind contention, but the fds
+        accumulate across cycles under continuous auto-rearm (#43/#53). Mirrors
+        the SECC teardown so both roles release their UDP sockets per cycle.
+        Idempotent: a second call on an already-closed client is a no-op.
+        """
+        if self._transport is not None:
+            self._transport.close()
+            self._transport = None
+        self.started = False
