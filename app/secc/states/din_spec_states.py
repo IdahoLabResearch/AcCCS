@@ -81,6 +81,11 @@ class SessionSetup(StateSECC):
     """
     The DIN SPEC state in which the SECC processes a SessionSetupReq
     message from the EVCC.
+
+    Per DIN SPEC 70121 the EV may end the session gracefully with a
+    SessionStopReq at essentially any point (#69); such a request is routed to
+    SessionStop as a legitimate teardown rather than rejected as a sequence
+    error.
     """
 
     def __init__(self, comm_session: SECCCommunicationSession):
@@ -97,8 +102,16 @@ class SessionSetup(StateSECC):
         ],
         message_exi: bytes = None,
     ):
-        msg = self.check_msg_dinspec(message, [SessionSetupReq])
+        # expect_first is False so an EV-initiated SessionStopReq is accepted as
+        # a graceful teardown even as the first message in this state (#69).
+        msg = self.check_msg_dinspec(
+            message, [SessionSetupReq, SessionStopReq], expect_first=False
+        )
         if not msg:
+            return
+
+        if msg.body.session_stop_req:
+            await SessionStop(self.comm_session).process_message(message, message_exi)
             return
 
         session_setup_req: SessionSetupReq = msg.body.session_setup_req
@@ -153,6 +166,11 @@ class ServiceDiscovery(StateSECC):
     Furthermore, the EVCC can limit for particular services by using the
     service scope and service type elements.
     However, in DIN SPEC, ServiceCategory, if used, must be set to "EVCharging"
+
+    Per DIN SPEC 70121 the EV may end the session gracefully with a
+    SessionStopReq at essentially any point (#69); such a request is routed to
+    SessionStop as a legitimate teardown rather than rejected as a sequence
+    error.
     """
 
     def __init__(self, comm_session: SECCCommunicationSession):
@@ -169,8 +187,16 @@ class ServiceDiscovery(StateSECC):
         ],
         message_exi: bytes = None,
     ):
-        msg = self.check_msg_dinspec(message, [ServiceDiscoveryReq])
+        # expect_first is False so an EV-initiated SessionStopReq is accepted as
+        # a graceful teardown even as the first message in this state (#69).
+        msg = self.check_msg_dinspec(
+            message, [ServiceDiscoveryReq, SessionStopReq], expect_first=False
+        )
         if not msg:
+            return
+
+        if msg.body.session_stop_req:
+            await SessionStop(self.comm_session).process_message(message, message_exi)
             return
 
         service_discovery_req: ServiceDiscoveryReq = msg.body.service_discovery_req
@@ -232,6 +258,11 @@ class ServicePaymentSelection(StateSECC):
     The request contains information for selected services and how
     the services will be paid for.
     DIN SPEC only supports one payment option - ExternalPayment
+
+    Per DIN SPEC 70121 the EV may end the session gracefully with a
+    SessionStopReq at essentially any point (#69); such a request is routed to
+    SessionStop as a legitimate teardown rather than rejected as a sequence
+    error.
     """
 
     def __init__(self, comm_session: SECCCommunicationSession):
@@ -248,8 +279,16 @@ class ServicePaymentSelection(StateSECC):
         ],
         message_exi: bytes = None,
     ):
-        msg = self.check_msg_dinspec(message, [ServicePaymentSelectionReq])
+        # expect_first is False so an EV-initiated SessionStopReq is accepted as
+        # a graceful teardown even as the first message in this state (#69).
+        msg = self.check_msg_dinspec(
+            message, [ServicePaymentSelectionReq, SessionStopReq], expect_first=False
+        )
         if not msg:
+            return
+
+        if msg.body.session_stop_req:
+            await SessionStop(self.comm_session).process_message(message, message_exi)
             return
 
         service_payment_selection_req: ServicePaymentSelectionReq = (
@@ -294,6 +333,11 @@ class ContractAuthentication(StateSECC):
     The intention of the message is for the EV to understand if the processing
      of the ContractAuthenticationReq has been completed. The EV shall continue
       to resend this this request until EVSE completes authorisation.
+
+    Per DIN SPEC 70121 the EV may end the session gracefully with a
+    SessionStopReq at essentially any point (#69); such a request is routed to
+    SessionStop as a legitimate teardown rather than rejected as a sequence
+    error.
     """
 
     def __init__(self, comm_session: SECCCommunicationSession):
@@ -310,8 +354,16 @@ class ContractAuthentication(StateSECC):
         ],
         message_exi: bytes = None,
     ):
-        msg = self.check_msg_dinspec(message, [ContractAuthenticationReq])
+        # expect_first is False so an EV-initiated SessionStopReq is accepted as
+        # a graceful teardown even as the first message in this state (#69).
+        msg = self.check_msg_dinspec(
+            message, [ContractAuthenticationReq, SessionStopReq], expect_first=False
+        )
         if not msg:
+            return
+
+        if msg.body.session_stop_req:
+            await SessionStop(self.comm_session).process_message(message, message_exi)
             return
 
         current_authorization_status = (
@@ -367,6 +419,11 @@ class ChargeParameterDiscovery(StateSECC):
     The incoming request contains the charging parameters for the EV.
     The response message contains EVSE's status information and current
      power output limits.
+
+    Per DIN SPEC 70121 the EV may end the session gracefully with a
+    SessionStopReq at essentially any point (#69); such a request is routed to
+    SessionStop as a legitimate teardown rather than rejected as a sequence
+    error.
     """
 
     def __init__(self, comm_session: SECCCommunicationSession):
@@ -383,8 +440,16 @@ class ChargeParameterDiscovery(StateSECC):
         ],
         message_exi: bytes = None,
     ):
-        msg = self.check_msg_dinspec(message, [ChargeParameterDiscoveryReq])
+        # expect_first is False so an EV-initiated SessionStopReq is accepted as
+        # a graceful teardown even as the first message in this state (#69).
+        msg = self.check_msg_dinspec(
+            message, [ChargeParameterDiscoveryReq, SessionStopReq], expect_first=False
+        )
         if not msg:
+            return
+
+        if msg.body.session_stop_req:
+            await SessionStop(self.comm_session).process_message(message, message_exi)
             return
 
         charge_parameter_discovery_req: ChargeParameterDiscoveryReq = (
@@ -587,11 +652,15 @@ class PreCharge(StateSECC):
     The message is to help EVSE ramp up EVSE output voltage to EV RESS voltage.
     This helps minimize the inrush current when the contactors of the EV are closed.
     We stay in this state after PreCharge; expecting a PowerDeliveryReq
+
+    Per DIN SPEC 70121 the EV may end the session gracefully with a
+    SessionStopReq at essentially any point (#69); such a request is routed to
+    SessionStop as a legitimate teardown rather than rejected as a sequence
+    error.
     """
 
     def __init__(self, comm_session: SECCCommunicationSession):
         super().__init__(comm_session, Timeouts.V2G_SECC_SEQUENCE_TIMEOUT)
-        self.expecting_pre_charge_req = True
 
     async def process_message(
         self,
@@ -604,10 +673,22 @@ class PreCharge(StateSECC):
         ],
         message_exi: bytes = None,
     ):
+        # expect_first is False so an EV-initiated SessionStopReq is accepted as
+        # a graceful teardown even as the first message in this state (#69). It
+        # also lets a PowerDeliveryReq (the normal exit) and repeated
+        # PreChargeReqs through; the prior first-message guard that required the
+        # opening message to be a PreChargeReq is dropped so the teardown can
+        # arrive at any point.
         msg = self.check_msg_dinspec(
-            message, [PreChargeReq, PowerDeliveryReq], self.expecting_pre_charge_req
+            message,
+            [PreChargeReq, PowerDeliveryReq, SessionStopReq],
+            expect_first=False,
         )
         if not msg:
+            return
+
+        if msg.body.session_stop_req:
+            await SessionStop(self.comm_session).process_message(message, message_exi)
             return
 
         if msg.body.power_delivery_req:
@@ -693,8 +774,6 @@ class PreCharge(StateSECC):
             Timeouts.V2G_SECC_SEQUENCE_TIMEOUT,
             Namespace.DIN_MSG_DEF,
         )
-
-        self.expecting_pre_charge_req = False
 
 
 class PowerDelivery(StateSECC):
