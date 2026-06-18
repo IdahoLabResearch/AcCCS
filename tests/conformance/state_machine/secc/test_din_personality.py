@@ -42,6 +42,7 @@ from app.shared.messages.enums import (
     AuthEnum,
     DCEVErrorCode,
     EnergyTransferModeEnum,
+    Namespace,
     Protocol,
     UnitSymbol,
 )
@@ -73,7 +74,20 @@ def variant_secc_personality() -> SECCPersonality:
     )
 
 
+class _StubWriter:
+    """Minimal stand-in for the asyncio transport writer.
+
+    `stop_state_machine` only reads `get_extra_info("peername")` off the
+    writer when building the StopNotification; nothing in these tests sends
+    bytes, so a peername is all it needs.
+    """
+
+    def get_extra_info(self, _key: str):
+        return ("fe80::2", 0)
+
+
 def _stub_secc_session(personality: SECCPersonality) -> StubCommSession:
+    from app.secc.failed_responses import init_failed_responses_din_spec_70121
     from app.secc.secc_settings import Config
     from app.shared.personality.model import Runtime
 
@@ -88,6 +102,10 @@ def _stub_secc_session(personality: SECCPersonality) -> StubCommSession:
     session.selected_services = []
     session.charge_progress_started = False
     session.ongoing_timer = -1
+    # The rejection path (`stop_state_machine`) needs a writer for the
+    # StopNotification peername and the prebuilt failed-response table.
+    session.writer = _StubWriter()
+    session.failed_responses_din_spec = init_failed_responses_din_spec_70121()
     return session
 
 
@@ -194,3 +212,65 @@ async def test_charge_parameter_discovery_emits_personality_dc_limits(
     [tuple_entry] = res.sa_schedule_list.values
     [pmax_details] = tuple_entry.p_max_schedule.entry_details
     assert pmax_details.p_max == 30000
+
+
+@pytest.mark.asyncio
+async def test_charge_parameter_discovery_rejects_unoffered_energy_mode(
+    exi_codec, variant_secc_personality
+):
+    """Issue #67: a DC_core SECC rejecting a DC_extended request must encode a
+    clean negative ChargeParameterDiscoveryRes instead of crashing the codec.
+
+    Drives the mode mismatch end-to-end: the rejection goes through
+    `stop_state_machine` → `create_next_message`, which EXI-encodes the
+    negative response. Before the fix the DIN `ResponseCode` carried the
+    ISO-2 spelling `FAILED_WrongEnergyTransferMode`, which has no DIN v2gjson
+    member, so the encode raised `EXIEncodingError`.
+    """
+    from app.shared.exi_codec import EXI
+    from app.shared.messages.din_spec.datatypes import ResponseCode
+
+    session = _stub_secc_session(variant_secc_personality)
+
+    cpd_peer = ScriptedPeer(session, start_state=ChargeParameterDiscovery)
+    cpd_req = V2GMessageDINSPEC(
+        header=MessageHeader(session_id=session.session_id),
+        body=Body(
+            charge_parameter_discovery_req=ChargeParameterDiscoveryReq(
+                requested_energy_mode=EnergyTransferModeEnum.DC_EXTENDED,
+                dc_ev_charge_parameter=DCEVChargeParameter(
+                    dc_ev_status=DCEVStatus(
+                        ev_ready=True,
+                        ev_error_code=DCEVErrorCode.NO_ERROR,
+                        ev_ress_soc=42,
+                    ),
+                    ev_maximum_current_limit=PVEVMaxCurrentLimitDin(
+                        multiplier=0, value=80, unit=UnitSymbol.AMPERE
+                    ),
+                    ev_maximum_voltage_limit=PVEVMaxVoltageLimitDin(
+                        multiplier=0, value=400, unit=UnitSymbol.VOLTAGE
+                    ),
+                ),
+            )
+        ),
+    )
+
+    # No EXIEncodingError raised here is the core of the regression.
+    result = await cpd_peer.feed(cpd_req)
+
+    # Negative response carries the DIN wrong-energy-transfer code and the
+    # session is torn down.
+    res = result.outbound_msg.body.charge_parameter_discovery_res
+    assert res.response_code == ResponseCode.FAILED_WRONG_ENERGY_TRANSFER_TYPE
+    assert session.stop_reason is not None
+    assert not session.stop_reason.successful
+
+    # The encoded bytes the SECC would put on the wire round-trip cleanly.
+    encoded = result.outbound_v2gtp.payload
+    decoded = EXI().from_exi_document(
+        encoded, Namespace.DIN_MSG_DEF, model_cls=V2GMessageDINSPEC
+    )
+    assert (
+        decoded.body.charge_parameter_discovery_res.response_code
+        == ResponseCode.FAILED_WRONG_ENERGY_TRANSFER_TYPE
+    )

@@ -254,7 +254,7 @@ class ChargeParameterDiscoveryReq(BodyBase):
             raise V2GMessageValidationError(
                 f"[V2G2-476] Wrong energy transfer mode transfer mode "
                 f"{requested_energy_mode}",
-                ResponseCode.FAILED_WRONG_ENERGY_TRANSFER_MODE,
+                ResponseCode.FAILED_WRONG_ENERGY_TRANSFER_TYPE,
                 self,
             )
         if ("AC_" in requested_energy_mode and dc_params) or (

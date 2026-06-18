@@ -440,4 +440,8 @@ class ResponseCode(str, Enum):
     FAILED_CHARGING_PROFILE_INVALID = "FAILED_ChargingProfileInvalid"
     FAILED_EVSE_PRESENT_VOLTAGE_TO_LOW = "FAILED_EVSEPresentVoltageToLow"
     FAILED_METERING_SIGNATURE_NOT_VALID = "FAILED_MeteringSignatureNotValid"
-    FAILED_WRONG_ENERGY_TRANSFER_MODE = "FAILED_WrongEnergyTransferMode"
+    # DIN SPEC 70121 names this code "WrongEnergyTransferType"; ISO 15118-2
+    # spells the equivalent code "WrongEnergyTransferMode". Keep the DIN
+    # spelling here so the v2gjson DIN schema member matches at the codec
+    # boundary (see issue #67) — do not "harmonise" it to the ISO-2 wording.
+    FAILED_WRONG_ENERGY_TRANSFER_TYPE = "FAILED_WrongEnergyTransferType"
