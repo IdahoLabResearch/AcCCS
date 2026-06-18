@@ -253,8 +253,8 @@ def add_runtime_cli_args(parser: argparse.ArgumentParser) -> None:
     """
     parser.add_argument(
         "--config",
-        default="din_reference",
-        help="Personality file (name or path); defaults to the DIN reference personality",
+        default="din_dc_extended",
+        help="Personality file (name or path); defaults to the DC_extended DIN personality",
     )
     parser.add_argument(
         "--list-configs",

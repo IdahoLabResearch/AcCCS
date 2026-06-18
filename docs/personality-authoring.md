@@ -40,7 +40,7 @@ are CLI-overridable.
 
 ## File search order
 
-`--config` is optional; when omitted it defaults to `din_reference`. The
+`--config` is optional; when omitted it defaults to `din_dc_extended`. The
 loader resolves `--config <value>` in this order:
 
 1. **Explicit path** — if `<value>` is a path to an existing file, it
@@ -170,7 +170,8 @@ The repository ships a starter library under `personalities/`:
 | File | Protocol | Notes |
 |---|---|---|
 | `default-evcc.yaml` / `default-secc.yaml` | All | Materialised model defaults — regenerated from the Pydantic model. |
-| `din_reference.yaml` | DIN 70121 | DIN-only emulator, TLS off, alternate `energy_transfer_mode` and a ~3x stock power envelope. |
+| `din_dc_extended.yaml` | DIN 70121 | **Default `--config`.** DIN-only, TLS off, `energy_transfer_mode: DC_extended` — the mode production vehicles request. |
+| `din_reference.yaml` | DIN 70121 | DIN-only emulator, TLS off, alternate `energy_transfer_mode` (DC_core, for the personality-swap demo) and a ~3x stock power envelope. |
 | `iso2_eim_dc.yaml` | ISO 15118-2 DC | EIM (External Identification Means) auth — no contract certs, no PnC. |
 | `iso2_pnc_dc.yaml` | ISO 15118-2 DC | PnC (Plug-and-Charge) auth — TLS mandatory, contract cert chain required. |
 | `iso20_dc.yaml` | ISO 15118-20 DC | DC energy service over ISO 15118-20 (TLS 1.3 mandatory). |

@@ -30,7 +30,8 @@ Emulator configuration follows [ADR-0001](docs/adr/0001-personality-yaml-config.
   supported protocols, power/charging profile, TLS posture, SLAC timings,
   certificates. Loaded once at startup via `--config <name-or-path>`.
   `--config` is optional; when omitted both run scripts default to the
-  `din_reference` personality.
+  `din_dc_extended` personality (DIN with the DC_extended energy transfer
+  mode that production vehicles request).
 - **Runtime** knobs (logging, NMAP toggles, `--virtual`, source port,
   modified-cordset) live in an optional `runtime.yaml` and are
   CLI-overridable. Personality fields are *never* CLI-overridable.
