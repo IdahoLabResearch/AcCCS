@@ -74,6 +74,54 @@ async def test_din_session_stop_terminates_cycle(exi_codec):
     assert session.stop_reason.stop_action == SessionStopAction.TERMINATE
 
 
+@pytest.mark.asyncio
+async def test_din_cable_check_accepts_session_stop(exi_codec):
+    """A SessionStopReq received in CableCheck is a clean teardown, not an error (#68).
+
+    A real vehicle was observed sending SessionStopReq on entering CableCheck
+    instead of CableCheckReq. The SECC must treat it as a legitimate EV-initiated
+    teardown: route to the DIN SessionStop state, reply SessionStopRes(OK), end the
+    cycle (next_state Terminate) with a *successful* (non-error) StopNotification --
+    not the FAILED_SequenceError "not accepted in state" path stop_state_machine
+    would otherwise take.
+
+    CableCheck routes the SessionStopReq by delegating to a fresh DIN SessionStop
+    instance, whose ``State.__init__`` reassigns ``comm_session.current_state`` --
+    exactly what the production rcv loop reads outbound state off after
+    ``process_message``. So the oracle here is ``session.current_state``, not the
+    CableCheck instance the harness ``StepResult`` snapshots.
+    """
+    from app.secc.states.din_spec_states import CableCheck, SessionStop
+    from app.shared.messages.din_spec.body import Body, SessionStopReq
+    from app.shared.messages.din_spec.datatypes import ResponseCode
+    from app.shared.messages.din_spec.header import MessageHeader
+    from app.shared.messages.din_spec.msgdef import V2GMessage as V2GMessageDINSPEC
+
+    session = StubCommSession(
+        protocol=Protocol.DIN_SPEC_70121, session_id=bytes(1).hex()
+    )
+    session.evse_controller = SimEVSEController()
+    session.writer = _stub_writer()
+    peer = ScriptedPeer(session, start_state=CableCheck)
+
+    req = V2GMessageDINSPEC(
+        header=MessageHeader(session_id=session.session_id),
+        body=Body(session_stop_req=SessionStopReq()),
+    )
+    await peer.feed(req)
+
+    final = session.current_state
+    assert isinstance(final, SessionStop)
+    assert final.next_state is Terminate
+    # A SessionStopRes(OK) was produced and queued for sending -- not the failed
+    # response stop_state_machine would have queued on the "not accepted" path.
+    assert final.next_v2gtp_msg is not None
+    assert final.message.body.session_stop_res.response_code == ResponseCode.OK
+    assert session.stop_reason is not None
+    assert session.stop_reason.successful is True
+    assert session.stop_reason.stop_action == SessionStopAction.TERMINATE
+
+
 # -- ISO 15118-20 -----------------------------------------------------------
 
 

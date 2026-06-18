@@ -454,6 +454,11 @@ class CableCheck(StateSECC):
     State is which CableCheckReq from EV is handled.
     In this state, an isolation test is performed - which is
     required before DC charging.
+
+    Per DIN SPEC 70121 the EV may also end the session gracefully here with a
+    SessionStopReq (observed live against a real vehicle, #68); such a request
+    is routed to SessionStop as a legitimate teardown rather than rejected as a
+    sequence error.
     """
 
     def __init__(self, comm_session: SECCCommunicationSession):
@@ -472,8 +477,20 @@ class CableCheck(StateSECC):
         ],
         message_exi: bytes = None,
     ):
-        msg = self.check_msg_dinspec(message, [CableCheckReq])
+        # Per DIN SPEC 70121 the EV may end the session gracefully with a
+        # SessionStopReq at any point; a real vehicle was observed sending one
+        # on entering CableCheck instead of CableCheckReq (#68). Accept it as a
+        # legitimate teardown rather than a sequence error. expect_first is
+        # False because the SessionStopReq can arrive as the very first message
+        # in this state, not only after a CableCheckReq.
+        msg = self.check_msg_dinspec(
+            message, [CableCheckReq, SessionStopReq], expect_first=False
+        )
         if not msg:
+            return
+
+        if msg.body.session_stop_req:
+            await SessionStop(self.comm_session).process_message(message, message_exi)
             return
 
         cable_check_req: CableCheckReq = msg.body.cable_check_req
