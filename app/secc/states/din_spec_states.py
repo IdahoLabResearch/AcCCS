@@ -661,6 +661,7 @@ class PreCharge(StateSECC):
 
     def __init__(self, comm_session: SECCCommunicationSession):
         super().__init__(comm_session, Timeouts.V2G_SECC_SEQUENCE_TIMEOUT)
+        self.expecting_pre_charge_req = True
 
     async def process_message(
         self,
@@ -673,22 +674,32 @@ class PreCharge(StateSECC):
         ],
         message_exi: bytes = None,
     ):
-        # expect_first is False so an EV-initiated SessionStopReq is accepted as
-        # a graceful teardown even as the first message in this state (#69). It
-        # also lets a PowerDeliveryReq (the normal exit) and repeated
-        # PreChargeReqs through; the prior first-message guard that required the
-        # opening message to be a PreChargeReq is dropped so the teardown can
-        # arrive at any point.
-        msg = self.check_msg_dinspec(
-            message,
-            [PreChargeReq, PowerDeliveryReq, SessionStopReq],
-            expect_first=False,
-        )
-        if not msg:
+        # Per DIN SPEC 70121 an EV-initiated SessionStopReq is a graceful
+        # teardown valid at essentially any point (#69). Route it to SessionStop
+        # before the PreChargeReq-first ordering gate below so the teardown is
+        # never rejected as a sequence error -- even when it is the opening
+        # message in this state. SessionStop.process_message re-validates the
+        # session id via its own check_msg_dinspec, so routing here does not
+        # bypass that check.
+        if (
+            isinstance(message, V2GMessageDINSPEC)
+            and message.body.session_stop_req is not None
+        ):
+            await SessionStop(self.comm_session).process_message(message, message_exi)
             return
 
-        if msg.body.session_stop_req:
-            await SessionStop(self.comm_session).process_message(message, message_exi)
+        # The opening message in PreCharge must be a PreChargeReq; a
+        # PowerDeliveryReq (the normal exit) is only valid once at least one
+        # PreChargeReq has been processed. expecting_pre_charge_req gates the
+        # first message so a PowerDeliveryReq arriving before any PreChargeReq is
+        # rejected as a sequence error -- the ordering invariant #69
+        # inadvertently dropped, restored here (#70).
+        msg = self.check_msg_dinspec(
+            message,
+            [PreChargeReq, PowerDeliveryReq],
+            expect_first=self.expecting_pre_charge_req,
+        )
+        if not msg:
             return
 
         if msg.body.power_delivery_req:
@@ -774,6 +785,10 @@ class PreCharge(StateSECC):
             Timeouts.V2G_SECC_SEQUENCE_TIMEOUT,
             Namespace.DIN_MSG_DEF,
         )
+
+        # A PreChargeReq has now been processed, so a subsequent PowerDeliveryReq
+        # (the normal exit from this state) is no longer out of order.
+        self.expecting_pre_charge_req = False
 
 
 class PowerDelivery(StateSECC):
