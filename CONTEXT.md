@@ -4,15 +4,30 @@ Canonical terminology for the AcCCS project. This file is a glossary only — no
 
 ## Personality
 
-A single configuration artifact (YAML file) that fully describes the identity, capabilities, power/charging profile, security material, network, and timing knobs of either an emulated **EVCC** (vehicle side) or **SECC** (charger side). One personality = "be this specific EV" or "be this specific EVSE" for the duration of a run.
+A single configuration artifact (YAML file) that fully describes either an emulated **EVCC** (vehicle side) or **SECC** (charger side). One personality = "be this specific EV" or "be this specific EVSE" for the duration of a run. There is one personality file *per role* — EVCC and SECC personalities are separate files, not a shared symmetric file.
 
-Personalities are loaded once at emulator startup. They are *not* mutated mid-session and they do *not* describe a sequence of behaviors over time — they describe who the device **is**.
+A personality has two parts:
 
-A personality covers fields the device chooses or advertises (IDs, supported protocols, max voltage/current, SOC, cert paths, SLAC timings, TLS enforcement, …). Runtime-derived values (session IDs, challenges, signatures, instantaneous measurements during the charge loop) are *not* part of a personality.
+- A **[[message field tree]]** — the per-message, per-field values the device emits on the wire, keyed by message name and mirroring the protocol's message models down to each leaf field. This is the device's wire output: *what bytes it puts on the line*.
+- A **residual section** — the structured configuration that has *no* wire representation: TLS posture, SLAC layer-2 timings, certificate paths, network interface, and behavioral switches that select code paths (e.g. backend mode). This is *transport and behavior*, not emitted bytes.
+
+The dividing rule is mechanical: **if a value appears on the wire it lives in the message field tree (and any internal decision that needs it reads it from there); if it never appears on the wire it lives in the residual section.** A value is therefore never duplicated across the two parts.
+
+Personalities are loaded once at emulator startup and are *not* mutated mid-session. The message field tree describes wire values per *message type* (one value per repeated message), so a personality still does **not** script a sequence of behaviors over time — instantaneous loop variation comes from computed runtime logic or a [[live-override]], not the personality. Runtime-derived values (session IDs, challenges, signatures, present-voltage/current measurements during the charge loop) are computed at runtime and are *not* baseline tree values unless explicitly overridden.
 
 Personality is distinct from **runtime config** — per-invocation operator knobs such as logging level, NMAP toggles, and virtual-NIC mode. Runtime config lives in an optional `runtime.yaml` and is overridable by CLI flags; personality fields are never CLI-overridable.
 
-Related: [[evcc]], [[secc]].
+Related: [[evcc]], [[secc]], [[message field tree]], [[live-override]].
+
+## Message field tree
+
+The part of a [[personality]] that defines every field the emulated device emits on the wire, keyed by message name and then by nested field path mirroring the protocol's message models (e.g. `ChargeParameterDiscoveryRes → DC_EVSEChargeParameter → DC_EVSEStatus → EVSEIsolationStatus`). It replaces the older concern-first structured wire sections (the flat `power` / per-protocol limit blocks) as the single way to configure emitted bytes.
+
+The tree is **layered**: a baseline tree (shipped per role) supplies the device's full default output, and a device file overrides only the leaves that differ, via YAML anchors; a leaf set nowhere falls back to the message model's own default. Overrides take effect at message *construction* time, so an overridden value flows into both the emitted bytes *and* any internal logic that reads that field.
+
+Validation is **path-strict, value-raw**: a field path must resolve to a real field in the message model (a typo is a hard error), but the value itself is not range- or enum-checked — illegal-but-encodable values are the point (red-team probing), bounded only by what the codec can serialize.
+
+Precedence for a field a [[live-override]] can also set: live-override (runtime) beats the tree, which supplies the declared/start value. Distinct from the residual section of a [[personality]] (non-wire transport/behavior) and from [[live-override]] (mid-session instantaneous values, not load-once config).
 
 ## EVCC
 
@@ -69,4 +84,4 @@ Distinct from [[live-override]] (which changes the *values carried in* loop mess
 
 An operator action that replaces, in real time, the current/voltage values an emulated device puts on the wire during the charge loop. Role-aware: on an [[EVCC]] it overrides the EV's *requested target* current/voltage (and present voltage in ISO 15118-20); on an [[SECC]] it overrides the EVSE's *reported present* (delivered) current/voltage. An override takes effect on subsequent loop messages and persists until the operator changes or clears it.
 
-Distinct from a [[personality]]'s power/charging profile: the personality supplies the device's *declared envelope and starting values* (immutable), whereas a live override injects the *instantaneous loop values* that the glossary explicitly excludes from a personality. Issued through the [[operator-console]]. Distinct from [[stall]] (which controls loop termination, not loop values).
+Distinct from a [[personality]]'s [[message field tree]]: the tree supplies the device's *declared / starting* wire value for a field (immutable, per message type), whereas a live override injects the *instantaneous loop value* at runtime. When both set the same field the live override wins; the tree is the start value it overrides. Issued through the [[operator-console]]. Distinct from [[stall]] (which controls loop termination, not loop values).

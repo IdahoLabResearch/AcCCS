@@ -12,6 +12,6 @@ Configuration of AcCCS emulators was previously split across three formats — `
 
 - `.env.evcc`, `.env.secc`, and `EVCC_CONFIG_PATH` are removed. Hard cutover — no compat shim.
 - CLI for both run scripts shrinks to `--config <personality.yaml>` plus operational flags (`--runtime`, `--log-level`, `--virtual`, `--nmap-args`, …). Personality fields are *not* CLI-overridable.
-- Strict Pydantic validation: unknown keys are a hard error. A future "raw protocol-field override" mode (out of scope for this upgrade) will live in a separately-validated `raw_overrides:` section.
+- Strict Pydantic validation: unknown keys are a hard error. A future "raw protocol-field override" mode (out of scope for this upgrade) will live in a separately-validated `raw_overrides:` section. **Superseded by [ADR-0006](0006-message-field-tree-personality.md):** the raw per-field model is not a separate override layer but *replaces* the structured wire-value sections as a per-message field tree.
 - Personality files are searched in this order: explicit `--config` path → `personalities/<name>.yaml` in repo → `~/.acccs/personalities/<name>.yaml` user-local. Lets proprietary device personalities live outside the repo.
 - Most personality fields are currently hardcoded inside state machines (`app/evcc/states/`, `app/secc/states/`, controllers) — exposing them is the bulk of the work and is sliced by protocol (DIN → ISO-15118-2 → ISO-15118-20) so each slice is independently end-to-end testable.
