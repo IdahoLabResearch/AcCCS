@@ -555,3 +555,36 @@ def test_device_override_replaces_list_wholesale():
     tuples = merged["ChargeParameterDiscoveryRes"]["SAScheduleList"]["SAScheduleTuple"]
     assert len(tuples) == 1
     assert tuples[0]["PMaxSchedule"]["PMaxScheduleEntry"][0]["PMax"] == 32000
+
+
+def test_list_nested_given_bare_mapping_is_hard_error():
+    # A list-nested field written as a bare mapping (not a list of maps) is
+    # rejected at load, symmetric with the leaf-given-a-mapping error. Without
+    # this guard the personality loads but the SECC crashes mid-session at
+    # construction time (#84, #81 follow-on).
+    bad = _sa_schedule_tree(_tuple())  # a mapping, not [_tuple()]
+    with pytest.raises(ValidationError):
+        SECCPersonality.model_validate({"message_field_tree": bad})
+
+
+def test_list_nested_given_bare_mapping_raises_typed_error():
+    # The raw helper raises the typed error naming the offending path.
+    from app.shared.personality.message_field_tree import (
+        validate_message_field_tree,
+    )
+
+    with pytest.raises(MessageFieldTreeError):
+        validate_message_field_tree(_sa_schedule_tree(_tuple()))
+
+
+def test_apply_bare_mapping_for_list_field_does_not_crash():
+    # Defensive symmetry: even if a bad shape reached apply-time (it cannot,
+    # since load rejects it), _apply_node skips it with a warning instead of
+    # crashing the live SECC with `list has no attribute model_fields`.
+    msg = _built_cpd_with_scaffold()
+    scaffold = msg.sa_schedule_list
+    apply_message_field_tree(
+        msg, "ChargeParameterDiscoveryRes", _sa_schedule_tree(_tuple())
+    )
+    # Untouched: the builder's scaffold list is left in place.
+    assert msg.sa_schedule_list is scaffold

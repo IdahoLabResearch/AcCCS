@@ -184,7 +184,28 @@ def _validate_node(
                 f"{model_cls.__name__}"
             )
         _, field = resolved
-        if isinstance(value, Mapping):
+        elem_cls = _list_element_model(field.annotation)
+        if elem_cls is not None:
+            # List-nested wire field (ADR-0006 issue #81): a repeated child
+            # element emitted atomically in one message. The value must be a
+            # *list of maps*; a bare mapping given here would resolve at load
+            # (unwrapped as a single element) but crash the SECC at apply time
+            # (`list has no attribute model_fields`), so reject it now —
+            # symmetric with the leaf-given-a-mapping error below (#84).
+            if not isinstance(value, list):
+                raise MessageFieldTreeError(
+                    f"{path} -> {key}: {key!r} is a list-nested field but was "
+                    f"given a {type(value).__name__}; provide a list of maps"
+                )
+            # Path-strict still applies *inside* each element (a typo in a list
+            # element is a hard error), but the list's length/shape is
+            # value-raw — cardinality is itself a red-team surface, so no count
+            # check here.
+            for index, element in enumerate(value):
+                if isinstance(element, Mapping):
+                    _validate_node(elem_cls, element, f"{path} -> {key}[{index}]")
+                # A non-mapping element is value-raw (bounded by the codec).
+        elif isinstance(value, Mapping):
             child_cls = _model_in_annotation(field.annotation)
             if child_cls is None:
                 raise MessageFieldTreeError(
@@ -192,17 +213,6 @@ def _validate_node(
                     f"nested mapping"
                 )
             _validate_node(child_cls, value, f"{path} -> {key}")
-        elif isinstance(value, list) and _list_element_model(field.annotation):
-            # List-nested wire field (ADR-0006 issue #81): a repeated child
-            # element emitted atomically in one message. Path-strict still
-            # applies *inside* each element (a typo in a list element is a hard
-            # error), but the list's length/shape is value-raw — cardinality is
-            # itself a red-team surface, so no count check here.
-            elem_cls = _list_element_model(field.annotation)
-            for index, element in enumerate(value):
-                if isinstance(element, Mapping):
-                    _validate_node(elem_cls, element, f"{path} -> {key}[{index}]")
-                # A non-mapping element is value-raw (bounded by the codec).
         # Leaf (including scalar lists): value-raw — no range/enum/type check.
 
 
@@ -312,7 +322,35 @@ def _apply_node(instance: BaseModel, node: Mapping[str, Any], path: str) -> None
             logger.warning("message field tree: %s -> %s no longer resolves", path, key)
             continue
         field_name, field = resolved
-        if isinstance(value, Mapping):
+        elem_cls = _list_element_model(field.annotation)
+        if elem_cls is not None:
+            # List-nested wire field (ADR-0006 issue #81): the tree declares the
+            # *whole* list — its element values and its length — so the built
+            # placeholder list is replaced wholesale, not index-merged. Each
+            # element is constructed through the same lax-build seam as a scalar
+            # leaf (:func:`_build_element`), so an illegal-but-encodable value
+            # inside an element survives as a poked raw attribute on a real model
+            # instance rather than degrading the whole list to un-encodable dicts.
+            if not isinstance(value, list):
+                # Load rejects a non-list here (#84), so this is unreachable in
+                # practice; guard defensively rather than crash a live session
+                # with `list has no attribute model_fields`.
+                logger.warning(
+                    "message field tree: %s -> %s is a list-nested field but the "
+                    "tree value is a %s, not a list; override skipped",
+                    path,
+                    key,
+                    type(value).__name__,
+                )
+                continue
+            built = [
+                _build_element(elem_cls, element, f"{path} -> {key}[{index}]")
+                if isinstance(element, Mapping)
+                else element
+                for index, element in enumerate(value)
+            ]
+            object.__setattr__(instance, field_name, built)
+        elif isinstance(value, Mapping):
             child = getattr(instance, field_name, None)
             if child is None:
                 # The mirrored sub-message is optional and this build left it
@@ -325,22 +363,6 @@ def _apply_node(instance: BaseModel, node: Mapping[str, Any], path: str) -> None
                 )
                 continue
             _apply_node(child, value, f"{path} -> {key}")
-        elif isinstance(value, list) and _list_element_model(field.annotation):
-            # List-nested wire field (ADR-0006 issue #81): the tree declares the
-            # *whole* list — its element values and its length — so the built
-            # placeholder list is replaced wholesale, not index-merged. Each
-            # element is constructed through the same lax-build seam as a scalar
-            # leaf (:func:`_build_element`), so an illegal-but-encodable value
-            # inside an element survives as a poked raw attribute on a real model
-            # instance rather than degrading the whole list to un-encodable dicts.
-            elem_cls = _list_element_model(field.annotation)
-            built = [
-                _build_element(elem_cls, element, f"{path} -> {key}[{index}]")
-                if isinstance(element, Mapping)
-                else element
-                for index, element in enumerate(value)
-            ]
-            object.__setattr__(instance, field_name, built)
         else:
             _lax_set(instance, field_name, field, value, f"{path} -> {key}")
 
