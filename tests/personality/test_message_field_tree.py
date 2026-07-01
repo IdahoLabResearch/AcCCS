@@ -18,6 +18,7 @@ SECC. These tests pin the issue's acceptance criteria:
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import pytest
 from pydantic import ValidationError
@@ -577,14 +578,34 @@ def test_list_nested_given_bare_mapping_raises_typed_error():
         validate_message_field_tree(_sa_schedule_tree(_tuple()))
 
 
-def test_apply_bare_mapping_for_list_field_does_not_crash():
+def test_apply_bare_mapping_for_list_field_does_not_crash(caplog):
     # Defensive symmetry: even if a bad shape reached apply-time (it cannot,
     # since load rejects it), _apply_node skips it with a warning instead of
     # crashing the live SECC with `list has no attribute model_fields`.
     msg = _built_cpd_with_scaffold()
     scaffold = msg.sa_schedule_list
-    apply_message_field_tree(
-        msg, "ChargeParameterDiscoveryRes", _sa_schedule_tree(_tuple())
-    )
+    # The list-nested field the guard actually protects is one level down:
+    # SAScheduleList.values. Pin its identity and contents, not just the outer
+    # object's — the outer `sa_schedule_list` is reached through _apply_node's
+    # Mapping branch (recurse in place) and is never reassigned, so the outer
+    # `is` check holds whether or not the guard exists.
+    protected_values = scaffold.values
+
+    with caplog.at_level(logging.WARNING):
+        apply_message_field_tree(
+            msg, "ChargeParameterDiscoveryRes", _sa_schedule_tree(_tuple())
+        )
+
     # Untouched: the builder's scaffold list is left in place.
     assert msg.sa_schedule_list is scaffold
+    # And the protected list-nested `values` is untouched — same object, same
+    # single real entry. Without the guard it would be silently overwritten with
+    # a list of the mapping's string keys (`_apply_node` iterating the bare map).
+    assert msg.sa_schedule_list.values is protected_values
+    assert len(protected_values) == 1
+    assert protected_values[0] is scaffold.values[0]
+    # The guard announces the skip rather than crashing.
+    assert any(
+        "is a list-nested field but the tree value is a" in rec.message
+        for rec in caplog.records
+    )
