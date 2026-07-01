@@ -39,25 +39,6 @@ from app.shared.personality.message_field_tree import (
 from app.shared.personality.model import SECCPersonality
 
 
-@pytest.fixture(autouse=True)
-def _real_exi_codec():
-    """Guarantee a real EXI codec for the wire round-trip tests below.
-
-    The EXI codec is a process-wide singleton. Another test in the suite can
-    register a stub on it — e.g. the session-lifecycle handler tests construct
-    a ``CommunicationSessionHandler`` with a ``SimpleNamespace`` codec, and the
-    handler's ``__init__`` calls ``EXI().set_exi_codec`` — which would break the
-    encode/decode round-trips here. Re-registering the real codec makes these
-    tests independent of collection order (pytest-randomly).
-    """
-    from app.shared.expy_exi_codec import EXPyEXICodec
-    from app.shared.settings import load_shared_settings
-
-    load_shared_settings()
-    EXI().set_exi_codec(EXPyEXICodec())
-    yield
-
-
 # The one path this slice wires end to end, expressed with the XSD aliases the
 # issue uses. A helper keeps the deep nesting out of every test body.
 def _isolation_tree(value):
