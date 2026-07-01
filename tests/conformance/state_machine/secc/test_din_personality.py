@@ -52,6 +52,11 @@ from tests.conformance.state_machine.harness import ScriptedPeer, StubCommSessio
 
 @pytest.fixture
 def variant_secc_personality() -> SECCPersonality:
+    # Issue #73 / ADR-0006: the DIN SECC DC envelope is sourced from the message
+    # field tree, not the retired structured `power.evse_dc` reads. Only the
+    # list-nested SAScheduleList PMax stays in `evse_dc` (the per-leaf tree
+    # cannot address repeated elements). EVSEID and the energy mode stay on
+    # their existing seams (identity / capabilities) to prove those still work.
     return SECCPersonality.model_validate(
         {
             "identity": {"evse_id": "55AA66BB77"},
@@ -61,14 +66,45 @@ def variant_secc_personality() -> SECCPersonality:
             },
             "power": {
                 "evse_dc": {
-                    "max_voltage_v": 950.0,
-                    "min_voltage_v": 50.0,
-                    "max_current_a": 350.0,
-                    "min_current_a": 5.0,
-                    "max_power_w": 120000.0,
-                    "peak_current_ripple_a": 7.0,
                     "sa_schedule_pmax_w": 30000,
                 },
+            },
+            "message_field_tree": {
+                "ChargeParameterDiscoveryRes": {
+                    "DC_EVSEChargeParameter": {
+                        "EVSEMaximumVoltageLimit": {
+                            "Value": 950,
+                            "Multiplier": 0,
+                            "Unit": "V",
+                        },
+                        "EVSEMaximumCurrentLimit": {
+                            "Value": 350,
+                            "Multiplier": 0,
+                            "Unit": "A",
+                        },
+                        # 240000 W = 24000 x 10^1 (int16 value + multiplier).
+                        "EVSEMaximumPowerLimit": {
+                            "Value": 24000,
+                            "Multiplier": 1,
+                            "Unit": "W",
+                        },
+                        "EVSEMinimumVoltageLimit": {
+                            "Value": 50,
+                            "Multiplier": 0,
+                            "Unit": "V",
+                        },
+                        "EVSEMinimumCurrentLimit": {
+                            "Value": 5,
+                            "Multiplier": 0,
+                            "Unit": "A",
+                        },
+                        "EVSEPeakCurrentRipple": {
+                            "Value": 7,
+                            "Multiplier": 0,
+                            "Unit": "A",
+                        },
+                    }
+                }
             },
         }
     )
@@ -147,9 +183,12 @@ async def test_service_discovery_emits_personality_energy_transfer_mode(
 
 
 @pytest.mark.asyncio
-async def test_charge_parameter_discovery_emits_personality_dc_limits(
+async def test_charge_parameter_discovery_emits_tree_dc_limits(
     exi_codec, variant_secc_personality
 ):
+    """Issue #73: the ChargeParameterDiscoveryRes DC envelope is sourced from
+    the message field tree (construction-time substitution at the build site),
+    while the list-nested SAScheduleList PMax stays sourced from evse_dc."""
     session = _stub_secc_session(variant_secc_personality)
 
     # Walk: ServicePaymentSelection so .selected_auth_option lands.
@@ -203,7 +242,7 @@ async def test_charge_parameter_discovery_emits_personality_dc_limits(
     res = result.outbound_msg.body.charge_parameter_discovery_res
     assert res.dc_charge_parameter.evse_maximum_voltage_limit.get_decimal_value() == 950.0
     assert res.dc_charge_parameter.evse_maximum_current_limit.get_decimal_value() == 350.0
-    assert res.dc_charge_parameter.evse_maximum_power_limit.get_decimal_value() == 120000.0
+    assert res.dc_charge_parameter.evse_maximum_power_limit.get_decimal_value() == 240000.0
     assert res.dc_charge_parameter.evse_minimum_voltage_limit.get_decimal_value() == 50.0
     assert res.dc_charge_parameter.evse_minimum_current_limit.get_decimal_value() == 5.0
     assert res.dc_charge_parameter.evse_peak_current_ripple.get_decimal_value() == 7.0

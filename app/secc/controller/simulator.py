@@ -173,6 +173,7 @@ from app.shared.security import (
     load_priv_key,
 )
 from app.shared.personality.message_field_tree import UNSET, resolve_tree_leaf
+from app.shared.personality.model import EVSEDCLimits
 from app.shared.states import State
 
 logger = logging.getLogger(__name__)
@@ -1065,15 +1066,22 @@ class SimEVSEController(EVSEControllerInterface):
     async def get_dc_charge_parameters(self) -> DCEVSEChargeParameter:
         """Overrides EVSEControllerInterface.get_dc_evse_charge_parameter().
 
-        Sources the per-session DC envelope from `personality.power.evse_dc`
-        when a personality is attached. The legacy hardcoded placeholder
-        values are retained as the fallback so tests and call sites that
-        instantiate the simulator without a personality (state-machine
-        harness fixtures, conformance setup) still get a working DC
-        parameter set.
+        For ISO 15118-2 the per-session DC envelope is sourced from
+        `personality.power.evse_dc`, with the legacy hardcoded placeholder as
+        the no-personality fallback.
+
+        For DIN 70121 the structured `evse_dc` read is **retired** (ADR-0006 /
+        #73): the DIN wire DC envelope is sourced from the message field tree
+        at the ChargeParameterDiscoveryRes build site. This method builds the
+        skeleton from the DC-limit model defaults so a DIN personality without
+        those tree leaves — and the bare-controller conformance harness — still
+        gets a valid, stable envelope for the tree to override.
         """
-        evse_dc = self.personality.power.evse_dc if self.personality else None
         protocol = self.get_selected_protocol()
+        if protocol == Protocol.DIN_SPEC_70121:
+            evse_dc = EVSEDCLimits()
+        else:
+            evse_dc = self.personality.power.evse_dc if self.personality else None
 
         if evse_dc is not None:
             max_p_mult, max_p_val = PhysicalValue.get_exponent_value_repr(
@@ -1197,7 +1205,12 @@ class SimEVSEController(EVSEControllerInterface):
     #     return PVEVSEMaxCurrentLimit(multiplier=0, value=300, unit="A")
 
     async def get_evse_max_power_limit(self, protocol: Protocol) -> PVEVSEMaxPowerLimit:
-        if self.personality is not None:
+        if protocol == Protocol.DIN_SPEC_70121:
+            # DIN: the structured evse_dc read is retired (ADR-0006 / #73);
+            # CurrentDemandRes.EVSEMaximumPowerLimit is tree-sourced at the
+            # build site. Skeleton value = DC-limit model default.
+            max_power_w = EVSEDCLimits().max_power_w
+        elif self.personality is not None:
             max_power_w = self.personality.power.evse_dc.max_power_w
         else:
             max_power_w = 10000.0
@@ -1219,6 +1232,14 @@ class SimEVSEController(EVSEControllerInterface):
         wire value is stable across early-session calls. AC and ISO-15118-2
         / -20 paths fall back to the inherited behaviour.
         """
+        if protocol == Protocol.DIN_SPEC_70121:
+            # DIN: retired evse_dc read (ADR-0006 / #73);
+            # CurrentDemandRes.EVSEMaximumCurrentLimit is tree-sourced at the
+            # build site. Skeleton value = DC-limit model default.
+            mult, val = PhysicalValue.get_exponent_value_repr(
+                EVSEDCLimits().max_current_a
+            )
+            return PVEVSEMaxCurrentLimitDin(multiplier=mult, value=val, unit="A")
         if (
             self.personality is None
             or self.evse_data_context.current_type != CurrentType.DC
@@ -1227,13 +1248,19 @@ class SimEVSEController(EVSEControllerInterface):
         mult, val = PhysicalValue.get_exponent_value_repr(
             self.personality.power.evse_dc.max_current_a
         )
-        if protocol == Protocol.DIN_SPEC_70121:
-            return PVEVSEMaxCurrentLimitDin(multiplier=mult, value=val, unit="A")
         return PVEVSEMaxCurrentLimit(multiplier=mult, value=val, unit="A")
 
     async def get_evse_max_voltage_limit(
         self, protocol: Protocol
     ) -> PVEVSEMaxVoltageLimit:
+        if protocol == Protocol.DIN_SPEC_70121:
+            # DIN: retired evse_dc read (ADR-0006 / #73);
+            # CurrentDemandRes.EVSEMaximumVoltageLimit is tree-sourced at the
+            # build site. Skeleton value = DC-limit model default.
+            mult, val = PhysicalValue.get_exponent_value_repr(
+                EVSEDCLimits().max_voltage_v
+            )
+            return PVEVSEMaxVoltageLimitDin(multiplier=mult, value=val, unit="V")
         if (
             self.personality is None
             or self.evse_data_context.current_type != CurrentType.DC
@@ -1242,8 +1269,6 @@ class SimEVSEController(EVSEControllerInterface):
         mult, val = PhysicalValue.get_exponent_value_repr(
             self.personality.power.evse_dc.max_voltage_v
         )
-        if protocol == Protocol.DIN_SPEC_70121:
-            return PVEVSEMaxVoltageLimitDin(multiplier=mult, value=val, unit="V")
         return PVEVSEMaxVoltageLimit(multiplier=mult, value=val, unit="V")
 
     async def get_dc_charge_params_v20(

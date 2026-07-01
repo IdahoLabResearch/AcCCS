@@ -1,26 +1,22 @@
-# Default DIN 70121 SECC personality — DC_extended energy transfer mode.
+# Default DIN 70121 SECC personality — the ABB DC_extended charger.
 #
 # This is the default `--config` for run_secc.py. It `extends:` the DIN SECC
-# baseline (ADR-0006) and overrides only the ABB-style DC power envelope +
-# EVSEID that make this a concrete charger. The advertised/accepted DC_extended
-# mode is inherited from the baseline's message field tree.
+# baseline (ADR-0006), which now replicates the ABB charger from
+# `ABB_Cadillac_Lyric.pcapng` field-for-field (#73): EVSEID `00`, the DC
+# envelope (max V 451 / max A 60 / max W 24000 / min V 150 / min A 1 / peak
+# ripple 3), the SAScheduleList PMax 24000 W, and the isolation-status
+# progression (Invalid / IsolationMonitoringActive through
+# ChargeParameterDiscoveryRes + CableCheckRes, then Valid / EVSE_Ready from
+# PreChargeRes on). All of that is inherited from the baseline's message field
+# tree — the SECC DIN wire values are no longer sourced from the retired
+# structured `power.evse_dc` block.
 #
-# Replaces the retired symmetric din_dc_extended.yaml (now split per role): it
-# advertises DC_extended, which is what production vehicles request via
-# EVRequestedEnergyTransferType=DC_extended (type 3).
+# It advertises DC_extended, which is what production vehicles request via
+# EVRequestedEnergyTransferType=DC_extended (type 3) — inherited from the
+# baseline's ServiceDiscoveryRes -> ChargeService -> EnergyTransferType leaf,
+# the same value the ChargeParameterDiscovery WrongEnergyTransferType
+# reject-gate compares against (advertised == accepted, by construction).
+#
+# Replaces the retired symmetric din_dc_extended.yaml (now split per role).
 extends: din-secc-baseline
 role: secc
-identity:
-  evse_id: 55AA66BB77
-power:
-  evse_dc:
-    max_voltage_v: 950.0
-    min_voltage_v: 50.0
-    max_current_a: 350.0
-    min_current_a: 5.0
-    max_power_w: 240000.0
-    peak_current_ripple_a: 7.0
-    nominal_voltage_v: 480.0
-    # DIN PMaxSchedule is int16-bounded (0..32767 W).
-    sa_schedule_pmax_w: 30000
-    sa_schedule_duration_s: 1800

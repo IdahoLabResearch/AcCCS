@@ -2,19 +2,36 @@
 #
 # The per-role baseline supplies a DIN SECC's full default wire output; device
 # files (e.g. din_dc_extended-secc.yaml) `extends:` this and override only the
-# leaves that differ. The advertised DC energy transfer mode is single-sourced
-# from the message field tree — the same ServiceDiscoveryRes -> ChargeService ->
-# EnergyTransferType value the ChargeParameterDiscovery WrongEnergyTransferType
-# reject-gate compares against (advertised == accepted, by construction).
+# leaves that differ.
 #
-# The full ABB-charger DIN tree (field-for-field from ABB_Cadillac_Lyric.pcapng)
-# lands here in #73; this slice seeds only the energy-transfer leaf.
+# This baseline replicates the ABB charger from `ABB_Cadillac_Lyric.pcapng`
+# field-for-field (#73). Every SECC-emitted DIN message sources its wire values
+# from the `message_field_tree` below via construction-time substitution
+# (ADR-0006); the structured `power.evse_dc` reads are retired from the DIN SECC
+# path. The one DIN wire value that stays structured is the SAScheduleList PMax:
+# it lives inside repeated (list) elements the per-leaf tree cannot address, so
+# it is single-sourced from `power.evse_dc.sa_schedule_pmax_w` (24000 W, matching
+# the ABB capture).
+#
+# The advertised DC energy transfer mode is single-sourced from the tree — the
+# same ServiceDiscoveryRes -> ChargeService -> EnergyTransferType value the
+# ChargeParameterDiscovery WrongEnergyTransferType reject-gate compares against
+# (advertised == accepted, by construction).
+#
+# Runtime/computed fields are NOT in the tree and stay computed: SessionID,
+# ResponseCode, EVSEProcessing progression, present voltage/current, and the
+# CurrentDemandRes limit-achieved flags.
 role: secc
 capabilities:
   supported_protocols:
     - DIN_SPEC_70121
   supported_energy_services:
     - DC
+power:
+  evse_dc:
+    # DIN SAScheduleList PMax — list-nested, so structured rather than tree.
+    # Matches the ABB capture's PMaxScheduleEntry.PMax.
+    sa_schedule_pmax_w: 24000
 residual:
   tls:
     # DIN does not use TLS.
@@ -22,6 +39,70 @@ residual:
     use_tls: false
     enforce_tls: false
 message_field_tree:
+  # "If an SECC cannot provide such ID data, the value of the EVSEID is set to
+  # zero (00hex)." The ABB charger does exactly that.
+  SessionSetupRes:
+    EVSEID: "00"
   ServiceDiscoveryRes:
+    PaymentOptions:
+      PaymentOption:
+        - ExternalPayment
     ChargeService:
+      ServiceTag:
+        ServiceID: 1
+      FreeService: false
       EnergyTransferType: DC_extended
+  ChargeParameterDiscoveryRes:
+    DC_EVSEChargeParameter:
+      # Isolation monitoring is active while the EVSE runs the cable check, so
+      # this response reports Invalid / IsolationMonitoringActive (the original
+      # motivation for the message field tree, ADR-0006).
+      DC_EVSEStatus:
+        NotificationMaxDelay: 0
+        EVSENotification: None
+        EVSEIsolationStatus: Invalid
+        EVSEStatusCode: EVSE_IsolationMonitoringActive
+      EVSEMaximumVoltageLimit: {Value: 451, Multiplier: 0, Unit: V}
+      EVSEMaximumCurrentLimit: {Value: 60, Multiplier: 0, Unit: A}
+      EVSEMaximumPowerLimit: {Value: 24000, Multiplier: 0, Unit: W}
+      EVSEMinimumVoltageLimit: {Value: 150, Multiplier: 0, Unit: V}
+      EVSEMinimumCurrentLimit: {Value: 1, Multiplier: 0, Unit: A}
+      EVSEPeakCurrentRipple: {Value: 3, Multiplier: 0, Unit: A}
+  # Still monitoring isolation: CableCheckRes stays Invalid /
+  # IsolationMonitoringActive. The completion transition to PreCharge is driven
+  # by get_cable_check_status(), not by this per-message wire value.
+  CableCheckRes:
+    DC_EVSEStatus:
+      NotificationMaxDelay: 0
+      EVSENotification: None
+      EVSEIsolationStatus: Invalid
+      EVSEStatusCode: EVSE_IsolationMonitoringActive
+  # Isolation valid from PreCharge onward: Valid / EVSE_Ready.
+  PreChargeRes:
+    DC_EVSEStatus:
+      NotificationMaxDelay: 0
+      EVSENotification: None
+      EVSEIsolationStatus: Valid
+      EVSEStatusCode: EVSE_Ready
+  PowerDeliveryRes:
+    DC_EVSEStatus:
+      NotificationMaxDelay: 0
+      EVSENotification: None
+      EVSEIsolationStatus: Valid
+      EVSEStatusCode: EVSE_Ready
+  CurrentDemandRes:
+    DC_EVSEStatus:
+      NotificationMaxDelay: 0
+      EVSENotification: None
+      EVSEIsolationStatus: Valid
+      EVSEStatusCode: EVSE_Ready
+    # The ABB charger echoes its max V/A/W envelope in every CurrentDemandRes.
+    EVSEMaximumVoltageLimit: {Value: 451, Multiplier: 0, Unit: V}
+    EVSEMaximumCurrentLimit: {Value: 60, Multiplier: 0, Unit: A}
+    EVSEMaximumPowerLimit: {Value: 24000, Multiplier: 0, Unit: W}
+  WeldingDetectionRes:
+    DC_EVSEStatus:
+      NotificationMaxDelay: 0
+      EVSENotification: None
+      EVSEIsolationStatus: Valid
+      EVSEStatusCode: EVSE_Ready

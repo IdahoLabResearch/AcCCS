@@ -73,6 +73,32 @@ from app.shared.states import State, Terminate
 logger = logging.getLogger(__name__)
 
 
+def apply_personality_tree(
+    comm_session: SECCCommunicationSession, res, message_name: str
+) -> None:
+    """Substitute the personality's message field tree onto a built DIN Res.
+
+    Construction-time substitution per ADR-0006: after a state builds an
+    outbound ``*Res`` the SECC pokes every leaf the personality's
+    ``message_field_tree`` sets for *message_name* onto it, so a configured
+    value replaces what the builder computed (and flows into any internal
+    logic that reads the field). A leaf set nowhere leaves the built value
+    untouched — the fallback the tracer relies on — so unset fields keep the
+    simulator's computed defaults.
+
+    This is the whole-SECC-path generalisation of the single field wired in
+    #71: every SECC-emitted DIN message routes its build through here, sourcing
+    the wire values (DC envelope, isolation-status progression, EVSEID, service
+    advertisement, ...) from the tree rather than the retired structured
+    ``power.evse_dc`` reads. No-op when no personality is attached (the
+    conformance harness instantiates ``SimEVSEController()`` bare) or the tree
+    is empty.
+    """
+    personality = getattr(comm_session.evse_controller, "personality", None)
+    if personality is not None and personality.message_field_tree:
+        apply_message_field_tree(res, message_name, personality.message_field_tree)
+
+
 # ============================================================================
 # |            SECC STATES - DIN SPEC 70121                                  |
 # ============================================================================
@@ -149,6 +175,8 @@ class SessionSetup(StateSECC):
         )
         self.comm_session.session_id = session_id
 
+        apply_personality_tree(self.comm_session, session_setup_res, "SessionSetupRes")
+
         self.create_next_message(
             ServiceDiscovery,
             session_setup_res,
@@ -203,6 +231,10 @@ class ServiceDiscovery(StateSECC):
         service_discovery_req: ServiceDiscoveryReq = msg.body.service_discovery_req
         service_discovery_res = await self.build_service_discovery_res(
             service_discovery_req.service_category
+        )
+
+        apply_personality_tree(
+            self.comm_session, service_discovery_res, "ServiceDiscoveryRes"
         )
 
         self.create_next_message(
@@ -320,6 +352,9 @@ class ServicePaymentSelection(StateSECC):
         service_payment_selection_res: ServicePaymentSelectionRes = (
             ServicePaymentSelectionRes(response_code=ResponseCode.OK)
         )
+        apply_personality_tree(
+            self.comm_session, service_payment_selection_res, "ServicePaymentSelectionRes"
+        )
         self.create_next_message(
             ContractAuthentication,
             service_payment_selection_res,
@@ -404,6 +439,9 @@ class ContractAuthentication(StateSECC):
             ContractAuthenticationRes(
                 response_code=ResponseCode.OK, evse_processing=evse_processing
             )
+        )
+        apply_personality_tree(
+            self.comm_session, contract_authentication_res, "ContractAuthenticationRes"
         )
 
         self.create_next_message(
@@ -508,20 +546,17 @@ class ChargeParameterDiscovery(StateSECC):
         )
 
         # Construction-time substitution (ADR-0006): apply the personality's
-        # message field tree so a configured leaf — e.g.
-        # DC_EVSEChargeParameter -> DC_EVSEStatus -> EVSEIsolationStatus, the
-        # one field wired in this slice — replaces the value the builder just
-        # computed. A leaf set nowhere leaves the built message untouched, so
-        # EVSEIsolationStatus falls back to the simulator's Valid default.
-        personality = getattr(
-            self.comm_session.evse_controller, "personality", None
+        # message field tree so configured leaves — the whole DC envelope plus
+        # DC_EVSEChargeParameter -> DC_EVSEStatus -> {EVSEIsolationStatus,
+        # EVSEStatusCode}, which the ABB baseline pins to Invalid /
+        # IsolationMonitoringActive here — replace the values the builder just
+        # computed from the retired structured reads. A leaf set nowhere leaves
+        # the built message untouched.
+        apply_personality_tree(
+            self.comm_session,
+            charge_parameter_discovery_res,
+            "ChargeParameterDiscoveryRes",
         )
-        if personality is not None and personality.message_field_tree:
-            apply_message_field_tree(
-                charge_parameter_discovery_res,
-                "ChargeParameterDiscoveryRes",
-                personality.message_field_tree,
-            )
 
         self.create_next_message(
             next_state,
@@ -654,6 +689,16 @@ class CableCheck(StateSECC):
             dc_evse_status=await self.comm_session.evse_controller.get_dc_evse_status(),
             evse_processing=evse_processing,
         )
+        # The ABB baseline pins CableCheckRes -> DC_EVSEStatus to Invalid /
+        # IsolationMonitoringActive *while isolation monitoring is ongoing*
+        # (ABB_Cadillac_Lyric.pcapng frames 316-465). On the completing response
+        # the real charger flips to Valid / EVSE_Ready (frame 469) — the signal a
+        # conformant EVCC waits for before advancing to PreCharge. The per-message
+        # tree cannot script that transition, so the tree's monitoring-phase
+        # status is applied only while EVSEProcessing is Ongoing; the completing
+        # FINISHED response keeps the computed Valid / EVSE_Ready.
+        if evse_processing != EVSEProcessing.FINISHED:
+            apply_personality_tree(self.comm_session, cable_check_res, "CableCheckRes")
 
         self.create_next_message(
             next_state,
@@ -795,6 +840,8 @@ class PreCharge(StateSECC):
             dc_evse_status=dc_charger_state,
             evse_present_voltage=evse_present_voltage,
         )
+        # From PreChargeRes onward the ABB baseline reports Valid / EVSE_Ready.
+        apply_personality_tree(self.comm_session, precharge_res, "PreChargeRes")
 
         self.create_next_message(
             None,
@@ -912,6 +959,7 @@ class PowerDelivery(StateSECC):
             response_code=ResponseCode.OK,
             dc_evse_status=dc_evse_status,
         )
+        apply_personality_tree(self.comm_session, power_delivery_res, "PowerDeliveryRes")
 
         self.create_next_message(
             next_state,
@@ -1009,6 +1057,9 @@ class CurrentDemand(StateSECC):
             ),
             evse_max_power_limit=max_power,
         )
+        # The ABB baseline echoes the max V/A/W envelope here and reports Valid /
+        # EVSE_Ready; both come from the tree now, not the retired evse_dc reads.
+        apply_personality_tree(self.comm_session, current_demand_res, "CurrentDemandRes")
         logger.info(f"EVSE Present Voltage: {voltage.value * (10 ** voltage.multiplier)} {voltage.unit.value}")
         logger.info(f"EVSE Present Current: {current.value * (10 ** current.multiplier)} {current.unit.value}")
         logger.info(f"EVSE Max Power Limit: {max_power.value * (10 ** max_power.multiplier)} {max_power.unit.value}")
@@ -1059,9 +1110,13 @@ class WeldingDetection(StateSECC):
             return
 
         self.expect_welding_detection = False
+        welding_detection_res = await self.build_welding_detection_response()
+        apply_personality_tree(
+            self.comm_session, welding_detection_res, "WeldingDetectionRes"
+        )
         self.create_next_message(
             None,
-            await self.build_welding_detection_response(),
+            welding_detection_res,
             Timeouts.V2G_SECC_SEQUENCE_TIMEOUT,
             Namespace.DIN_MSG_DEF,
         )
@@ -1107,9 +1162,12 @@ class SessionStop(StateSECC):
             self.comm_session.writer.get_extra_info("peername"),
         )
 
+        session_stop_res = SessionStopRes(response_code=ResponseCode.OK)
+        apply_personality_tree(self.comm_session, session_stop_res, "SessionStopRes")
+
         self.create_next_message(
             Terminate,
-            SessionStopRes(response_code=ResponseCode.OK),
+            session_stop_res,
             Timeouts.V2G_SECC_SEQUENCE_TIMEOUT,
             Namespace.DIN_MSG_DEF,
         )

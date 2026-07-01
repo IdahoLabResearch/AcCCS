@@ -64,7 +64,12 @@ def test_power_evse_dc_overrides_apply():
 
 
 @pytest.mark.asyncio
-async def test_secc_dc_charge_parameters_din_use_personality_limits():
+async def test_secc_dc_charge_parameters_din_retire_evse_dc():
+    """Issue #73 / ADR-0006: the DIN SECC DC envelope is no longer sourced from
+    the structured `power.evse_dc` block — it comes from the message field tree
+    at the ChargeParameterDiscoveryRes build site. The controller helper builds
+    only a skeleton from the DC-limit model defaults, so a `power.evse_dc` set
+    to distinctive values does NOT surface here (the retirement)."""
     personality = SECCPersonality.model_validate(
         {
             "power": {
@@ -82,22 +87,73 @@ async def test_secc_dc_charge_parameters_din_use_personality_limits():
     ctrl = SimEVSEController(personality=personality)
     params = await ctrl.get_dc_charge_parameters_dinspec()
 
-    assert params.evse_maximum_voltage_limit.get_decimal_value() == 600.0
-    assert params.evse_minimum_voltage_limit.get_decimal_value() == 10.0
-    assert params.evse_maximum_current_limit.get_decimal_value() == 250.0
-    assert params.evse_minimum_current_limit.get_decimal_value() == 5.0
-    assert params.evse_maximum_power_limit.get_decimal_value() == 150000.0
-    assert params.evse_peak_current_ripple.get_decimal_value() == 3.0
+    # Model defaults (EVSEDCLimits), NOT the personality's evse_dc values.
+    assert params.evse_maximum_voltage_limit.get_decimal_value() == 500.0
+    assert params.evse_maximum_current_limit.get_decimal_value() == 400.0
+    assert params.evse_maximum_power_limit.get_decimal_value() == 80000.0
 
 
 @pytest.mark.asyncio
-async def test_secc_max_power_limit_din_uses_personality():
+async def test_secc_dc_charge_parameters_din_tree_sourced():
+    """The DIN CPD DC envelope is sourced from the message field tree. Setting
+    the tree leaves surfaces them on the built ChargeParameterDiscoveryRes via
+    construction-time substitution (apply_personality_tree at the build site)."""
+    from app.secc.states.din_spec_states import apply_personality_tree
+    from app.shared.messages.din_spec.body import (
+        ChargeParameterDiscoveryRes,
+        ResponseCode,
+    )
+    from app.shared.messages.enums import EVSEProcessing
+
+    personality = SECCPersonality.model_validate(
+        {
+            "message_field_tree": {
+                "ChargeParameterDiscoveryRes": {
+                    "DC_EVSEChargeParameter": {
+                        "EVSEMaximumVoltageLimit": {
+                            "Value": 451,
+                            "Multiplier": 0,
+                            "Unit": "V",
+                        },
+                        "EVSEMaximumCurrentLimit": {
+                            "Value": 60,
+                            "Multiplier": 0,
+                            "Unit": "A",
+                        },
+                    }
+                }
+            }
+        }
+    )
+    ctrl = SimEVSEController(personality=personality)
+    dc_params = await ctrl.get_dc_charge_parameters_dinspec()
+    res = ChargeParameterDiscoveryRes(
+        response_code=ResponseCode.OK,
+        evse_processing=EVSEProcessing.FINISHED,
+        dc_charge_parameter=dc_params,
+    )
+
+    class _Session:
+        evse_controller = ctrl
+
+    apply_personality_tree(_Session(), res, "ChargeParameterDiscoveryRes")
+
+    assert res.dc_charge_parameter.evse_maximum_voltage_limit.get_decimal_value() == 451
+    assert res.dc_charge_parameter.evse_maximum_current_limit.get_decimal_value() == 60
+
+
+@pytest.mark.asyncio
+async def test_secc_max_power_limit_din_retire_evse_dc():
+    """The DIN CurrentDemandRes max-power limit no longer reads `evse_dc`
+    (#73); the helper returns the model default and the wire value is
+    tree-sourced at the build site."""
     personality = SECCPersonality.model_validate(
         {"power": {"evse_dc": {"max_power_w": 42000.0}}}
     )
     ctrl = SimEVSEController(personality=personality)
     pmax = await ctrl.get_evse_max_power_limit(protocol=Protocol.DIN_SPEC_70121)
-    assert pmax.get_decimal_value() == 42000.0
+    # Model default (80000), not the personality's evse_dc.max_power_w (42000).
+    assert pmax.get_decimal_value() == 80000.0
 
 
 @pytest.mark.asyncio
