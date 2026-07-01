@@ -220,10 +220,16 @@ async def test_din_secc_baseline_reproduces_abb_capture(exi_codec):
     assert dcp.evse_minimum_voltage_limit.get_decimal_value() == 150
     assert dcp.evse_minimum_current_limit.get_decimal_value() == 1
     assert dcp.evse_peak_current_ripple.get_decimal_value() == 3
-    # SAScheduleList PMax stays sourced from evse_dc (list-nested).
+    # The list-nested SAScheduleList is tree-sourced (#81) and byte-exact to the
+    # ABB capture: one tuple (ID 1), PMaxScheduleID 1, one PMax entry at 24000 W
+    # starting at t=0 with RelativeTimeInterval.duration omitted (Optional).
     [tuple_entry] = res.sa_schedule_list.values
+    assert tuple_entry.sa_schedule_tuple_id == 1
+    assert tuple_entry.p_max_schedule.p_max_schedule_id == 1
     [pmax_details] = tuple_entry.p_max_schedule.entry_details
     assert pmax_details.p_max == 24000
+    assert pmax_details.time_interval.start == 0
+    assert pmax_details.time_interval.duration is None
 
     # --- CableCheckRes: Invalid / IsolationMonitoringActive while monitoring,
     # then Valid / EVSE_Ready on the completing (FINISHED) response — the ABB

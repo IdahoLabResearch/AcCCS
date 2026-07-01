@@ -32,7 +32,7 @@ schema.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Mapping, Optional, Tuple, Type, get_args
+from typing import Any, Dict, List, Mapping, Optional, Tuple, Type, get_args, get_origin
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from pydantic.fields import FieldInfo
@@ -104,6 +104,25 @@ def _model_in_annotation(annotation: Any) -> Optional[Type[BaseModel]]:
     return None
 
 
+def _list_element_model(annotation: Any) -> Optional[Type[BaseModel]]:
+    """Return the ``BaseModel`` element type of a ``List[...]`` field, else None.
+
+    This is how a *list-nested* wire field is recognised (ADR-0006 issue #81
+    amendment): a repeated child element emitted atomically inside one message,
+    e.g. ``SAScheduleList -> SAScheduleTuple`` typed ``List[SAScheduleTupleEntry]``.
+    Unwraps ``Optional[List[...]]`` so an optional list still resolves. Returns
+    ``None`` for a scalar list (``List[AuthEnum]`` — its elements are leaves, not
+    sub-models, so it is handled value-raw like any other leaf) and for a
+    non-list field.
+    """
+    for candidate in (annotation, *get_args(annotation)):
+        if get_origin(candidate) in (list, List):
+            elem_args = get_args(candidate)
+            if elem_args:
+                return _model_in_annotation(elem_args[0])
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Validation (path-strict, value-raw)
 # ---------------------------------------------------------------------------
@@ -162,7 +181,18 @@ def _validate_node(
                     f"nested mapping"
                 )
             _validate_node(child_cls, value, f"{path} -> {key}")
-        # Leaf: value-raw — no range/enum/type check (ADR-0006).
+        elif isinstance(value, list) and _list_element_model(field.annotation):
+            # List-nested wire field (ADR-0006 issue #81): a repeated child
+            # element emitted atomically in one message. Path-strict still
+            # applies *inside* each element (a typo in a list element is a hard
+            # error), but the list's length/shape is value-raw — cardinality is
+            # itself a red-team surface, so no count check here.
+            elem_cls = _list_element_model(field.annotation)
+            for index, element in enumerate(value):
+                if isinstance(element, Mapping):
+                    _validate_node(elem_cls, element, f"{path} -> {key}[{index}]")
+                # A non-mapping element is value-raw (bounded by the codec).
+        # Leaf (including scalar lists): value-raw — no range/enum/type check.
 
 
 # ---------------------------------------------------------------------------
@@ -259,6 +289,22 @@ def _apply_node(instance: BaseModel, node: Mapping[str, Any], path: str) -> None
                 )
                 continue
             _apply_node(child, value, f"{path} -> {key}")
+        elif isinstance(value, list) and _list_element_model(field.annotation):
+            # List-nested wire field (ADR-0006 issue #81): the tree declares the
+            # *whole* list — its element values and its length — so the built
+            # placeholder list is replaced wholesale, not index-merged. Each
+            # element is constructed through the same lax-build seam as a scalar
+            # leaf (:func:`_build_element`), so an illegal-but-encodable value
+            # inside an element survives as a poked raw attribute on a real model
+            # instance rather than degrading the whole list to un-encodable dicts.
+            elem_cls = _list_element_model(field.annotation)
+            built = [
+                _build_element(elem_cls, element, f"{path} -> {key}[{index}]")
+                if isinstance(element, Mapping)
+                else element
+                for index, element in enumerate(value)
+            ]
+            object.__setattr__(instance, field_name, built)
         else:
             _lax_set(instance, field_name, field, value, f"{path} -> {key}")
 
@@ -286,3 +332,60 @@ def _lax_set(
         final = value
         logger.debug("message field tree: %s set raw (unvalidated) to %r", path, value)
     object.__setattr__(instance, field_name, final)
+
+
+def _build_element(
+    model_cls: Type[BaseModel], node: Mapping[str, Any], path: str
+) -> Any:
+    """Construct one list element from a tree map, coercing when possible.
+
+    The model-level analogue of :func:`_lax_set`: a wholly-legal element is
+    validated straight to a model instance (so it encodes normally, defaults
+    and all); an element that a strict build would reject — because some leaf
+    carries an illegal-but-encodable value — is assembled field-by-field and
+    stitched together with ``model_construct`` (which bypasses validation),
+    poking each rejected leaf raw exactly like the scalar seam. What survives
+    to the wire is then bounded only by codec serializability (ADR-0006).
+    """
+    try:
+        return TypeAdapter(model_cls).validate_python(node)
+    except ValidationError:
+        pass
+
+    assembled: Dict[str, Any] = {}
+    for key, value in node.items():
+        resolved = _resolve_field(model_cls, str(key))
+        if resolved is None:
+            # Path-validated at load; skip defensively rather than crash.
+            logger.warning("message field tree: %s -> %s no longer resolves", path, key)
+            continue
+        field_name, field = resolved
+        if isinstance(value, Mapping):
+            child_cls = _model_in_annotation(field.annotation)
+            assembled[field_name] = (
+                _build_element(child_cls, value, f"{path} -> {key}")
+                if child_cls is not None
+                else value
+            )
+        elif isinstance(value, list) and _list_element_model(field.annotation):
+            elem_cls = _list_element_model(field.annotation)
+            assembled[field_name] = [
+                _build_element(elem_cls, element, f"{path} -> {key}[{index}]")
+                if isinstance(element, Mapping)
+                else element
+                for index, element in enumerate(value)
+            ]
+        else:
+            try:
+                assembled[field_name] = TypeAdapter(field.annotation).validate_python(
+                    value
+                )
+            except ValidationError:
+                assembled[field_name] = value
+                logger.debug(
+                    "message field tree: %s -> %s set raw (unvalidated) to %r",
+                    path,
+                    key,
+                    value,
+                )
+    return model_cls.model_construct(**assembled)

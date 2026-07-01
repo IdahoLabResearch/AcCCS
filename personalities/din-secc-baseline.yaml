@@ -8,10 +8,9 @@
 # field-for-field (#73). Every SECC-emitted DIN message sources its wire values
 # from the `message_field_tree` below via construction-time substitution
 # (ADR-0006); the structured `power.evse_dc` reads are retired from the DIN SECC
-# path. The one DIN wire value that stays structured is the SAScheduleList PMax:
-# it lives inside repeated (list) elements the per-leaf tree cannot address, so
-# it is single-sourced from `power.evse_dc.sa_schedule_pmax_w` (24000 W, matching
-# the ABB capture).
+# path. This now includes the list-nested SAScheduleList (issue #81 amendment):
+# the tree declares the whole `SAScheduleTuple` list, so the ABB PMax (24000 W),
+# PMaxScheduleID (1), and start (0, duration omitted) are byte-exact too.
 #
 # The advertised DC energy transfer mode is single-sourced from the tree — the
 # same ServiceDiscoveryRes -> ChargeService -> EnergyTransferType value the
@@ -27,11 +26,6 @@ capabilities:
     - DIN_SPEC_70121
   supported_energy_services:
     - DC
-power:
-  evse_dc:
-    # DIN SAScheduleList PMax — list-nested, so structured rather than tree.
-    # Matches the ABB capture's PMaxScheduleEntry.PMax.
-    sa_schedule_pmax_w: 24000
 residual:
   tls:
     # DIN does not use TLS.
@@ -68,6 +62,20 @@ message_field_tree:
       EVSEMinimumVoltageLimit: {Value: 150, Multiplier: 0, Unit: V}
       EVSEMinimumCurrentLimit: {Value: 1, Multiplier: 0, Unit: A}
       EVSEPeakCurrentRipple: {Value: 3, Multiplier: 0, Unit: A}
+    # The charging schedule the ABB advertises: one tuple, one PMax entry at
+    # 24000 W starting at t=0. List-nested wire field sourced from the tree
+    # (ADR-0006 issue #81) — the tree declares the whole SAScheduleTuple list,
+    # cardinality included. RelativeTimeInterval.duration is Optional and left
+    # unset, matching the ABB capture (which omits it).
+    SAScheduleList:
+      SAScheduleTuple:
+        - SAScheduleTupleID: 1
+          PMaxSchedule:
+            PMaxScheduleID: 1
+            PMaxScheduleEntry:
+              - PMax: 24000
+                RelativeTimeInterval:
+                  start: 0
   # Still monitoring isolation: CableCheckRes stays Invalid /
   # IsolationMonitoringActive. The completion transition to PreCharge is driven
   # by get_cable_check_status(), not by this per-message wire value.

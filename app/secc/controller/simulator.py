@@ -706,29 +706,30 @@ class SimEVSEController(EVSEControllerInterface):
     async def get_sa_schedule_list_dinspec(
         self, max_schedule_entries: Optional[int], departure_time: int = 0
     ) -> Optional[List[SAScheduleTupleEntryDINSPEC]]:
-        """Overrides EVSEControllerInterface.get_sa_schedule_list_dinspec()."""
-        sa_schedule_list: List[SAScheduleTupleEntryDINSPEC] = []
-        evse_dc = (
-            self.personality.power.evse_dc if self.personality else None
-        )
-        p_max = int(evse_dc.sa_schedule_pmax_w) if evse_dc else 200
-        duration = evse_dc.sa_schedule_duration_s if evse_dc else 3600
-        entry_details = PMaxScheduleEntryDetailsDINSPEC(
-            p_max=p_max,
-            time_interval=RelativeTimeIntervalDINSPEC(start=0, duration=duration),
-        )
-        p_max_schedule_entries = [entry_details]
-        pmax_schedule_entry = PMaxScheduleEntryDINSPEC(
-            p_max_schedule_id=0, entry_details=p_max_schedule_entries
-        )
+        """Overrides EVSEControllerInterface.get_sa_schedule_list_dinspec().
 
+        The DIN `SAScheduleList` is a list-nested wire value sourced from the
+        `message_field_tree` (ADR-0006 issue #81): the SECC state applies the
+        personality's `ChargeParameterDiscoveryRes -> SAScheduleList` tree,
+        which replaces the whole list wholesale. This helper therefore emits
+        only a *minimal 1-tuple / 1-entry scaffold from in-code constants* — the
+        placeholder the tree overrides, and the actual output on the
+        personality-less path (the conformance harness runs the simulator bare).
+        Interim: to be removed once a personality is mandatory to run (#83).
+        """
+        entry_details = PMaxScheduleEntryDetailsDINSPEC(
+            p_max=200,
+            time_interval=RelativeTimeIntervalDINSPEC(start=0, duration=3600),
+        )
+        pmax_schedule_entry = PMaxScheduleEntryDINSPEC(
+            p_max_schedule_id=0, entry_details=[entry_details]
+        )
         sa_schedule_tuple_entry = SAScheduleTupleEntryDINSPEC(
             sa_schedule_tuple_id=1,
             p_max_schedule=pmax_schedule_entry,
             sales_tariff=None,
         )
-        sa_schedule_list.append(sa_schedule_tuple_entry)
-        return sa_schedule_list
+        return [sa_schedule_tuple_entry]
 
     async def get_sa_schedule_list(
         self,

@@ -30,7 +30,7 @@ We decided to **replace the structured wire-value sections with a [[message fiel
 
 - **Tree-only for dual-purpose fields, no residual section.** Rejected: non-wire config (TLS posture, SLAC L2 timings, cert paths, interface, backend toggles) has no message to live under and cannot be force-fit into a per-message tree.
 
-- **Per-instance / indexed tree values** (a repeated message carries a sequence of values). Rejected: turns the personality into a behavior-over-time script, which the [[personality]] glossary forbids; runtime variation belongs to computed logic and [[live-override]].
+- **Per-instance / indexed tree values *across time*** (the *same message type*, emitted repeatedly through a session, carries a different value on successive emissions — e.g. `CurrentDemandRes` #1 → 30 A, #2 → 25 A). Rejected: turns the personality into a behavior-over-time script, which the [[personality]] glossary forbids; runtime variation belongs to computed logic and [[live-override]]. **Note:** this rejection is about *the emulator scripting its behavior across successive messages* — it does **not** reach a repeated child element *inside a single message* (a list emitted atomically), which is one static wire payload and *is* addressable; see the issue #81 amendment below.
 
 - **Allow advertised vs. accepted to diverge for dual-purpose fields** (separate decision copy in the residual section). Rejected: the single-source rule is simpler and the divergence probe (advertise one mode, reject it) was judged not worth a second source of truth. Trade-off accepted: advertised always equals accepted.
 
@@ -44,3 +44,21 @@ We decided to **replace the structured wire-value sections with a [[message fiel
 - Default config changes: EVCC and SECC personalities become separate files, and the symmetric `din_dc_extended.yaml` is retired in favor of per-role DIN files seeded from `ABB_Cadillac_Lyric.pcapng`. The run scripts' default `--config` is updated accordingly ([CLAUDE.md](../../CLAUDE.md) "Configuration").
 - The emulator can now reproduce real-device wire details it previously hardcoded — notably the DIN isolation-status progression — closing the gap that motivated this work.
 - Work is independently end-to-end testable per protocol slice (DIN first).
+
+## Amendment — list-nested wire fields (issue #81)
+
+The original decision above conflated two things under one "no indexed tree values" rejection. This amendment separates them.
+
+- **Per-instance *across time* — still rejected.** The *same message type*, emitted repeatedly through a session, must not carry a scripted sequence of values across successive emissions. That is a behavior-over-time script and belongs to computed logic / [[live-override]], not the personality. Unchanged.
+
+- **List-nested *within a single message* — now addressable.** A single message may contain a repeated child element — a list emitted **atomically in one message** (the DIN `ChargeParameterDiscoveryRes → SAScheduleList → SAScheduleTuple`, and its nested `PMaxSchedule → PMaxScheduleEntry`). This is one static wire payload that happens to have repeated structure; it has no time dimension in the *emulator's behavior*. The tree addresses it as a nested **YAML list of maps** mirroring the message model down to each element's leaves (the same way scalar lists like `PaymentOption` already work, extended to lists of sub-models).
+
+**The tree declares the whole list, cardinality included.** The tree is the source of truth for the list's *length* as well as its element values — not merely a positional override into a code-built list. This makes list *cardinality* a first-class red-team surface (emit an illegal count, a duplicate `SAScheduleTupleID`, or an empty list), consistent with ADR-0004's "send illegal-but-encodable input." The construction site stops building the list from structured config; the generic tree walker constructs the elements from the tree via the existing lax-build seam.
+
+**Device overrides restate the whole list.** Layered merge keeps the existing `_deep_merge` semantics — a list value is replaced wholesale, not index-merged — so a device file that wants a different schedule spells out the entire `SAScheduleTuple` list. A schedule is a cohesive unit, and wholesale replacement avoids the fragile "what does overriding element [2] mean when the baseline has one" positional-merge trap.
+
+**Guardrail preserving the original concern.** Cardinality and element values are fixed per message *type*, declared once at load; they do **not** vary across successive emissions of that message during a session. So the personality still does not script behavior over time — the amendment widens *what a single message's static payload can express*, not *whether the payload changes over the session*.
+
+**Generic capability, first consumer DIN `SAScheduleList`.** List-walking lands in the generic message-field-tree walker so future repeated wire elements (ISO-15118-2 `SAScheduleList`, `ServiceList`, …) inherit it. The first consumer retires the structured `power.evse_dc.sa_schedule_pmax_w` / `sa_schedule_duration_s` fields (the wire value now lives *only* in the tree, honoring the mechanical dividing rule) and closes two `ABB_Cadillac_Lyric.pcapng` fidelity deltas: `PMaxScheduleID` becomes a tree leaf set to `1` (was hardcoded `0`), and `RelativeTimeInterval.duration` is simply left unset (it is `Optional`, so it is omitted from the wire, matching the ABB capture).
+
+**Split out.** Making a personality *mandatory to run* and adding a *load-time completeness check* for mandatory tree-sourced fields (with the runtime-computed-field exclusion) is a cross-cutting contract change tracked separately in issue #83, not part of this amendment.

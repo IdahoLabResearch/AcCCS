@@ -157,18 +157,21 @@ async def test_secc_max_power_limit_din_retire_evse_dc():
 
 
 @pytest.mark.asyncio
-async def test_secc_sa_schedule_dinspec_uses_personality_pmax():
-    # DIN 70121's PMaxScheduleEntry.p_max is an int16 (max 32767 W), so the
-    # personality field is constrained to that range as well.
+async def test_secc_sa_schedule_dinspec_returns_constant_scaffold():
+    """The DIN SAScheduleList is list-nested and sourced from the message field
+    tree (#81), so `get_sa_schedule_list_dinspec` no longer reads `evse_dc`; it
+    emits only a minimal constant scaffold that the tree replaces wholesale at
+    the build site. A personality's `evse_dc` does not influence it."""
     personality = SECCPersonality.model_validate(
-        {"power": {"evse_dc": {"sa_schedule_pmax_w": 25000}}}
+        {"power": {"evse_dc": {"max_power_w": 25000}}}
     )
     ctrl = SimEVSEController(personality=personality)
     schedules = await ctrl.get_sa_schedule_list_dinspec(None, 0)
     assert schedules is not None
     [entry] = schedules
     [details] = entry.p_max_schedule.entry_details
-    assert details.p_max == 25000
+    # In-code constant scaffold (PMax 200), not derived from the personality.
+    assert details.p_max == 200
 
 
 @pytest.mark.asyncio

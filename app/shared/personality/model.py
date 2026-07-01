@@ -178,13 +178,12 @@ class EVSEDCLimits(_StrictBase):
     # AC-side nominal voltage at the EVSE inlet — referenced by
     # interface.get_evse_max_current_limit() when current_type is AC.
     nominal_voltage_v: float = 400.0
-    # DIN SAScheduleList PMaxScheduleEntry — the EVSE-advertised power
-    # envelope for the charging schedule. Personality because it describes
-    # what the EVSE *would offer* before any per-session negotiation. DIN
-    # 70121's PMaxScheduleEntry.p_max is an XSD `int` clamped to int16
-    # (0..32767 W) so the schema enforces that range here too.
-    sa_schedule_pmax_w: int = Field(default=30000, ge=0, le=32767)
-    sa_schedule_duration_s: int = 3600
+    # NB: the DIN SAScheduleList PMax / duration are no longer structured
+    # fields. They are list-nested wire values sourced from the
+    # `message_field_tree` (ADR-0006 issue #81 amendment) —
+    # ChargeParameterDiscoveryRes -> SAScheduleList -> SAScheduleTuple. The
+    # DIN SECC path builds a minimal constant fallback only when no
+    # personality is attached; see `get_sa_schedule_list_dinspec`.
     # ISO 15118-2 SAScheduleList PMaxScheduleEntry — the EVSE-advertised
     # power envelope for the ISO-2 charging schedule. Distinct from DIN's
     # field because ISO-2's PMax goes on the wire as a PVPMax (PhysicalValue
@@ -411,8 +410,8 @@ class ScheduleExchangeV20(_StrictBase):
 class EVSEScheduleExchangeV20(_StrictBase):
     """SECC-side ScheduleExchange schedule envelope (ISO 15118-20).
 
-    Mirrors the Slice 2 pattern (`EVSEDCLimits.sa_schedule_pmax_w` etc.) by
-    surfacing the *envelope* of the EVSE's offered schedule — power,
+    Mirrors the Slice 2 pattern (`EVSEDCLimits.iso2_sa_schedule_pmax_w` etc.)
+    by surfacing the *envelope* of the EVSE's offered schedule — power,
     duration, available energy, tolerance — and the dynamic-mode SOC
     targets. The pricing / tax / overstay meta-structures the simulator
     embeds for protocol-interop completeness are deliberately left

@@ -39,8 +39,6 @@ power:
     max_power_w: 80000.0
     peak_current_ripple_a: 5.0
     nominal_voltage_v: 400.0
-    sa_schedule_pmax_w: 30000
-    sa_schedule_duration_s: 3600
     iso2_sa_schedule_pmax_w: 11000
     iso2_sales_tariff_id: 10
   ev_dc:

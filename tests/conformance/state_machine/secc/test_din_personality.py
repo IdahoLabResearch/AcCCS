@@ -53,10 +53,11 @@ from tests.conformance.state_machine.harness import ScriptedPeer, StubCommSessio
 @pytest.fixture
 def variant_secc_personality() -> SECCPersonality:
     # Issue #73 / ADR-0006: the DIN SECC DC envelope is sourced from the message
-    # field tree, not the retired structured `power.evse_dc` reads. Only the
-    # list-nested SAScheduleList PMax stays in `evse_dc` (the per-leaf tree
-    # cannot address repeated elements). EVSEID and the energy mode stay on
-    # their existing seams (identity / capabilities) to prove those still work.
+    # field tree, not the retired structured `power.evse_dc` reads. Issue #81
+    # extends that to the list-nested SAScheduleList — the tree declares the
+    # whole SAScheduleTuple list (PMax included). EVSEID and the energy mode
+    # stay on their existing seams (identity / capabilities) to prove those
+    # still work.
     return SECCPersonality.model_validate(
         {
             "identity": {"evse_id": "55AA66BB77"},
@@ -64,13 +65,24 @@ def variant_secc_personality() -> SECCPersonality:
                 "energy_transfer_mode": "DC_core",
                 "supported_protocols": ["DIN_SPEC_70121"],
             },
-            "power": {
-                "evse_dc": {
-                    "sa_schedule_pmax_w": 30000,
-                },
-            },
             "message_field_tree": {
                 "ChargeParameterDiscoveryRes": {
+                    "SAScheduleList": {
+                        "SAScheduleTuple": [
+                            {
+                                "SAScheduleTupleID": 1,
+                                "PMaxSchedule": {
+                                    "PMaxScheduleID": 1,
+                                    "PMaxScheduleEntry": [
+                                        {
+                                            "PMax": 30000,
+                                            "RelativeTimeInterval": {"start": 0},
+                                        }
+                                    ],
+                                },
+                            }
+                        ]
+                    },
                     "DC_EVSEChargeParameter": {
                         "EVSEMaximumVoltageLimit": {
                             "Value": 950,
@@ -186,9 +198,9 @@ async def test_service_discovery_emits_personality_energy_transfer_mode(
 async def test_charge_parameter_discovery_emits_tree_dc_limits(
     exi_codec, variant_secc_personality
 ):
-    """Issue #73: the ChargeParameterDiscoveryRes DC envelope is sourced from
-    the message field tree (construction-time substitution at the build site),
-    while the list-nested SAScheduleList PMax stays sourced from evse_dc."""
+    """Issue #73/#81: the ChargeParameterDiscoveryRes DC envelope *and* the
+    list-nested SAScheduleList are sourced from the message field tree
+    (construction-time substitution at the build site)."""
     session = _stub_secc_session(variant_secc_personality)
 
     # Walk: ServicePaymentSelection so .selected_auth_option lands.
@@ -247,10 +259,15 @@ async def test_charge_parameter_discovery_emits_tree_dc_limits(
     assert res.dc_charge_parameter.evse_minimum_current_limit.get_decimal_value() == 5.0
     assert res.dc_charge_parameter.evse_peak_current_ripple.get_decimal_value() == 7.0
 
-    # PMaxSchedule advertised in the SAScheduleList honours sa_schedule_pmax_w.
+    # The SAScheduleList is tree-sourced (#81): one tuple, PMaxScheduleID 1,
+    # one PMax entry at 30000 W starting at t=0 with duration omitted.
     [tuple_entry] = res.sa_schedule_list.values
+    assert tuple_entry.sa_schedule_tuple_id == 1
+    assert tuple_entry.p_max_schedule.p_max_schedule_id == 1
     [pmax_details] = tuple_entry.p_max_schedule.entry_details
     assert pmax_details.p_max == 30000
+    assert pmax_details.time_interval.start == 0
+    assert pmax_details.time_interval.duration is None
 
 
 @pytest.mark.asyncio

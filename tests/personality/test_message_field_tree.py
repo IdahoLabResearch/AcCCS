@@ -284,3 +284,192 @@ def test_wire_invalid_is_emitted():
 
 def test_wire_warning_is_emitted():
     assert _roundtrip_isolation("Warning") is IsolationLevel.WARNING
+
+
+# ---------------------------------------------------------------------------
+# List-nested wire fields (issue #81, ADR-0006 amendment)
+#
+# The DIN SAScheduleList is a repeated child element emitted atomically inside
+# one ChargeParameterDiscoveryRes. The tree addresses it as a nested list of
+# maps and declares the *whole* list (length included); a device file replaces
+# it wholesale; path-strict still applies inside each element but the list's
+# cardinality/shape is value-raw (a red-team surface).
+# ---------------------------------------------------------------------------
+
+
+def _sa_schedule_tree(tuples):
+    return {"ChargeParameterDiscoveryRes": {"SAScheduleList": {"SAScheduleTuple": tuples}}}
+
+
+def _tuple(tuple_id=1, pmax=24000, schedule_id=1, entries=None):
+    return {
+        "SAScheduleTupleID": tuple_id,
+        "PMaxSchedule": {
+            "PMaxScheduleID": schedule_id,
+            "PMaxScheduleEntry": entries
+            or [{"PMax": pmax, "RelativeTimeInterval": {"start": 0}}],
+        },
+    }
+
+
+def _built_cpd_with_scaffold():
+    """A DIN CPD carrying the simulator's minimal SAScheduleList scaffold.
+
+    Mirrors what the SECC state builds before construction-time substitution:
+    a 1-tuple / 1-entry list the tree then replaces wholesale.
+    """
+    from app.shared.messages.din_spec.datatypes import (
+        PMaxScheduleEntry,
+        PMaxScheduleEntryDetails,
+        RelativeTimeInterval,
+        SAScheduleList,
+        SAScheduleTupleEntry,
+    )
+
+    scaffold = SAScheduleList(
+        values=[
+            SAScheduleTupleEntry(
+                sa_schedule_tuple_id=1,
+                p_max_schedule=PMaxScheduleEntry(
+                    p_max_schedule_id=0,
+                    entry_details=[
+                        PMaxScheduleEntryDetails(
+                            p_max=200,
+                            time_interval=RelativeTimeInterval(start=0, duration=3600),
+                        )
+                    ],
+                ),
+            )
+        ]
+    )
+    return ChargeParameterDiscoveryRes(
+        response_code=ResponseCode.OK,
+        evse_processing=EVSEProcessing.FINISHED,
+        sa_schedule_list=scaffold,
+    )
+
+
+def test_list_element_typo_is_hard_error():
+    # Path-strict descends into each list element: a typo inside a repeated
+    # element is a hard error at load, exactly like a scalar path typo.
+    bad = _sa_schedule_tree(
+        [_tuple(entries=[{"PMaxTYPO": 24000, "RelativeTimeInterval": {"start": 0}}])]
+    )
+    with pytest.raises(ValidationError):
+        SECCPersonality.model_validate({"message_field_tree": bad})
+
+
+def test_list_element_accepts_python_field_names():
+    tree = {
+        "ChargeParameterDiscoveryRes": {
+            "sa_schedule_list": {
+                "values": [
+                    {
+                        "sa_schedule_tuple_id": 1,
+                        "p_max_schedule": {
+                            "p_max_schedule_id": 1,
+                            "entry_details": [
+                                {"p_max": 24000, "time_interval": {"start": 0}}
+                            ],
+                        },
+                    }
+                ]
+            }
+        }
+    }
+    SECCPersonality.model_validate({"message_field_tree": tree})
+
+
+def test_illegal_cardinality_not_rejected_at_load():
+    # Value-raw for the list's *shape*: four tuples (model max_length=3) and
+    # thirteen PMax entries (model max_length=12) must load without complaint —
+    # cardinality fuzzing is the point (ADR-0004).
+    entries = [{"PMax": 100 + i, "RelativeTimeInterval": {"start": 0}} for i in range(13)]
+    tree = _sa_schedule_tree(
+        [_tuple(tuple_id=i, entries=entries) for i in range(1, 5)]
+    )
+    SECCPersonality.model_validate({"message_field_tree": tree})
+
+
+def test_apply_builds_whole_list_from_tree():
+    # Element values *and* list length come from the tree: two tuples replace
+    # the one-tuple scaffold wholesale, and each element is a real model.
+    from app.shared.messages.din_spec.datatypes import SAScheduleTupleEntry
+
+    msg = _built_cpd_with_scaffold()
+    tree = _sa_schedule_tree([_tuple(tuple_id=1, pmax=24000), _tuple(tuple_id=2, pmax=5000)])
+    apply_message_field_tree(msg, "ChargeParameterDiscoveryRes", tree)
+
+    values = msg.sa_schedule_list.values
+    assert len(values) == 2
+    assert all(isinstance(v, SAScheduleTupleEntry) for v in values)
+    assert values[0].p_max_schedule.p_max_schedule_id == 1
+    assert values[0].p_max_schedule.entry_details[0].p_max == 24000
+    # duration was omitted in the tree → stays None (Optional, off the wire).
+    assert values[0].p_max_schedule.entry_details[0].time_interval.duration is None
+    assert values[1].p_max_schedule.entry_details[0].p_max == 5000
+
+
+def test_apply_empty_list_replaces_scaffold():
+    msg = _built_cpd_with_scaffold()
+    apply_message_field_tree(msg, "ChargeParameterDiscoveryRes", _sa_schedule_tree([]))
+    assert msg.sa_schedule_list.values == []
+
+
+def test_apply_illegal_leaf_inside_element_survives_as_model():
+    # An illegal-but-encodable leaf inside a list element (PMax 99999 > int16
+    # max) must survive as a poked-raw attribute on a *real* model instance —
+    # not degrade the whole list to un-encodable dicts.
+    from app.shared.messages.din_spec.datatypes import SAScheduleTupleEntry
+
+    msg = _built_cpd_with_scaffold()
+    apply_message_field_tree(
+        msg, "ChargeParameterDiscoveryRes", _sa_schedule_tree([_tuple(pmax=99999)])
+    )
+    [entry] = msg.sa_schedule_list.values
+    assert isinstance(entry, SAScheduleTupleEntry)
+    assert entry.p_max_schedule.entry_details[0].p_max == 99999
+
+
+def test_wire_sa_schedule_list_round_trips():
+    # End-to-end: a tree-declared SAScheduleList reaches the wire and decodes
+    # back with PMaxScheduleID 1, PMax 24000, start 0, duration omitted.
+    from app.shared.settings import load_shared_settings
+
+    load_shared_settings()
+
+    p = SECCPersonality.model_validate(
+        {"message_field_tree": _sa_schedule_tree([_tuple(pmax=24000)])}
+    )
+    msg = _built_cpd_with_scaffold()
+    apply_message_field_tree(msg, "ChargeParameterDiscoveryRes", p.message_field_tree)
+
+    doc = V2GMessageDINSPEC(
+        header=MessageHeader(session_id="00"),
+        body=Body(charge_parameter_discovery_res=msg),
+    )
+    exi = EXI().to_exi_document(doc, Namespace.DIN_MSG_DEF)
+    back = EXI().from_exi_document(exi, Namespace.DIN_MSG_DEF)
+
+    schedule = back.body.charge_parameter_discovery_res.sa_schedule_list
+    [tuple_entry] = schedule.values
+    assert tuple_entry.sa_schedule_tuple_id == 1
+    assert tuple_entry.p_max_schedule.p_max_schedule_id == 1
+    [details] = tuple_entry.p_max_schedule.entry_details
+    assert details.p_max == 24000
+    assert details.time_interval.start == 0
+    assert details.time_interval.duration is None
+
+
+def test_device_override_replaces_list_wholesale():
+    # Layered merge: a device file that restates the SAScheduleTuple list
+    # replaces the baseline's wholesale (lists do not index-merge). #81 dec. 4.
+    from app.shared.personality.loader import _deep_merge
+
+    baseline = _sa_schedule_tree([_tuple(tuple_id=1, pmax=24000), _tuple(tuple_id=2, pmax=5000)])
+    device = _sa_schedule_tree([_tuple(tuple_id=1, pmax=32000)])
+    merged = _deep_merge(baseline, device)
+
+    tuples = merged["ChargeParameterDiscoveryRes"]["SAScheduleList"]["SAScheduleTuple"]
+    assert len(tuples) == 1
+    assert tuples[0]["PMaxSchedule"]["PMaxScheduleEntry"][0]["PMax"] == 32000

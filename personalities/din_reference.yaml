@@ -31,8 +31,6 @@ power:
     max_power_w: 240000.0
     peak_current_ripple_a: 7.0
     nominal_voltage_v: 480.0
-    sa_schedule_pmax_w: 30000
-    sa_schedule_duration_s: 1800
   ev_dc:
     max_voltage_v: 920.0
     max_current_a: 250.0
