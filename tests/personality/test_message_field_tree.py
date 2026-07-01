@@ -23,6 +23,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.shared.exi_codec import EXI
+from app.shared.messages.datatypes import DCEVSEStatusCode
 from app.shared.messages.din_spec.body import (
     Body,
     ChargeParameterDiscoveryRes,
@@ -234,6 +235,87 @@ def test_apply_ignores_other_message_entries():
         msg.dc_charge_parameter.dc_evse_status.evse_isolation_status
         is IsolationLevel.VALID
     )
+
+
+# ---------------------------------------------------------------------------
+# skip_fields: leave one top-level field computed, apply the rest (issue #82)
+#
+# CableCheck's completing (FINISHED) response must keep its computed
+# DC_EVSEStatus (Valid / EVSE_Ready) while every *other* CableCheckRes leaf the
+# tree carries still reaches the wire. apply_message_field_tree(skip_fields=...)
+# is that seam — the old "skip the whole tree on FINISHED" guard silently
+# dropped non-isolation fields.
+# ---------------------------------------------------------------------------
+
+
+def _built_cable_check_res():
+    """A CableCheckRes as the SECC completing response builds it: FINISHED with
+    a Valid / EVSE_Ready DC_EVSEStatus computed by the simulator."""
+    from app.shared.messages.datatypes import DCEVSEStatus, DCEVSEStatusCode
+    from app.shared.messages.din_spec.body import CableCheckRes
+
+    return CableCheckRes(
+        response_code=ResponseCode.OK,
+        evse_processing=EVSEProcessing.FINISHED,
+        dc_evse_status=DCEVSEStatus(
+            notification_max_delay=0,
+            evse_notification="None",
+            evse_isolation_status=IsolationLevel.VALID,
+            evse_status_code=DCEVSEStatusCode.EVSE_READY,
+        ),
+    )
+
+
+# A CableCheckRes tree that sets both the isolation sub-tree *and* a
+# non-isolation field (EVSEProcessing), so a skip that drops the whole tree
+# would be caught.
+def _cable_check_tree():
+    return {
+        "CableCheckRes": {
+            "DC_EVSEStatus": {
+                "EVSEIsolationStatus": "Invalid",
+                "EVSEStatusCode": "EVSE_IsolationMonitoringActive",
+            },
+            "EVSEProcessing": "Ongoing",
+        }
+    }
+
+
+def test_skip_fields_leaves_named_field_computed():
+    msg = _built_cable_check_res()
+    apply_message_field_tree(
+        msg, "CableCheckRes", _cable_check_tree(), skip_fields={"dc_evse_status"}
+    )
+    # DC_EVSEStatus was skipped: the computed Valid / EVSE_Ready survives.
+    assert msg.dc_evse_status.evse_isolation_status is IsolationLevel.VALID
+    assert msg.dc_evse_status.evse_status_code == DCEVSEStatusCode.EVSE_READY
+
+
+def test_skip_fields_still_applies_the_rest_of_the_tree():
+    msg = _built_cable_check_res()
+    apply_message_field_tree(
+        msg, "CableCheckRes", _cable_check_tree(), skip_fields={"dc_evse_status"}
+    )
+    # The non-isolation field is *not* skipped and reaches the message — the
+    # trap the old whole-tree skip introduced (#82).
+    assert msg.evse_processing is EVSEProcessing.ONGOING
+
+
+def test_skip_fields_resolves_alias_spelling():
+    # The skip set names Python fields, but a tree may spell the field with its
+    # XSD alias (DC_EVSEStatus); the skip must still match.
+    msg = _built_cable_check_res()
+    tree = {"CableCheckRes": {"DC_EVSEStatus": {"EVSEIsolationStatus": "Fault"}}}
+    apply_message_field_tree(msg, "CableCheckRes", tree, skip_fields={"dc_evse_status"})
+    assert msg.dc_evse_status.evse_isolation_status is IsolationLevel.VALID
+
+
+def test_no_skip_fields_applies_everything():
+    msg = _built_cable_check_res()
+    apply_message_field_tree(msg, "CableCheckRes", _cable_check_tree())
+    # Without a skip set the whole tree lands, isolation sub-tree included.
+    assert msg.dc_evse_status.evse_isolation_status == "Invalid"
+    assert msg.evse_processing is EVSEProcessing.ONGOING
 
 
 # ---------------------------------------------------------------------------

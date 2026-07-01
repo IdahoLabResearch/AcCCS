@@ -32,7 +32,18 @@ schema.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Mapping, Optional, Tuple, Type, get_args, get_origin
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Tuple,
+    Type,
+    get_args,
+    get_origin,
+)
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from pydantic.fields import FieldInfo
@@ -251,7 +262,10 @@ def resolve_tree_leaf(
 
 
 def apply_message_field_tree(
-    model: BaseModel, message_name: str, tree: Mapping[str, Any]
+    model: BaseModel,
+    message_name: str,
+    tree: Mapping[str, Any],
+    skip_fields: Optional[Iterable[str]] = None,
 ) -> None:
     """Substitute a message's tree overrides onto a constructed *model*.
 
@@ -259,10 +273,32 @@ def apply_message_field_tree(
     *model* instance in place. A leaf set nowhere is left untouched, so an
     unset field keeps whatever the builder computed (the fallback the tracer
     relies on). No-op when the tree carries nothing for this message.
+
+    *skip_fields* names top-level fields of the message (by Python name) to
+    leave to the builder's computed value even when the tree sets them — the
+    rest of the tree still applies. This is how the DIN CableCheck completing
+    (FINISHED) response keeps its computed ``DC_EVSEStatus`` (Valid /
+    EVSE_Ready) while every *other* CableCheckRes leaf the tree carries still
+    reaches the wire (#82); the tree spells the field as either its Python name
+    or its XSD alias, so each node key is resolved to its Python name before
+    matching.
     """
     fields = tree.get(message_name)
     if not fields:
         return
+    if skip_fields:
+        skip = set(skip_fields)
+        model_cls = _message_class(message_name)
+        kept: Dict[str, Any] = {}
+        for key, value in fields.items():
+            resolved = _resolve_field(model_cls, str(key)) if model_cls else None
+            python_name = resolved[0] if resolved else str(key)
+            if python_name in skip:
+                continue
+            kept[key] = value
+        fields = kept
+        if not fields:
+            return
     _apply_node(model, fields, message_name)
 
 

@@ -356,3 +356,59 @@ async def test_din_secc_baseline_reproduces_abb_capture(exi_codec):
         )
     )
     assert res is not None
+
+
+@pytest.mark.asyncio
+async def test_cable_check_finished_keeps_isolation_but_applies_other_tree_fields(
+    exi_codec,
+):
+    """The completing CableCheckRes skips only DC_EVSEStatus, not the whole tree.
+
+    Regression for #82: the old guard skipped the *entire* CableCheckRes tree on
+    the FINISHED response, so any non-isolation field a personality adds to that
+    tree would silently never reach the completing frame. Here the CableCheckRes
+    tree carries a non-isolation leaf (EVSEProcessing) alongside the isolation
+    sub-tree; on the completing (FINISHED) response DC_EVSEStatus must stay the
+    computed Valid / EVSE_Ready while the EVSEProcessing override still reaches
+    the wire.
+    """
+    session = _baseline_session()
+    hdr = lambda: MessageHeader(session_id=session.session_id)  # noqa: E731
+
+    # Add a non-isolation leaf to the shipped CableCheckRes tree (the baseline
+    # only pins DC_EVSEStatus). "Ongoing" is a legal EVSEProcessing member, so
+    # it coerces and encodes normally — the point is only that it survives the
+    # completing-response skip that used to drop the whole tree.
+    session.evse_controller.personality.message_field_tree["CableCheckRes"][
+        "EVSEProcessing"
+    ] = "Ongoing"
+
+    cc = ScriptedPeer(session, CableCheck)
+    # First feed: contactors close, isolation monitoring still Ongoing.
+    res = _decode(
+        await cc.feed(
+            V2GMessageDINSPEC(
+                header=hdr(),
+                body=Body(cable_check_req=CableCheckReq(dc_ev_status=_dc_ev_status())),
+            )
+        )
+    )
+    assert res.evse_processing != EVSEProcessing.FINISHED
+    # While monitoring, the whole tree still applies (isolation stays Invalid).
+    assert res.dc_evse_status.evse_isolation_status == IsolationLevel.INVALID
+
+    # Second feed: isolation complete → the state computes FINISHED.
+    res = _decode(
+        await cc.feed(
+            V2GMessageDINSPEC(
+                header=hdr(),
+                body=Body(cable_check_req=CableCheckReq(dc_ev_status=_dc_ev_status())),
+            )
+        )
+    )
+    # DC_EVSEStatus was skipped on the completing frame: computed Valid survives.
+    assert res.dc_evse_status.evse_isolation_status == IsolationLevel.VALID
+    assert res.dc_evse_status.evse_status_code == DCEVSEStatusCode.EVSE_READY
+    # ...but the non-isolation tree leaf reached the completing frame — the trap
+    # the old whole-tree skip introduced is closed.
+    assert res.evse_processing == EVSEProcessing.ONGOING

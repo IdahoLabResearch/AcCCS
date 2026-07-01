@@ -74,7 +74,10 @@ logger = logging.getLogger(__name__)
 
 
 def apply_personality_tree(
-    comm_session: SECCCommunicationSession, res, message_name: str
+    comm_session: SECCCommunicationSession,
+    res,
+    message_name: str,
+    skip_fields=None,
 ) -> None:
     """Substitute the personality's message field tree onto a built DIN Res.
 
@@ -93,10 +96,16 @@ def apply_personality_tree(
     ``power.evse_dc`` reads. No-op when no personality is attached (the
     conformance harness instantiates ``SimEVSEController()`` bare) or the tree
     is empty.
+
+    *skip_fields* forwards to :func:`apply_message_field_tree` to leave named
+    top-level fields at the builder's computed value while still applying the
+    rest of the tree — used by CableCheck's completing response (#82).
     """
     personality = getattr(comm_session.evse_controller, "personality", None)
     if personality is not None and personality.message_field_tree:
-        apply_message_field_tree(res, message_name, personality.message_field_tree)
+        apply_message_field_tree(
+            res, message_name, personality.message_field_tree, skip_fields=skip_fields
+        )
 
 
 # ============================================================================
@@ -694,11 +703,19 @@ class CableCheck(StateSECC):
         # (ABB_Cadillac_Lyric.pcapng frames 316-465). On the completing response
         # the real charger flips to Valid / EVSE_Ready (frame 469) — the signal a
         # conformant EVCC waits for before advancing to PreCharge. The per-message
-        # tree cannot script that transition, so the tree's monitoring-phase
-        # status is applied only while EVSEProcessing is Ongoing; the completing
-        # FINISHED response keeps the computed Valid / EVSE_Ready.
-        if evse_processing != EVSEProcessing.FINISHED:
-            apply_personality_tree(self.comm_session, cable_check_res, "CableCheckRes")
+        # tree cannot script that transition (ADR-0006 keys one value per message
+        # type, no behaviour-over-time), so on the completing FINISHED response
+        # only the DC_EVSEStatus sub-tree is skipped — keeping the computed Valid
+        # / EVSE_Ready — while every *other* CableCheckRes leaf the tree carries
+        # still reaches the completing frame (#82).
+        skip_fields = (
+            {"dc_evse_status"}
+            if evse_processing == EVSEProcessing.FINISHED
+            else None
+        )
+        apply_personality_tree(
+            self.comm_session, cable_check_res, "CableCheckRes", skip_fields=skip_fields
+        )
 
         self.create_next_message(
             next_state,
