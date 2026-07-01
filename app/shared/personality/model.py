@@ -18,7 +18,7 @@ validated submodel and is out of scope for Slice 1.
 
 from __future__ import annotations
 
-from typing import List, Literal, Optional, Type
+from typing import Any, Dict, List, Literal, Optional, Type
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -511,6 +511,27 @@ class _PersonalityBase(_StrictBase):
     charge_profile: ChargeProfile = Field(default_factory=ChargeProfile)
     certificates: Certificates = Field(default_factory=Certificates)
     meter: Meter = Field(default_factory=Meter)
+
+    # The [[message field tree]] (ADR-0006): per-message, per-field emitted
+    # wire values, keyed by message name and nested field path mirroring the
+    # DIN message models down to each leaf. Validation is path-strict (a bad
+    # path is a hard error) but value-raw (leaf values are not range/enum
+    # checked — illegal-but-encodable is the point). It sits outside the
+    # concern-first sections above: those describe the residual, non-tree
+    # config, while this is the wire-value model. Empty by default, so a leaf
+    # set nowhere falls back to whatever the message builder computes.
+    message_field_tree: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("message_field_tree")
+    @classmethod
+    def _validate_message_field_tree(cls, value: Any) -> Dict[str, Any]:
+        # Lazy import: the tree machinery reaches into the message models,
+        # which must not be pulled in at personality-model import time.
+        from app.shared.personality.message_field_tree import (
+            validate_message_field_tree,
+        )
+
+        return validate_message_field_tree(value)
 
 
 class EVCCPersonality(_PersonalityBase):

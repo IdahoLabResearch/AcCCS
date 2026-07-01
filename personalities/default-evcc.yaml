@@ -162,4 +162,5 @@ certificates:
 meter:
   meter_id: Switch-Meter-123
   starting_reading_wh: 12345
+message_field_tree: {}
 role: evcc

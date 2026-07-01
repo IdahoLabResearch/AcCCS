@@ -66,6 +66,7 @@ from app.shared.messages.iso15118_20.common_types import (
     V2GMessage as V2GMessageV20,
 )
 from app.shared.notifications import StopNotification
+from app.shared.personality.message_field_tree import apply_message_field_tree
 from app.shared.security import get_random_bytes
 from app.shared.states import State, Terminate
 
@@ -505,6 +506,22 @@ class ChargeParameterDiscovery(StateSECC):
                 dc_charge_parameter=dc_evse_charge_params,
             )
         )
+
+        # Construction-time substitution (ADR-0006): apply the personality's
+        # message field tree so a configured leaf — e.g.
+        # DC_EVSEChargeParameter -> DC_EVSEStatus -> EVSEIsolationStatus, the
+        # one field wired in this slice — replaces the value the builder just
+        # computed. A leaf set nowhere leaves the built message untouched, so
+        # EVSEIsolationStatus falls back to the simulator's Valid default.
+        personality = getattr(
+            self.comm_session.evse_controller, "personality", None
+        )
+        if personality is not None and personality.message_field_tree:
+            apply_message_field_tree(
+                charge_parameter_discovery_res,
+                "ChargeParameterDiscoveryRes",
+                personality.message_field_tree,
+            )
 
         self.create_next_message(
             next_state,
