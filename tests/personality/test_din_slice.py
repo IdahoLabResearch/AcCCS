@@ -125,6 +125,45 @@ async def test_secc_supported_energy_modes_din_track_personality():
     assert modes == [EnergyTransferModeEnum.DC_CORE]
 
 
+def test_secc_rejects_mistyped_energy_transfer_type_leaf():
+    """Issue #76: the DIN ServiceDiscoveryRes -> ChargeService ->
+    EnergyTransferType leaf encodes as a restricted EXI enumeration, so the codec
+    accepts *only* the EnergyTransferModeEnum wire values. A value that is not one
+    of them — e.g. the enum *name* ``DC_EXTENDED`` instead of the wire *value*
+    ``DC_extended`` — can never reach the wire (value-raw is vacuous for an
+    enum-restricted field). It must fail at load with a message that names the
+    fix, not detonate later as an opaque ValidationError / EXIEncodingError at
+    ServiceDiscovery."""
+    with pytest.raises(ValidationError, match="DC_extended"):
+        SECCPersonality.model_validate(
+            {
+                "message_field_tree": {
+                    "ServiceDiscoveryRes": {
+                        "ChargeService": {"EnergyTransferType": "DC_EXTENDED"}
+                    }
+                }
+            }
+        )
+
+
+def test_secc_accepts_valid_energy_transfer_type_leaf():
+    """The #76 load-time check must not over-reject: a real wire value on the
+    same leaf loads cleanly."""
+    personality = SECCPersonality.model_validate(
+        {
+            "message_field_tree": {
+                "ServiceDiscoveryRes": {
+                    "ChargeService": {"EnergyTransferType": "DC_extended"}
+                }
+            }
+        }
+    )
+    charge_service = personality.message_field_tree["ServiceDiscoveryRes"][
+        "ChargeService"
+    ]
+    assert charge_service["EnergyTransferType"] == "DC_extended"
+
+
 # ---------------------------------------------------------------------------
 # EVCC simulator: DIN wire values come from personality
 # ---------------------------------------------------------------------------

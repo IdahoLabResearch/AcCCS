@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional, Type
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.shared.messages.enums import (
     AuthEnum,
@@ -605,6 +605,46 @@ class SECCPersonality(_PersonalityBase):
     role: Literal["secc"] = "secc"
 
     residual: _SECCResidual = Field(default_factory=_SECCResidual)
+
+    @model_validator(mode="after")
+    def _validate_advertised_energy_transfer_mode(self) -> "SECCPersonality":
+        """Fail early on a mistyped DIN EnergyTransferType leaf (#76).
+
+        The DIN ``ServiceDiscoveryRes -> ChargeService -> EnergyTransferType``
+        leaf is single-sourced from the tree (ADR-0006) and encodes as a
+        *restricted EXI enumeration*, so the codec accepts only the
+        :class:`EnergyTransferModeEnum` wire values. For this field ADR-0006's
+        value-raw seam is vacuous: every codec-serializable value already
+        coerces to a real enum member, and a value that fails coercion — e.g.
+        the enum *name* ``DC_EXTENDED`` instead of the wire *value*
+        ``DC_extended`` — can never reach the wire. Rather than let such a leaf
+        detonate later as an opaque ``ValidationError`` (plain ``ChargeService``
+        constructor) or ``EXIEncodingError`` (codec) mid-session at
+        ServiceDiscovery, reject it here with a message that names the fix.
+        """
+        from app.shared.personality.message_field_tree import (
+            UNSET,
+            resolve_tree_leaf,
+        )
+
+        leaf = resolve_tree_leaf(
+            self.message_field_tree,
+            "ServiceDiscoveryRes",
+            ("charge_service", "energy_transfer_type"),
+        )
+        if leaf is UNSET:
+            return self
+        try:
+            EnergyTransferModeEnum(leaf)
+        except (ValueError, TypeError) as exc:
+            valid = ", ".join(repr(mode.value) for mode in EnergyTransferModeEnum)
+            raise ValueError(
+                f"ServiceDiscoveryRes -> ChargeService -> EnergyTransferType "
+                f"{leaf!r} is not a valid energy transfer mode and cannot be "
+                f"advertised on the wire. Use a wire value (e.g. 'DC_extended', "
+                f"not the enum name 'DC_EXTENDED'); one of: {valid}."
+            ) from exc
+        return self
 
 
 # Discriminated union for callers that don't know the role at type-check

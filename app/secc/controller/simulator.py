@@ -347,14 +347,23 @@ class SimEVSEController(EVSEControllerInterface):
                     ("charge_service", "energy_transfer_type"),
                 )
             if tree_leaf is not UNSET:
-                # Value-raw (ADR-0006): coerce to the enum when possible so it
-                # encodes normally, but honor an illegal-but-encodable value as
-                # authored (red-team probing). Whatever this returns is both
-                # advertised and accepted.
+                # EnergyTransferType encodes as a restricted EXI enumeration, so
+                # the codec accepts only real EnergyTransferModeEnum wire values;
+                # every codec-serializable value therefore coerces here. ADR-0006's
+                # value-raw seam is vacuous for this field — a value that fails
+                # coercion (e.g. the enum name 'DC_EXTENDED' vs the wire value
+                # 'DC_extended') could never reach the wire — so a mistyped leaf is
+                # rejected at personality load (#76). This coercion is thus total
+                # for a loaded personality; the raise is defense-in-depth against a
+                # hand-built, unvalidated personality. Whatever this returns is both
+                # advertised and accepted (advertised == accepted, ADR-0006).
                 try:
                     return [EnergyTransferModeEnum(tree_leaf)]
-                except (ValueError, TypeError):
-                    return [tree_leaf]
+                except (ValueError, TypeError) as exc:
+                    raise ValueError(
+                        f"DIN EnergyTransferType {tree_leaf!r} is not a valid "
+                        f"energy transfer mode; it cannot be advertised on the wire"
+                    ) from exc
 
             # Fallback for personalities without the tree leaf (e.g. the
             # symmetric din_reference, or any pre-tree personality): the legacy
