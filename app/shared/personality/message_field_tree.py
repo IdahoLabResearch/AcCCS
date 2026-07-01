@@ -48,6 +48,11 @@ class MessageFieldTreeError(ValueError):
     """
 
 
+# Sentinel distinguishing "the tree does not set this leaf" from a leaf whose
+# configured value happens to be ``None``.
+UNSET = object()
+
+
 # ---------------------------------------------------------------------------
 # Model-shape helpers
 # ---------------------------------------------------------------------------
@@ -158,6 +163,56 @@ def _validate_node(
                 )
             _validate_node(child_cls, value, f"{path} -> {key}")
         # Leaf: value-raw — no range/enum/type check (ADR-0006).
+
+
+# ---------------------------------------------------------------------------
+# Leaf lookup (single-sourcing dual-purpose fields)
+# ---------------------------------------------------------------------------
+
+
+def resolve_tree_leaf(
+    tree: Mapping[str, Any], message_name: str, python_path: Tuple[str, ...]
+) -> Any:
+    """Return the tree's leaf value at ``message_name -> python_path``, or UNSET.
+
+    ``python_path`` is the sequence of *Python* field names to walk (e.g.
+    ``("charge_service", "energy_transfer_type")``); the tree itself may spell
+    each segment as either the Python name or the XSD alias, so this resolves
+    each segment against the model like the validator does. Returns
+    :data:`UNSET` when the tree carries nothing at that path.
+
+    This is how a *dual-purpose* field (both emitted and consulted internally)
+    is single-sourced from the tree per ADR-0006: the internal decision — e.g.
+    the DIN ChargeParameterDiscovery ``WrongEnergyTransferType`` reject-gate —
+    reads the same tree entry the message builder advertises, so advertised ==
+    accepted by construction.
+    """
+    model_cls = _message_class(message_name)
+    node: Any = tree.get(message_name)
+    if model_cls is None or not isinstance(node, Mapping):
+        return UNSET
+
+    cursor_cls: Optional[Type[BaseModel]] = model_cls
+    for depth, py_name in enumerate(python_path):
+        if cursor_cls is None:
+            return UNSET
+        field = cursor_cls.model_fields.get(py_name)
+        if field is None:
+            return UNSET
+        if py_name in node:
+            key = py_name
+        elif field.alias is not None and field.alias in node:
+            key = field.alias
+        else:
+            return UNSET
+        value = node[key]
+        if depth == len(python_path) - 1:
+            return value
+        if not isinstance(value, Mapping):
+            return UNSET
+        node = value
+        cursor_cls = _model_in_annotation(field.annotation)
+    return UNSET
 
 
 # ---------------------------------------------------------------------------

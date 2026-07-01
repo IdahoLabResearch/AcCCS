@@ -1,0 +1,22 @@
+# Default DIN 70121 EVCC personality — DC_extended energy transfer mode.
+#
+# This is the default `--config` for run_evcc.py. It `extends:` the DIN EVCC
+# baseline (ADR-0006) and overrides only the vehicle-specific EV DC envelope +
+# EVCCID.
+#
+# Replaces the retired symmetric din_dc_extended.yaml (now split per role).
+extends: din-evcc-baseline
+role: evcc
+identity:
+  evcc_id: 5YJSA1E60GF000123ABC
+power:
+  ev_dc:
+    max_voltage_v: 920.0
+    max_current_a: 250.0
+    max_power_w: 230000.0
+    energy_capacity_wh: 100000.0
+    # PreCharge requires target_current < 2 A (IEC 61851-23 CC.5.2 inrush limit).
+    target_voltage_v: 800.0
+    target_current_a: 1.5
+    remaining_time_to_full_soc_s: 1800
+    remaining_time_to_bulk_soc_s: 900

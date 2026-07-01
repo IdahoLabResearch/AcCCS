@@ -2,24 +2,16 @@
 #
 # Mirrors `personalities/iso2_eim_dc.yaml` so the E2E suite
 # can pin an `iso2-eim-variant` scenario.
-
-role: secc
 identity:
   evse_id: USFRDE9001
   evcc_id: 1FATCBFLAGSHIPDC0001
-network:
-  interface: acccs_secc
-tls:
-  enable_tls_1_3: false
-  use_tls: false
-  enforce_tls: false
 capabilities:
   supported_protocols:
-    - ISO_15118_2
+  - ISO_15118_2
   supported_auth_modes:
-    - EIM
+  - EIM
   supported_energy_services:
-    - DC
+  - DC
   energy_transfer_mode: DC_extended
 power:
   evse_dc:
@@ -35,3 +27,11 @@ power:
 meter:
   meter_id: Switch-Meter-EIM-001
   starting_reading_wh: 555000
+residual:
+  network:
+    interface: acccs_secc
+  tls:
+    enable_tls_1_3: false
+    use_tls: false
+    enforce_tls: false
+role: secc

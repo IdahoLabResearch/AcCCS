@@ -21,7 +21,7 @@ import argparse
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Type, TypeVar
+from typing import Any, List, Mapping, Optional, Set, Type, TypeVar
 
 import yaml
 
@@ -90,6 +90,51 @@ def _load_yaml(path: Path) -> dict:
     if not isinstance(data, dict):
         raise ValueError(f"{path}: top-level YAML must be a mapping, got {type(data).__name__}")
     return data
+
+
+def _deep_merge(base: dict, override: Mapping) -> dict:
+    """Deep-merge `override` onto `base`, returning a new dict.
+
+    Nested mappings merge key-by-key; every other value (scalars, lists) is
+    replaced wholesale by the override. This is the mechanism behind ADR-0006's
+    layered personality: a per-role baseline supplies the full default and a
+    device file overrides only the leaves that differ — including individual
+    `message_field_tree` leaves, which merge to the same effective tree as if
+    the device had spelled the whole tree out.
+    """
+    result = dict(base)
+    for key, value in override.items():
+        existing = result.get(key)
+        if isinstance(existing, Mapping) and isinstance(value, Mapping):
+            result[key] = _deep_merge(existing, value)
+        else:
+            result[key] = value
+    return result
+
+
+def _apply_extends(data: dict, seen: Set[str]) -> dict:
+    """Resolve a personality's `extends:` baseline and deep-merge onto it.
+
+    `extends` names another personality file (resolved through the same search
+    order as `--config`) whose values act as defaults; the current file's
+    values win. Baselines may themselves `extends` a further baseline. The
+    `extends` key is stripped from the result — it is a loader directive, not a
+    model field, so the strict model never sees it. A cycle is a hard error.
+    """
+    extends = data.get("extends")
+    stripped = {k: v for k, v in data.items() if k != "extends"}
+    if extends is None:
+        return stripped
+    if not isinstance(extends, str):
+        raise ValueError(f"extends must be a personality name/path, got {extends!r}")
+    if extends in seen:
+        chain = " -> ".join([*seen, extends])
+        raise ValueError(f"circular personality extends chain: {chain}")
+
+    base_path = _resolve(extends)
+    base_data = _load_yaml(base_path)
+    base_data = _apply_extends(base_data, seen | {extends})
+    return _deep_merge(base_data, stripped)
 
 
 def _peek_role(path: Path) -> str:
@@ -165,6 +210,10 @@ def load_personality(name_or_path: str, role: str) -> _PersonalityBase:
     """
     path = _resolve(name_or_path)
     data = _load_yaml(path)
+    # Resolve the layered baseline (ADR-0006) before role-checking / validation
+    # so a device file that only overrides a few leaves is merged onto its
+    # per-role baseline first.
+    data = _apply_extends(data, seen={name_or_path})
 
     yaml_role = data.get("role")
     if yaml_role is not None and yaml_role != role:
@@ -242,7 +291,10 @@ def apply_runtime_overrides(runtime: Runtime, args: argparse.Namespace) -> Runti
     return Runtime.model_validate(data)
 
 
-def add_runtime_cli_args(parser: argparse.ArgumentParser) -> None:
+def add_runtime_cli_args(
+    parser: argparse.ArgumentParser,
+    default_config: str = "din_dc_extended-secc",
+) -> None:
     """Attach the runtime-overriding flags to a parser.
 
     Personality fields deliberately have no flags — ADR-0001 promises that
@@ -250,11 +302,19 @@ def add_runtime_cli_args(parser: argparse.ArgumentParser) -> None:
     set a personality field (e.g. `--protocols`, `--useTLS`,
     `--slacSoundTimeout`) has been removed; authoring a custom personality
     file is the new path.
+
+    `default_config` is the role-specific default `--config`: the symmetric
+    `din_dc_extended` personality was retired for separate per-role DIN files
+    (ADR-0006), so each run script passes its own (`din_dc_extended-evcc` /
+    `din_dc_extended-secc`).
     """
     parser.add_argument(
         "--config",
-        default="din_dc_extended",
-        help="Personality file (name or path); defaults to the DC_extended DIN personality",
+        default=default_config,
+        help=(
+            "Personality file (name or path); defaults to the per-role "
+            f"DC_extended DIN personality ({default_config})"
+        ),
     )
     parser.add_argument(
         "--list-configs",

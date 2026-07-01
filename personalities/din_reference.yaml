@@ -13,33 +13,17 @@
 # are symmetric (each role only consumes the fields relevant to it). The
 # `role:` field is intentionally omitted so the loader doesn't reject one
 # side or the other.
-
 identity:
-  # DIN EVSEID — different from the stock 49A89A6360.
   evse_id: 55AA66BB77
-  # EVCCID (used by ISO 15118-20; DIN derives EVCC ID from MAC).
   evcc_id: 5YJSA1E60GF000123ABC
-
 capabilities:
-  # DIN-only emulator. The variant intentionally swaps energy_transfer_mode
-  # to DC_core so the ServiceDiscoveryRes / ChargeParameterDiscoveryReq
-  # carry the alternate enum value on the wire.
   supported_protocols:
-    - DIN_SPEC_70121
+  - DIN_SPEC_70121
   supported_energy_services:
-    - DC
+  - DC
   energy_transfer_mode: DC_core
-
-tls:
-  # DIN does not use TLS; the variant disables it explicitly.
-  enable_tls_1_3: false
-  use_tls: false
-  enforce_tls: false
-
 power:
   evse_dc:
-    # ~3x the stock 80 kW envelope so the CPD / CurrentDemand max-power
-    # values change visibly on the wire.
     max_voltage_v: 950.0
     min_voltage_v: 50.0
     max_current_a: 350.0
@@ -47,7 +31,6 @@ power:
     max_power_w: 240000.0
     peak_current_ripple_a: 7.0
     nominal_voltage_v: 480.0
-    # DIN PMaxSchedule is int16-bounded (0..32767 W).
     sa_schedule_pmax_w: 30000
     sa_schedule_duration_s: 1800
   ev_dc:
@@ -55,10 +38,12 @@ power:
     max_current_a: 250.0
     max_power_w: 230000.0
     energy_capacity_wh: 100000.0
-    # PreCharge requires target_current < 2 A (IEC 61851-23 CC.5.2 inrush
-    # limit). The variant keeps it just above the stock 1.0 A so the wire
-    # value still differs but the state machine still completes.
     target_voltage_v: 800.0
     target_current_a: 1.5
     remaining_time_to_full_soc_s: 1800
     remaining_time_to_bulk_soc_s: 900
+residual:
+  tls:
+    enable_tls_1_3: false
+    use_tls: false
+    enforce_tls: false

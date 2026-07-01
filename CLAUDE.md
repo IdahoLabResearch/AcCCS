@@ -24,14 +24,34 @@ paragraph explaining the *why*.
 
 ## Configuration
 
-Emulator configuration follows [ADR-0001](docs/adr/0001-personality-yaml-config.md):
+Emulator configuration follows [ADR-0001](docs/adr/0001-personality-yaml-config.md)
+and [ADR-0006](docs/adr/0006-message-field-tree-personality.md):
 
-- A **personality** (YAML) describes *who* the emulated device is — IDs,
-  supported protocols, power/charging profile, TLS posture, SLAC timings,
-  certificates. Loaded once at startup via `--config <name-or-path>`.
-  `--config` is optional; when omitted both run scripts default to the
-  `din_dc_extended` personality (DIN with the DC_extended energy transfer
-  mode that production vehicles request).
+- A **personality** (YAML) describes *who* the emulated device is. Per
+  ADR-0006 it has two parts: a **`message_field_tree`** — the per-message,
+  per-field values the device emits on the wire (keyed by message name and
+  field path, DIN-only this slice) — and a **`residual`** section for
+  everything with *no* wire representation (`tls`, `slac`, `certificates`,
+  `network`, `charge_profile`, and behavioral flags under `behavior`). The
+  dividing rule is mechanical: on the wire → tree; not on the wire →
+  residual; never duplicated. Dual-purpose fields (e.g. the DIN energy
+  transfer mode) are single-sourced from the tree — the
+  `WrongEnergyTransferType` reject-gate reads the same
+  `ServiceDiscoveryRes → ChargeService → EnergyTransferType` value the SECC
+  advertises. The wire-bearing sections that predate the tree (`identity`,
+  `capabilities`, `power`, `meter`) still live at the top level until later
+  slices migrate them into per-message trees.
+- **Layering:** a personality may `extends: <baseline-name>` a per-role
+  baseline; the loader deep-merges the device's sparse values over the
+  baseline (device leaves win), including individual `message_field_tree`
+  leaves. The shipped DIN baselines are
+  `personalities/din-{evcc,secc}-baseline.yaml`.
+- Loaded once at startup via `--config <name-or-path>`. `--config` is
+  optional; when omitted each run script defaults to its per-role DIN file
+  (`run_evcc.py` → `din_dc_extended-evcc`, `run_secc.py` →
+  `din_dc_extended-secc`) — DIN with the DC_extended energy transfer mode
+  that production vehicles request. The symmetric `din_dc_extended.yaml` was
+  retired for these per-role files.
 - **Runtime** knobs (logging, NMAP toggles, `--virtual`, source port,
   modified-cordset) live in an optional `runtime.yaml` and are
   CLI-overridable. Personality fields are *never* CLI-overridable.

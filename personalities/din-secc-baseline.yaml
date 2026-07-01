@@ -1,0 +1,27 @@
+# DIN SPEC 70121 SECC baseline personality (ADR-0006).
+#
+# The per-role baseline supplies a DIN SECC's full default wire output; device
+# files (e.g. din_dc_extended-secc.yaml) `extends:` this and override only the
+# leaves that differ. The advertised DC energy transfer mode is single-sourced
+# from the message field tree — the same ServiceDiscoveryRes -> ChargeService ->
+# EnergyTransferType value the ChargeParameterDiscovery WrongEnergyTransferType
+# reject-gate compares against (advertised == accepted, by construction).
+#
+# The full ABB-charger DIN tree (field-for-field from ABB_Cadillac_Lyric.pcapng)
+# lands here in #73; this slice seeds only the energy-transfer leaf.
+role: secc
+capabilities:
+  supported_protocols:
+    - DIN_SPEC_70121
+  supported_energy_services:
+    - DC
+residual:
+  tls:
+    # DIN does not use TLS.
+    enable_tls_1_3: false
+    use_tls: false
+    enforce_tls: false
+message_field_tree:
+  ServiceDiscoveryRes:
+    ChargeService:
+      EnergyTransferType: DC_extended

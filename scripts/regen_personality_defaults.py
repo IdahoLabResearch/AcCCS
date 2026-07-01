@@ -37,7 +37,9 @@ HEADER = """\
 # script. The drift test (tests/personality/test_drift.py) guards against
 # this file falling out of sync.
 #
-# See ADR-0001 for the personality concept and section breakdown.
+# See ADR-0001 for the personality concept and ADR-0006 for the two-part
+# split: the `message_field_tree` (wire values) and the `residual` section
+# (tls/slac/certificates/network/charge_profile/behavior — no wire form).
 """
 
 NO_TLS_HEADER = """\
@@ -56,7 +58,9 @@ NO_TLS_HEADER = """\
 # script. The drift test (tests/personality/test_drift.py) guards against
 # this file falling out of sync.
 #
-# See ADR-0001 for the personality concept and section breakdown.
+# See ADR-0001 for the personality concept and ADR-0006 for the two-part
+# split: the `message_field_tree` (wire values) and the `residual` section
+# (tls/slac/certificates/network/charge_profile/behavior — no wire form).
 """
 
 

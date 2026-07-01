@@ -172,6 +172,7 @@ from app.shared.security import (
     load_cert,
     load_priv_key,
 )
+from app.shared.personality.message_field_tree import UNSET, resolve_tree_leaf
 from app.shared.states import State
 
 logger = logging.getLogger(__name__)
@@ -331,11 +332,35 @@ class SimEVSEController(EVSEControllerInterface):
     ) -> List[EnergyTransferModeEnum]:
         """Overrides EVSEControllerInterface.get_supported_energy_transfer_modes()."""
         if protocol == Protocol.DIN_SPEC_70121:
-            # DIN SPEC permits only DC_CORE / DC_EXTENDED; the personality
-            # selects which one the SECC advertises. If a personality picks
-            # a non-DC mode (only possible by hand-editing — the model
-            # accepts the broader enum because ISO 15118-2/-20 reuse it),
-            # fall back to DC_EXTENDED.
+            # Single-source the DIN energy transfer mode from the message field
+            # tree (ADR-0006): the advertised value in ServiceDiscoveryRes ->
+            # ChargeService -> EnergyTransferType is the *same* value the
+            # ChargeParameterDiscovery WrongEnergyTransferType reject-gate
+            # compares against, so advertised == accepted by construction. Both
+            # the ServiceDiscoveryRes builder and the reject-gate call this
+            # method, so routing the read through here is all it takes.
+            tree_leaf = UNSET
+            if self.personality is not None:
+                tree_leaf = resolve_tree_leaf(
+                    self.personality.message_field_tree,
+                    "ServiceDiscoveryRes",
+                    ("charge_service", "energy_transfer_type"),
+                )
+            if tree_leaf is not UNSET:
+                # Value-raw (ADR-0006): coerce to the enum when possible so it
+                # encodes normally, but honor an illegal-but-encodable value as
+                # authored (red-team probing). Whatever this returns is both
+                # advertised and accepted.
+                try:
+                    return [EnergyTransferModeEnum(tree_leaf)]
+                except (ValueError, TypeError):
+                    return [tree_leaf]
+
+            # Fallback for personalities without the tree leaf (e.g. the
+            # symmetric din_reference, or any pre-tree personality): the legacy
+            # capabilities-sourced mode. DIN SPEC permits only DC_CORE /
+            # DC_EXTENDED, so a personality that picked a non-DC mode by hand
+            # clamps to DC_EXTENDED.
             configured = (
                 self.personality.capabilities.resolved_energy_transfer_mode()
                 if self.personality

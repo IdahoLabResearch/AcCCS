@@ -1,13 +1,14 @@
-role: secc
 identity:
   evse_id: USFRDE8326
-network:
-  interface: acccs_secc
-tls:
-  enable_tls_1_3: true
-  enforce_tls: true
 capabilities:
   supported_protocols:
-    - ISO_15118_2
+  - ISO_15118_2
   supported_auth_modes:
-    - PNC
+  - PNC
+residual:
+  network:
+    interface: acccs_secc
+  tls:
+    enable_tls_1_3: true
+    enforce_tls: true
+role: secc

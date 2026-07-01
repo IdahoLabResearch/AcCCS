@@ -12,33 +12,19 @@
 #   python run_evcc.py --config iso2_eim_dc --virtual
 #
 # Symmetric shape (no `role:` field) so the loader accepts either role.
-
 identity:
   evse_id: USFRDE9001
   evcc_id: 1FATCBFLAGSHIPDC0001
-
 capabilities:
-  # ISO-2-only, EIM-only.
   supported_protocols:
-    - ISO_15118_2
+  - ISO_15118_2
   supported_auth_modes:
-    - EIM
+  - EIM
   supported_energy_services:
-    - DC
+  - DC
   energy_transfer_mode: DC_extended
-
-tls:
-  # EIM does not require TLS — the variant disables it explicitly so the
-  # SDP exchange takes the non-TLS branch and the wire trace stays in
-  # the clear.
-  enable_tls_1_3: false
-  use_tls: false
-  enforce_tls: false
-
 power:
   evse_dc:
-    # Larger envelope than the stock 80 kW so ChargeParameterDiscoveryRes /
-    # CurrentDemandRes max-power / max-current values change visibly.
     max_voltage_v: 920.0
     min_voltage_v: 50.0
     max_current_a: 300.0
@@ -46,7 +32,6 @@ power:
     max_power_w: 200000.0
     peak_current_ripple_a: 6.0
     nominal_voltage_v: 480.0
-    # ISO-2 SAScheduleList PMax — not bounded to int16 like DIN's field.
     iso2_sa_schedule_pmax_w: 50000
     iso2_sales_tariff_id: 42
   ev_dc:
@@ -54,9 +39,6 @@ power:
     max_current_a: 220.0
     max_power_w: 180000.0
     energy_capacity_wh: 95000.0
-    # PreCharge requires target_current < 2 A (IEC 61851-23 CC.5.2 inrush
-    # limit); just above stock 1.0 A keeps the state machine completing
-    # while changing the wire value.
     target_voltage_v: 780.0
     target_current_a: 1.5
     remaining_time_to_full_soc_s: 2400
@@ -64,7 +46,11 @@ power:
     iso2_energy_request_wh: 18000.0
     iso2_full_soc_percent: 95
     iso2_bulk_soc_percent: 75
-
 meter:
   meter_id: Switch-Meter-EIM-001
   starting_reading_wh: 555000
+residual:
+  tls:
+    enable_tls_1_3: false
+    use_tls: false
+    enforce_tls: false

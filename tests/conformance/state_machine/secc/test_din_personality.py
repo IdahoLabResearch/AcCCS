@@ -274,3 +274,92 @@ async def test_charge_parameter_discovery_rejects_unoffered_energy_mode(
         decoded.body.charge_parameter_discovery_res.response_code
         == ResponseCode.FAILED_WRONG_ENERGY_TRANSFER_TYPE
     )
+
+
+# ---------------------------------------------------------------------------
+# ADR-0006: the DIN energy transfer mode is single-sourced from the message
+# field tree — the ServiceDiscoveryRes builder *and* the ChargeParameterDiscovery
+# WrongEnergyTransferType reject-gate read the same tree entry, so advertised ==
+# accepted by construction.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def tree_sourced_secc_personality() -> SECCPersonality:
+    """A DIN SECC whose energy mode comes only from the message field tree.
+
+    `capabilities.energy_transfer_mode` is left at its DC_extended default, so
+    any assertion that the SECC advertises/accepts DC_core proves the value was
+    read from the tree — not from capabilities.
+    """
+    return SECCPersonality.model_validate(
+        {
+            "capabilities": {"supported_protocols": ["DIN_SPEC_70121"]},
+            "message_field_tree": {
+                "ServiceDiscoveryRes": {
+                    "ChargeService": {"EnergyTransferType": "DC_core"}
+                }
+            },
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_service_discovery_advertises_tree_energy_mode(
+    exi_codec, tree_sourced_secc_personality
+):
+    session = _stub_secc_session(tree_sourced_secc_personality)
+    peer = ScriptedPeer(session, start_state=ServiceDiscovery)
+
+    req = V2GMessageDINSPEC(
+        header=MessageHeader(session_id=session.session_id),
+        body=Body(
+            service_discovery_req=ServiceDiscoveryReq(
+                service_category=ServiceCategory.CHARGING
+            )
+        ),
+    )
+    result = await peer.feed(req)
+
+    charge_service = result.outbound_msg.body.service_discovery_res.charge_service
+    # capabilities defaults to DC_extended, so DC_core can only come from the tree.
+    assert charge_service.energy_transfer_type == EnergyTransferModeEnum.DC_CORE
+
+
+@pytest.mark.asyncio
+async def test_cpd_reject_gate_reads_tree_advertised_mode(
+    exi_codec, tree_sourced_secc_personality
+):
+    """The reject-gate compares the EV's requested mode against the tree's
+    advertised EnergyTransferType. A DC_extended request against a DC_core tree
+    is rejected even though `capabilities` still defaults to DC_extended."""
+    from app.shared.messages.din_spec.datatypes import ResponseCode
+
+    session = _stub_secc_session(tree_sourced_secc_personality)
+    cpd_peer = ScriptedPeer(session, start_state=ChargeParameterDiscovery)
+    cpd_req = V2GMessageDINSPEC(
+        header=MessageHeader(session_id=session.session_id),
+        body=Body(
+            charge_parameter_discovery_req=ChargeParameterDiscoveryReq(
+                requested_energy_mode=EnergyTransferModeEnum.DC_EXTENDED,
+                dc_ev_charge_parameter=DCEVChargeParameter(
+                    dc_ev_status=DCEVStatus(
+                        ev_ready=True,
+                        ev_error_code=DCEVErrorCode.NO_ERROR,
+                        ev_ress_soc=42,
+                    ),
+                    ev_maximum_current_limit=PVEVMaxCurrentLimitDin(
+                        multiplier=0, value=80, unit=UnitSymbol.AMPERE
+                    ),
+                    ev_maximum_voltage_limit=PVEVMaxVoltageLimitDin(
+                        multiplier=0, value=400, unit=UnitSymbol.VOLTAGE
+                    ),
+                ),
+            )
+        ),
+    )
+    result = await cpd_peer.feed(cpd_req)
+
+    res = result.outbound_msg.body.charge_parameter_discovery_res
+    assert res.response_code == ResponseCode.FAILED_WRONG_ENERGY_TRANSFER_TYPE
+    assert session.stop_reason is not None and not session.stop_reason.successful

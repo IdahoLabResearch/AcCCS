@@ -14,21 +14,21 @@
 # off (only the SECC refuses to *run* a -20 session without TLS 1.3, and only
 # the EVCC's runtime sap_states refuses a -20 *selection*); neither fires
 # here because DIN is what gets selected.
-
-role: evcc
 identity:
   evcc_id: 1FMVAA45B63C47DD58Y6
-network:
-  interface: acccs_evcc
-tls:
-  enable_tls_1_3: false
-  use_tls: false
-  enforce_tls: false
 capabilities:
   supported_protocols:
-    - ISO_15118_20_DC
-    - ISO_15118_2
-    - DIN_SPEC_70121
+  - ISO_15118_20_DC
+  - ISO_15118_2
+  - DIN_SPEC_70121
   supported_energy_services:
-    - DC
+  - DC
   energy_transfer_mode: DC_extended
+residual:
+  network:
+    interface: acccs_evcc
+  tls:
+    enable_tls_1_3: false
+    use_tls: false
+    enforce_tls: false
+role: evcc

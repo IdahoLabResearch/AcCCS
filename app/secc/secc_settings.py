@@ -46,17 +46,17 @@ class Config:
     ) -> "Config":
         init_shared_settings(personality, runtime)
         caps = personality.capabilities
-        tls = personality.tls
+        tls = personality.residual.tls
 
         cfg = cls(
-            iface=personality.network.interface,
+            iface=personality.residual.network.interface,
             console_log_level=runtime.log.console_level,
             file_log_level=runtime.log.file_level,
             enforce_tls=tls.enforce_tls,
             free_charging_service=caps.free_charging_service,
             free_cert_install_service=caps.free_cert_install_service,
             allow_cert_install_service=caps.allow_cert_install_service,
-            use_cpo_backend=caps.use_cpo_backend,
+            use_cpo_backend=personality.residual.behavior.use_cpo_backend,
             supported_protocols=caps.resolved_protocols(),
             supported_auth_options=caps.resolved_auth_modes(),
             standby_allowed=caps.standby_allowed,
@@ -67,14 +67,14 @@ class Config:
         # ADR-0001's hard rule that ISO 15118-20 requires TLS 1.3 stays
         # enforced: refuse to start if a -20 protocol is configured but
         # TLS 1.3 is off.
-        if not personality.tls.enable_tls_1_3:
+        if not personality.residual.tls.enable_tls_1_3:
             for protocol in cfg.supported_protocols or []:
                 if protocol.ns.startswith(Namespace.ISO_V20_BASE):
                     raise Exception(
                         "ISO 15118-20 does not allow TLS version lower than "
-                        "1.3. Either set tls.enable_tls_1_3 to true in the "
-                        "personality or remove ISO 15118-20 protocols from "
-                        "capabilities.supported_protocols."
+                        "1.3. Either set residual.tls.enable_tls_1_3 to true "
+                        "in the personality or remove ISO 15118-20 protocols "
+                        "from capabilities.supported_protocols."
                     )
 
         cfg.env_dump = dict(shared_settings)

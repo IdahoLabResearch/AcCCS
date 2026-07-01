@@ -5,15 +5,18 @@ supported protocols, power/charging profile, TLS posture, SLAC timings, cert
 paths. Runtime knobs are *per-invocation operator* concerns (logging level,
 NMAP toggles, virtual mode).
 
-The sections (identity / network / slac / tls / capabilities / power /
-charge_profile / certificates) are concern-first per ADR-0001's "Considered
-Options" section. Per-protocol override blocks within sections are
-explicitly deferred.
+Per ADR-0006 a personality has two parts: a `message_field_tree` (everything
+emitted on the wire, keyed by message + field path) and a `residual` section
+(everything with no wire representation — TLS/SLAC/certificates/network/charge-
+pacing/behavior). The dividing rule is mechanical: on the wire -> tree; not on
+the wire -> residual; never duplicated. The wire-bearing concern-first sections
+that predate the tree (identity / capabilities / power / meter) still live at
+the top level this slice — the tree is DIN-only for now, so they remain the
+source for the not-yet-migrated protocols and are absorbed into per-message
+trees in later slices.
 
 Strict validation: unknown keys at any level are a hard error. That is what
-makes a personality a contract rather than a suggestion. The future
-`raw_overrides:` section reserved by ADR-0001 will live in a separately-
-validated submodel and is out of scope for Slice 1.
+makes a personality a contract rather than a suggestion.
 """
 
 from __future__ import annotations
@@ -126,7 +129,6 @@ class Capabilities(_StrictBase):
     free_charging_service: bool = False
     free_cert_install_service: bool = True
     allow_cert_install_service: bool = True
-    use_cpo_backend: bool = False
     standby_allowed: bool = False
     is_cert_install_needed: bool = False
     max_supporting_points: int = 1024
@@ -487,6 +489,63 @@ class Meter(_StrictBase):
     starting_reading_wh: int = 12345
 
 
+class Behavior(_StrictBase):
+    """Behavioral path-selecting flags with no wire representation.
+
+    These select which *code path* the emulator takes; they are never emitted
+    as a protocol field, so per ADR-0006's dividing rule they belong in the
+    [[residual]] section rather than the [[message field tree]].
+
+    `use_cpo_backend` moved here out of `capabilities` (where it sat alongside
+    genuinely-advertised capabilities) once the tree/residual split made the
+    "not on the wire -> residual" rule mechanical.
+    """
+
+    use_cpo_backend: bool = False
+
+
+class Residual(_StrictBase):
+    """The residual section of a personality (ADR-0006).
+
+    Everything that configures the device but has *no wire representation* —
+    TLS posture, SLAC layer-2 timings, certificate file paths, the network
+    interface, charge-loop pacing, and behavioral path-selecting flags. The
+    dividing rule is mechanical: on the wire -> [[message field tree]]; not on
+    the wire -> here. A value is therefore never duplicated across the two.
+
+    The wire-bearing sections (`identity`, `capabilities`, `power`, `meter`)
+    deliberately still live at the personality top level this slice: the tree
+    is DIN-only for now, so those sections remain the source for the not-yet-
+    migrated protocols and are absorbed into per-message trees in later slices.
+    """
+
+    network: Network = Field(default_factory=Network)
+    slac: SLAC = Field(default_factory=SLAC)
+    tls: TLS = Field(default_factory=TLS)
+    certificates: Certificates = Field(default_factory=Certificates)
+    charge_profile: ChargeProfile = Field(default_factory=ChargeProfile)
+    behavior: Behavior = Field(default_factory=Behavior)
+
+
+class _EVCCResidual(Residual):
+    """EVCC residual with the per-role network interface default.
+
+    The default lives at the *field* level (not on the personality) so it
+    survives a personality that specifies some residual sub-keys but omits
+    `network` — a personality-level default_factory would only fire when the
+    whole `residual` section is absent, silently reverting to the generic
+    ``eth0`` the moment a file set, say, only `residual.tls`.
+    """
+
+    network: Network = Field(default_factory=lambda: Network(interface="acccs_evcc"))
+
+
+class _SECCResidual(Residual):
+    """SECC residual with the per-role network interface default."""
+
+    network: Network = Field(default_factory=lambda: Network(interface="acccs_secc"))
+
+
 # ---------------------------------------------------------------------------
 # Role personalities
 # ---------------------------------------------------------------------------
@@ -503,14 +562,13 @@ class _PersonalityBase(_StrictBase):
     """
 
     identity: Identity = Field(default_factory=Identity)
-    network: Network = Field(default_factory=Network)
-    slac: SLAC = Field(default_factory=SLAC)
-    tls: TLS = Field(default_factory=TLS)
     capabilities: Capabilities = Field(default_factory=Capabilities)
     power: Power = Field(default_factory=Power)
-    charge_profile: ChargeProfile = Field(default_factory=ChargeProfile)
-    certificates: Certificates = Field(default_factory=Certificates)
     meter: Meter = Field(default_factory=Meter)
+    # Residual section (ADR-0006): all non-wire config — TLS/SLAC/certs/
+    # network/charge-pacing/behavior. `network` gets a per-role interface
+    # default via the EVCC/SECC subclasses below.
+    residual: Residual = Field(default_factory=Residual)
 
     # The [[message field tree]] (ADR-0006): per-message, per-field emitted
     # wire values, keyed by message name and nested field path mirroring the
@@ -537,17 +595,16 @@ class _PersonalityBase(_StrictBase):
 class EVCCPersonality(_PersonalityBase):
     role: Literal["evcc"] = "evcc"
 
-    # Per-role network defaults. The base class uses "eth0" so a personality
-    # authored without a network section still validates; these overrides
-    # mirror the historical .env values, which is what `default-evcc.yaml`
-    # ships.
-    network: Network = Field(default_factory=lambda: Network(interface="acccs_evcc"))
+    # Per-role residual (with the acccs_evcc network default) — see
+    # `_EVCCResidual` for why the interface default lives on the residual field
+    # rather than a personality-level default_factory.
+    residual: _EVCCResidual = Field(default_factory=_EVCCResidual)
 
 
 class SECCPersonality(_PersonalityBase):
     role: Literal["secc"] = "secc"
 
-    network: Network = Field(default_factory=lambda: Network(interface="acccs_secc"))
+    residual: _SECCResidual = Field(default_factory=_SECCResidual)
 
 
 # Discriminated union for callers that don't know the role at type-check
@@ -574,7 +631,7 @@ def no_tls_personality(model_cls: Type["_PersonalityBase"]) -> "_PersonalityBase
     The result is the stock default persona minus encryption: identical to
     `model_cls()` except for two sections —
 
-    - `tls:` is replaced with `NO_TLS` (encryption off), and
+    - `residual.tls` is replaced with `NO_TLS` (encryption off), and
     - `capabilities.supported_protocols` drops `ISO_15118_20_*`, because those
       mandate TLS 1.3 and the loader refuses to start without it.
 
@@ -582,10 +639,12 @@ def no_tls_personality(model_cls: Type["_PersonalityBase"]) -> "_PersonalityBase
     clone can run the virtual demo without first generating PKI certs. The
     cert-enabled stock default remains the realistic-testing path.
     """
-    caps = model_cls().capabilities.model_copy(
+    base = model_cls()
+    caps = base.capabilities.model_copy(
         update={"supported_protocols": list(NO_TLS_SUPPORTED_PROTOCOLS)}
     )
-    return model_cls(tls=NO_TLS, capabilities=caps)
+    residual = base.residual.model_copy(update={"tls": NO_TLS})
+    return model_cls(capabilities=caps, residual=residual)
 
 
 # ---------------------------------------------------------------------------

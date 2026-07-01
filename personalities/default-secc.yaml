@@ -6,21 +6,12 @@
 # script. The drift test (tests/personality/test_drift.py) guards against
 # this file falling out of sync.
 #
-# See ADR-0001 for the personality concept and section breakdown.
+# See ADR-0001 for the personality concept and ADR-0006 for the two-part
+# split: the `message_field_tree` (wire values) and the `residual` section
+# (tls/slac/certificates/network/charge_profile/behavior — no wire form).
 identity:
   evcc_id: 1FMVAA45B63C47DD58Y6
   evse_id: 49A89A6360
-network:
-  interface: acccs_secc
-slac:
-  sound_timeout_ms: 1000
-  nid_hex: 9cb0b2bbf56c0e
-  nmk_hex: 48fe5602dbaccde51edadc3e081a52d1
-tls:
-  enable_tls_1_3: true
-  use_tls: true
-  enforce_tls: false
-  sdp_retry_cycles: 1
 capabilities:
   supported_protocols:
   - DIN_SPEC_70121
@@ -36,7 +27,6 @@ capabilities:
   free_charging_service: false
   free_cert_install_service: true
   allow_cert_install_service: true
-  use_cpo_backend: false
   standby_allowed: false
   is_cert_install_needed: false
   max_supporting_points: 1024
@@ -153,14 +143,28 @@ power:
     dynamic_departure_time_s: 7200
     dynamic_min_soc_percent: 30
     dynamic_target_soc_percent: 80
-charge_profile:
-  cycle: 10
-  delay_seconds: 0
-certificates:
-  pki_path: app/shared/pki/
-  max_contract_certs: 3
 meter:
   meter_id: Switch-Meter-123
   starting_reading_wh: 12345
+residual:
+  network:
+    interface: acccs_secc
+  slac:
+    sound_timeout_ms: 1000
+    nid_hex: 9cb0b2bbf56c0e
+    nmk_hex: 48fe5602dbaccde51edadc3e081a52d1
+  tls:
+    enable_tls_1_3: true
+    use_tls: true
+    enforce_tls: false
+    sdp_retry_cycles: 1
+  certificates:
+    pki_path: app/shared/pki/
+    max_contract_certs: 3
+  charge_profile:
+    cycle: 10
+    delay_seconds: 0
+  behavior:
+    use_cpo_backend: false
 message_field_tree: {}
 role: secc

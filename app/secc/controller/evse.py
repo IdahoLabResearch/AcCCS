@@ -66,11 +66,11 @@ class EVSE:
         self.sourceIP = str(get_link_local_addr(self.iface))
         self.sourcePort = runtime.source_port if runtime.source_port else 25565
 
-        # NID/NMK come from `personality.slac` per ADR-0001. The historical
-        # `--NID` / `--NMK` CLI flags are gone (personality fields are not
-        # CLI-overridable).
-        self.NID = bytes.fromhex(personality.slac.nid_hex)
-        self.NMK = bytes.fromhex(personality.slac.nmk_hex)
+        # NID/NMK come from `personality.residual.slac` (ADR-0006 moved the
+        # non-wire SLAC section under residual). The historical `--NID` /
+        # `--NMK` CLI flags are gone (personality fields are not CLI-overridable).
+        self.NID = bytes.fromhex(personality.residual.slac.nid_hex)
+        self.NMK = bytes.fromhex(personality.residual.slac.nmk_hex)
         self.modified_cordset = runtime.modified_cordset
 
         # Operator console (ADR-0004). The SECC owns the ISO-2 authorization

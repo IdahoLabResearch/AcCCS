@@ -32,11 +32,11 @@ class Config:
     def from_personality(
         cls, personality: EVCCPersonality, runtime: Runtime
     ) -> "Config":
-        validate_nic(personality.network.interface)
+        validate_nic(personality.residual.network.interface)
         init_shared_settings(personality, runtime)
 
         cfg = cls(
-            iface=personality.network.interface,
+            iface=personality.residual.network.interface,
             console_log_level=runtime.log.console_level,
             file_log_level=runtime.log.file_level,
             virtual=runtime.virtual,

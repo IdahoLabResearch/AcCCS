@@ -3,8 +3,9 @@
 These tests target the contract spelled out in ADR-0001 and issue #6:
 
 - Strict validation — unknown fields raise.
-- Concern-first sections — identity, network, slac, tls, capabilities,
-  power, charge_profile, certificates.
+- Two-part shape (ADR-0006) — wire-bearing sections (identity, capabilities,
+  power, meter) at the top level, plus a `residual` section (network, slac,
+  tls, certificates, charge_profile, behavior) for everything non-wire.
 - Personality fields are not CLI-overridable; runtime fields are.
 - `personalities/default-*.yaml` is a complete materialised dump and must
   stay in sync with the model defaults (drift test).
@@ -53,13 +54,62 @@ def test_evcc_personality_constructs_from_empty_dict():
     """All fields have defaults so an empty YAML still validates."""
     p = EVCCPersonality.model_validate({})
     assert p.identity.evcc_id  # the EVCC id default is non-empty
-    assert p.network.interface  # interface has a default
+    assert p.residual.network.interface  # interface has a default (ADR-0006)
 
 
 def test_secc_personality_constructs_from_empty_dict():
     p = SECCPersonality.model_validate({})
     assert p.identity.evse_id
-    assert p.network.interface
+    assert p.residual.network.interface
+
+
+# ---------------------------------------------------------------------------
+# Residual section (ADR-0006): non-wire config, strict, never duplicated
+# ---------------------------------------------------------------------------
+
+
+def test_residual_holds_non_wire_sections():
+    """The residual section is the home for everything with no wire form:
+    tls / slac / certificates / network / charge_profile / behavior."""
+    p = SECCPersonality.model_validate({})
+    r = p.residual
+    assert r.tls.enable_tls_1_3 is True
+    assert r.slac.sound_timeout_ms == 1000
+    assert r.certificates.pki_path
+    assert r.network.interface == "acccs_secc"
+    assert r.charge_profile.cycle == 10
+    assert r.behavior.use_cpo_backend is False
+
+
+def test_residual_loads_strictly():
+    with pytest.raises(ValidationError):
+        SECCPersonality.model_validate({"residual": {"tls": {"bogus": 1}}})
+    with pytest.raises(ValidationError):
+        SECCPersonality.model_validate({"residual": {"not_a_section": {}}})
+
+
+def test_use_cpo_backend_moved_from_capabilities_to_residual_behavior():
+    """`use_cpo_backend` is a code-path switch (non-wire), so ADR-0006 moves it
+    out of capabilities into residual.behavior — and it is no longer accepted
+    under capabilities."""
+    assert (
+        "use_cpo_backend"
+        not in SECCPersonality.model_validate({}).capabilities.model_dump()
+    )
+    with pytest.raises(ValidationError):
+        SECCPersonality.model_validate({"capabilities": {"use_cpo_backend": True}})
+    p = SECCPersonality.model_validate(
+        {"residual": {"behavior": {"use_cpo_backend": True}}}
+    )
+    assert p.residual.behavior.use_cpo_backend is True
+
+
+def test_non_wire_sections_rejected_at_top_level():
+    """The old flat top-level tls/slac/network/certificates keys are gone —
+    they must live under residual now (never duplicated)."""
+    for section in ("tls", "slac", "network", "certificates", "charge_profile"):
+        with pytest.raises(ValidationError):
+            SECCPersonality.model_validate({section: {}})
 
 
 # ---------------------------------------------------------------------------

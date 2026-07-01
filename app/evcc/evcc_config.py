@@ -99,9 +99,9 @@ class EVCCConfig(BaseModel):
     @classmethod
     def from_personality(cls, personality: EVCCPersonality) -> "EVCCConfig":
         caps = personality.capabilities
-        tls = personality.tls
-        certs = personality.certificates
-        cp = personality.charge_profile
+        tls = personality.residual.tls
+        certs = personality.residual.certificates
+        cp = personality.residual.charge_profile
         ev_dc = personality.power.ev_dc
         ev_ac = personality.power.ev_ac
 

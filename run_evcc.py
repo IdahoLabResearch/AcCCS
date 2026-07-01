@@ -26,7 +26,7 @@ from app.shared.process_lifecycle import die_with_parent
 die_with_parent()
 
 parser = argparse.ArgumentParser(description="Emulator for EVCC/PEV")
-add_runtime_cli_args(parser)
+add_runtime_cli_args(parser, default_config="din_dc_extended-evcc")
 args = parser.parse_args()
 
 if args.list_configs:

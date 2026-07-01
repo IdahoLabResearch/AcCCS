@@ -1,20 +1,20 @@
 # Conformance DIN 70121 SECC personality that forces EVSEIsolationStatus to
 # Invalid via the message field tree (ADR-0006, issue #71 tracer bullet).
 # Identical to din-secc.yaml plus one tree leaf.
-
-role: secc
 identity:
   evse_id: 49A89A6360
-network:
-  interface: acccs_secc
-tls:
-  enable_tls_1_3: false
-  enforce_tls: false
 capabilities:
   supported_protocols:
-    - DIN_SPEC_70121
+  - DIN_SPEC_70121
 message_field_tree:
   ChargeParameterDiscoveryRes:
     DC_EVSEChargeParameter:
       DC_EVSEStatus:
         EVSEIsolationStatus: Invalid
+residual:
+  network:
+    interface: acccs_secc
+  tls:
+    enable_tls_1_3: false
+    enforce_tls: false
+role: secc

@@ -1,0 +1,19 @@
+# DIN SPEC 70121 EVCC baseline personality (ADR-0006).
+#
+# Per-role baseline for a DIN vehicle; device files `extends:` this and override
+# only the leaves that differ. The full Cadillac Lyriq DIN tree lands here in
+# #74; this slice keeps the EVCC's requested energy transfer mode in
+# `capabilities` (its message-field-tree migration is a later slice).
+role: evcc
+capabilities:
+  supported_protocols:
+    - DIN_SPEC_70121
+  supported_energy_services:
+    - DC
+  energy_transfer_mode: DC_extended
+residual:
+  tls:
+    # DIN does not use TLS.
+    enable_tls_1_3: false
+    use_tls: false
+    enforce_tls: false

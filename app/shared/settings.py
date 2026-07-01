@@ -37,10 +37,10 @@ def init_shared_settings(personality: "_PersonalityBase", runtime: "Runtime") ->
     """
     shared_settings.update(
         {
-            SettingKey.PKI_PATH: personality.certificates.pki_path,
+            SettingKey.PKI_PATH: personality.residual.certificates.pki_path,
             SettingKey.MESSAGE_LOG_JSON: runtime.log.message_log_json,
             SettingKey.MESSAGE_LOG_EXI: runtime.log.message_log_exi,
-            SettingKey.ENABLE_TLS_1_3: personality.tls.enable_tls_1_3,
+            SettingKey.ENABLE_TLS_1_3: personality.residual.tls.enable_tls_1_3,
             SettingKey.ENABLE_NMAP: runtime.nmap.enabled,
             SettingKey.NMAP_ARGS: runtime.nmap.args,
             SettingKey.NMAP_PORTS: runtime.nmap.ports,

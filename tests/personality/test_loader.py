@@ -259,3 +259,125 @@ def test_format_listing_includes_all_fields(tmp_path: Path, monkeypatch: pytest.
 
 def test_format_listing_no_personalities():
     assert format_personality_listing([]) == "No personalities found."
+
+
+# ---------------------------------------------------------------------------
+# Layered baseline + sparse device overrides (ADR-0006 `extends:`)
+# ---------------------------------------------------------------------------
+
+
+def _write_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, files: dict):
+    monkeypatch.chdir(tmp_path)
+    repo = tmp_path / "personalities"
+    repo.mkdir(exist_ok=True)
+    for name, text in files.items():
+        (repo / name).write_text(textwrap.dedent(text))
+
+
+def test_extends_deep_merges_baseline(tmp_path, monkeypatch):
+    """A device file `extends:` a baseline; unspecified leaves come from the
+    baseline, specified leaves win."""
+    _write_repo(
+        tmp_path,
+        monkeypatch,
+        {
+            "base-secc.yaml": """
+                role: secc
+                identity:
+                  evse_id: BASE0000
+                capabilities:
+                  supported_protocols:
+                    - DIN_SPEC_70121
+                residual:
+                  tls:
+                    enable_tls_1_3: false
+                """,
+            "device-secc.yaml": """
+                extends: base-secc
+                role: secc
+                identity:
+                  evse_id: DEVICE99
+                """,
+        },
+    )
+    p = load_personality("device-secc", role="secc")
+    assert p.identity.evse_id == "DEVICE99"  # device override
+    assert p.capabilities.supported_protocols == ["DIN_SPEC_70121"]  # from baseline
+    assert p.residual.tls.enable_tls_1_3 is False  # from baseline
+
+
+def test_extends_sparse_tree_override_equals_full_tree(tmp_path, monkeypatch):
+    """AC #4: a baseline tree plus a sparse device leaf override produces the
+    same effective message field tree as spelling the whole tree out."""
+    _write_repo(
+        tmp_path,
+        monkeypatch,
+        {
+            "tree-base-secc.yaml": """
+                role: secc
+                message_field_tree:
+                  ServiceDiscoveryRes:
+                    ChargeService:
+                      EnergyTransferType: DC_extended
+                  ChargeParameterDiscoveryRes:
+                    DC_EVSEChargeParameter:
+                      DC_EVSEStatus:
+                        EVSEIsolationStatus: Valid
+                """,
+            # Overrides only the isolation leaf; the energy-transfer leaf is
+            # inherited from the baseline.
+            "tree-device-secc.yaml": """
+                extends: tree-base-secc
+                role: secc
+                message_field_tree:
+                  ChargeParameterDiscoveryRes:
+                    DC_EVSEChargeParameter:
+                      DC_EVSEStatus:
+                        EVSEIsolationStatus: Invalid
+                """,
+            # The same effective tree, spelled out in full.
+            "tree-full-secc.yaml": """
+                role: secc
+                message_field_tree:
+                  ServiceDiscoveryRes:
+                    ChargeService:
+                      EnergyTransferType: DC_extended
+                  ChargeParameterDiscoveryRes:
+                    DC_EVSEChargeParameter:
+                      DC_EVSEStatus:
+                        EVSEIsolationStatus: Invalid
+                """,
+        },
+    )
+    layered = load_personality("tree-device-secc", role="secc")
+    full = load_personality("tree-full-secc", role="secc")
+    assert layered.message_field_tree == full.message_field_tree
+
+
+def test_extends_key_is_stripped_not_a_model_field(tmp_path, monkeypatch):
+    """`extends` is a loader directive, not a strict-model field: a device with
+    only an `extends` line loads without an 'extra field' error."""
+    _write_repo(
+        tmp_path,
+        monkeypatch,
+        {
+            "b.yaml": "role: evcc\nidentity:\n  evcc_id: FROMBASE\n",
+            "d.yaml": "extends: b\nrole: evcc\n",
+        },
+    )
+    p = load_personality("d", role="evcc")
+    assert p.identity.evcc_id == "FROMBASE"
+    assert not hasattr(p, "extends")
+
+
+def test_circular_extends_raises(tmp_path, monkeypatch):
+    _write_repo(
+        tmp_path,
+        monkeypatch,
+        {
+            "a.yaml": "extends: b\nrole: evcc\n",
+            "b.yaml": "extends: a\nrole: evcc\n",
+        },
+    )
+    with pytest.raises(ValueError, match="circular"):
+        load_personality("a", role="evcc")

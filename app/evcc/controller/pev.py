@@ -83,7 +83,7 @@ class PEV:
         self.sourceMAC = get_nic_mac_address(self.iface)
         self.sourceIP = str(get_link_local_addr(self.iface))
         self.sourcePort = runtime.source_port if runtime.source_port else get_tcp_port()
-        self.slacSoundTimeout = personality.slac.sound_timeout_ms
+        self.slacSoundTimeout = personality.residual.slac.sound_timeout_ms
 
         self.destinationMAC = None
         self.destinationIP = None

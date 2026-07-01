@@ -12,6 +12,17 @@ This guide explains what each section means, the personality/runtime
 boundary, the file search order, and how to author a new personality
 file.
 
+> **Note (ADR-0006):** the wire-value sections described below are being
+> replaced by a two-part model — a **`message_field_tree`** (per-message,
+> per-field emitted values) plus a **`residual`** section for everything with
+> no wire representation (`tls`, `slac`, `certificates`, `network`,
+> `charge_profile`, `behavior`). Personalities are now **per role** (separate
+> EVCC/SECC files, no shared symmetric file) and can `extends:` a per-role
+> baseline. See [ADR-0006](adr/0006-message-field-tree-personality.md) and the
+> CLAUDE.md "Configuration" section. The "Sections" narrative here still
+> reflects the older concern-first layout for the not-yet-migrated protocols
+> and is pending a fuller rewrite.
+
 ## Personality vs. runtime
 
 | Concern | Lives in | CLI-overridable? |
@@ -40,8 +51,9 @@ are CLI-overridable.
 
 ## File search order
 
-`--config` is optional; when omitted it defaults to `din_dc_extended`. The
-loader resolves `--config <value>` in this order:
+`--config` is optional; when omitted each run script defaults to its per-role
+DIN file (`run_evcc.py` → `din_dc_extended-evcc`, `run_secc.py` →
+`din_dc_extended-secc`). The loader resolves `--config <value>` in this order:
 
 1. **Explicit path** — if `<value>` is a path to an existing file, it
    wins.
@@ -170,7 +182,8 @@ The repository ships a starter library under `personalities/`:
 | File | Protocol | Notes |
 |---|---|---|
 | `default-evcc.yaml` / `default-secc.yaml` | All | Materialised model defaults — regenerated from the Pydantic model. |
-| `din_dc_extended.yaml` | DIN 70121 | **Default `--config`.** DIN-only, TLS off, `energy_transfer_mode: DC_extended` — the mode production vehicles request. |
+| `din_dc_extended-evcc.yaml` / `din_dc_extended-secc.yaml` | DIN 70121 | **Default `--config`** (per role). DIN-only, TLS off, `DC_extended` — the mode production vehicles request. Each `extends:` its per-role baseline. |
+| `din-evcc-baseline.yaml` / `din-secc-baseline.yaml` | DIN 70121 | Per-role DIN baselines (ADR-0006). The advertised DC energy transfer mode is single-sourced from the SECC baseline's `message_field_tree`. The full ABB/Cadillac trees land here in #73/#74. |
 | `din_reference.yaml` | DIN 70121 | DIN-only emulator, TLS off, alternate `energy_transfer_mode` (DC_core, for the personality-swap demo) and a ~3x stock power envelope. |
 | `iso2_eim_dc.yaml` | ISO 15118-2 DC | EIM (External Identification Means) auth — no contract certs, no PnC. |
 | `iso2_pnc_dc.yaml` | ISO 15118-2 DC | PnC (Plug-and-Charge) auth — TLS mandatory, contract cert chain required. |

@@ -198,10 +198,10 @@ def test_scenario(scenario: Scenario, launch_emulator):
     # material has not been generated, skip rather than fail — a missing-cert
     # environment should be yellow, not red (AC3 of issue #49).
     needs_tls = (
-        evcc_p.tls.use_tls
-        or evcc_p.tls.enforce_tls
-        or secc_p.tls.use_tls
-        or secc_p.tls.enforce_tls
+        evcc_p.residual.tls.use_tls
+        or evcc_p.residual.tls.enforce_tls
+        or secc_p.residual.tls.use_tls
+        or secc_p.residual.tls.enforce_tls
     )
     if needs_tls and not _pki_certs_present():
         pytest.skip(
