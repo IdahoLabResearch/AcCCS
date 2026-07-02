@@ -65,6 +65,7 @@ from app.shared.messages.iso15118_2.msgdef import V2GMessage as V2GMessageV2
 from app.shared.messages.iso15118_20.common_types import (
     V2GMessage as V2GMessageV20,
 )
+from app.shared.live_control import override_skip_fields
 from app.shared.notifications import StopNotification
 from app.shared.personality.message_field_tree import apply_message_field_tree
 from app.shared.security import get_random_bytes
@@ -1076,7 +1077,19 @@ class CurrentDemand(StateSECC):
         )
         # The ABB baseline echoes the max V/A/W envelope here and reports Valid /
         # EVSE_Ready; both come from the tree now, not the retired evse_dc reads.
-        apply_personality_tree(self.comm_session, current_demand_res, "CurrentDemandRes")
+        # Live-override precedence (ADR-0006, issue #75): get_evse_present_* has
+        # already applied any operator override onto the built present V/I, so
+        # skip those leaves here — the tree is the pre-override start value and
+        # must not clobber the override back. A cleared override skips nothing,
+        # falling the field back to the tree (then computed).
+        skip = override_skip_fields(
+            getattr(self.comm_session.evse_controller, "live_control", None),
+            voltage_field="evse_present_voltage",
+            current_field="evse_present_current",
+        )
+        apply_personality_tree(
+            self.comm_session, current_demand_res, "CurrentDemandRes", skip_fields=skip
+        )
         logger.info(f"EVSE Present Voltage: {voltage.value * (10 ** voltage.multiplier)} {voltage.unit.value}")
         logger.info(f"EVSE Present Current: {current.value * (10 ** current.multiplier)} {current.unit.value}")
         logger.info(f"EVSE Max Power Limit: {max_power.value * (10 ** max_power.multiplier)} {max_power.unit.value}")

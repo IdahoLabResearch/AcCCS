@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -305,3 +305,39 @@ class LiveControl:
                 hook()
             except Exception:  # noqa: BLE001 - teardown is best-effort
                 logger.debug("Operator-quit teardown hook raised", exc_info=True)
+
+
+def override_skip_fields(
+    live_control: Optional[LiveControl],
+    *,
+    voltage_field: str,
+    current_field: str,
+) -> List[str]:
+    """Message field names whose active live-override must survive the field tree.
+
+    Precedence for the DIN charge-loop current/voltage fields (ADR-0006, issue
+    #75) is ``live-override > message field tree > computed``. The override is
+    applied where the message is *constructed* (``get_dc_charge_params`` on the
+    EVCC, ``get_evse_present_*`` on the SECC); the personality's
+    ``message_field_tree`` is then poked onto the built message. Left alone, that
+    poke would clobber the override back to the tree value — inverting the
+    precedence to tree > override. Returning the currently-overridden field
+    name(s) here lets the construction site pass them as ``skip_fields`` so the
+    tree leaves those leaves untouched and the override reaches the wire.
+
+    A *cleared* override (``None``) contributes no skip, so the field falls back
+    to the tree value — and, with the tree unset, to the computed value. The
+    override object is role-agnostic, so the caller names the fields for the
+    message it is building: the EVCC's requested target (``ev_target_voltage`` /
+    ``ev_target_current``) or the SECC's reported present (``evse_present_voltage``
+    / ``evse_present_current``). No override, or no ``live_control`` at all
+    (bare-controller unit tests, headless conformance harness), skips nothing.
+    """
+    if live_control is None:
+        return []
+    skips: List[str] = []
+    if live_control.override_voltage_v is not None:
+        skips.append(voltage_field)
+    if live_control.override_current_a is not None:
+        skips.append(current_field)
+    return skips

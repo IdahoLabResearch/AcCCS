@@ -69,6 +69,7 @@ from app.shared.messages.iso15118_20.common_types import (
     V2GMessage as V2GMessageV20,
 )
 from app.shared.messages.timeouts import Timeouts as TimeoutsShared
+from app.shared.live_control import override_skip_fields
 from app.shared.notifications import StopNotification
 from app.shared.personality.message_field_tree import apply_message_field_tree
 from app.shared.states import Terminate
@@ -76,7 +77,9 @@ from app.shared.states import Terminate
 logger = logging.getLogger(__name__)
 
 
-def apply_personality_tree(comm_session: EVCCCommunicationSession, req) -> None:
+def apply_personality_tree(
+    comm_session: EVCCCommunicationSession, req, skip_fields=None
+) -> None:
     """Substitute the personality's message field tree onto a built DIN Req.
 
     Construction-time substitution per ADR-0006, the vehicle-side mirror of the
@@ -94,11 +97,18 @@ def apply_personality_tree(comm_session: EVCCCommunicationSession, req) -> None:
     ``EVCCConfig.from_personality``); this is a no-op when the session carries no
     config, the config carries no tree (bare-controller unit tests), or the tree
     sets nothing for this message.
+
+    *skip_fields* names top-level fields (by Python name) the tree should leave
+    at the builder's already-set value — used by the charge loop to keep a live
+    override above the tree (ADR-0006 live-override precedence, issue #75), the
+    vehicle-side mirror of the SECC helper's ``skip_fields``.
     """
     config = getattr(comm_session, "config", None)
     tree = getattr(config, "message_field_tree", None)
     if tree:
-        apply_message_field_tree(req, type(req).__name__, tree)
+        apply_message_field_tree(
+            req, type(req).__name__, tree, skip_fields=skip_fields
+        )
 
 
 # ============================================================================
@@ -749,7 +759,17 @@ class PowerDelivery(StateEVCC):
             ),
             ev_target_voltage=dc_charge_params.dc_target_voltage,
         )
-        apply_personality_tree(self.comm_session, current_demand_req)
+        # Live-override precedence (ADR-0006, issue #75): get_dc_charge_params
+        # has already applied any operator override onto the built target V/I, so
+        # skip those leaves — the tree is the pre-override start value and must
+        # not clobber the override back. A cleared override skips nothing,
+        # falling the field back to the tree (then computed).
+        skip = override_skip_fields(
+            getattr(self.comm_session.ev_controller, "live_control", None),
+            voltage_field="ev_target_voltage",
+            current_field="ev_target_current",
+        )
+        apply_personality_tree(self.comm_session, current_demand_req, skip_fields=skip)
         return current_demand_req
 
     async def build_welding_detection_req(self):
@@ -868,7 +888,17 @@ class CurrentDemand(StateEVCC):
         logger.info(f"EV Target Current: {current.value * (10 ** current.multiplier)} {current.unit.value}")
         # EVMaximumPowerLimit is deliberately omitted from the DIN CurrentDemandReq
         # (the Cadillac baseline; see the builder above), so it is not logged here.
-        apply_personality_tree(self.comm_session, current_demand_req)
+        # Live-override precedence (ADR-0006, issue #75): get_dc_charge_params
+        # has already applied any operator override onto the built target V/I, so
+        # skip those leaves — the tree is the pre-override start value and must
+        # not clobber the override back. A cleared override skips nothing,
+        # falling the field back to the tree (then computed).
+        skip = override_skip_fields(
+            getattr(self.comm_session.ev_controller, "live_control", None),
+            voltage_field="ev_target_voltage",
+            current_field="ev_target_current",
+        )
+        apply_personality_tree(self.comm_session, current_demand_req, skip_fields=skip)
         return current_demand_req
 
 
