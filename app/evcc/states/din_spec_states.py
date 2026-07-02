@@ -70,9 +70,35 @@ from app.shared.messages.iso15118_20.common_types import (
 )
 from app.shared.messages.timeouts import Timeouts as TimeoutsShared
 from app.shared.notifications import StopNotification
+from app.shared.personality.message_field_tree import apply_message_field_tree
 from app.shared.states import Terminate
 
 logger = logging.getLogger(__name__)
+
+
+def apply_personality_tree(comm_session: EVCCCommunicationSession, req) -> None:
+    """Substitute the personality's message field tree onto a built DIN Req.
+
+    Construction-time substitution per ADR-0006, the vehicle-side mirror of the
+    SECC helper wired in #73: after an EVCC state builds an outbound ``*Req`` the
+    EVCC pokes every leaf the personality's ``message_field_tree`` sets for that
+    message onto it, so a configured value replaces what the builder computed
+    (and flows into any internal logic that reads the field). The message name is
+    taken from the model's class name, which is exactly the tree key (they are
+    single-sourced from the DIN body module). A leaf set nowhere leaves the built
+    value untouched — the fallback the tracer relies on — so unset fields (the
+    computed/runtime ones: EVCCID, target/present V & A, EVReady) keep the
+    simulator's values.
+
+    The tree rides on ``EVCCConfig`` (populated from the personality in
+    ``EVCCConfig.from_personality``); this is a no-op when the session carries no
+    config, the config carries no tree (bare-controller unit tests), or the tree
+    sets nothing for this message.
+    """
+    config = getattr(comm_session, "config", None)
+    tree = getattr(config, "message_field_tree", None)
+    if tree:
+        apply_message_field_tree(req, type(req).__name__, tree)
 
 
 # ============================================================================
@@ -114,9 +140,12 @@ class SessionSetup(StateEVCC):
         # TODO Build ServiceDiscoveryReq() by including optional parameters.
         #  This would help test scope and category filtering at the SECC end
 
+        service_discovery_req = ServiceDiscoveryReq()
+        apply_personality_tree(self.comm_session, service_discovery_req)
+
         self.create_next_message(
             ServiceDiscovery,
-            ServiceDiscoveryReq(),
+            service_discovery_req,
             Timeouts.SERVICE_DISCOVERY_REQ,
             Namespace.DIN_MSG_DEF,
         )
@@ -185,6 +214,7 @@ class ServiceDiscovery(StateEVCC):
             selected_payment_option=self.comm_session.selected_auth_option,
             selected_service_list=selected_service_list,
         )
+        apply_personality_tree(self.comm_session, service_payment_selection)
 
         self.create_next_message(
             ServicePaymentSelection,
@@ -261,6 +291,7 @@ class ServicePaymentSelection(StateEVCC):
         contract_authentication_req: ContractAuthenticationReq = (
             ContractAuthenticationReq()
         )
+        apply_personality_tree(self.comm_session, contract_authentication_req)
         self.create_next_message(
             ContractAuthentication,
             contract_authentication_req,
@@ -330,6 +361,7 @@ class ContractAuthentication(StateEVCC):
         # 2. Move on to next state: ChargeParameterDiscoveryReq
         next_state = None
         next_message: Any = ContractAuthenticationReq()
+        apply_personality_tree(self.comm_session, next_message)
         timeout = Timeouts.CONTRACT_AUTHENTICATION_REQ
 
         if contract_authentication_res.evse_processing == EVSEProcessing.FINISHED:
@@ -359,7 +391,7 @@ class ContractAuthentication(StateEVCC):
             ev_maximum_current_limit=max_current_limit,
             ev_maximum_voltage_limit=max_voltage_limit,
         )
-        return ChargeParameterDiscoveryReq(
+        charge_parameter_discovery_req = ChargeParameterDiscoveryReq(
             requested_energy_mode=(
                 await self.comm_session.ev_controller.get_energy_transfer_mode(
                     Protocol.DIN_SPEC_70121
@@ -367,6 +399,8 @@ class ContractAuthentication(StateEVCC):
             ),
             dc_ev_charge_parameter=dc_charge_parameter,
         )
+        apply_personality_tree(self.comm_session, charge_parameter_discovery_req)
+        return charge_parameter_discovery_req
 
 
 class ChargeParameterDiscovery(StateEVCC):
@@ -408,6 +442,7 @@ class ChargeParameterDiscovery(StateEVCC):
             cable_check_req = CableCheckReq(
                 dc_ev_status=await ev_controller.get_dc_ev_status_dinspec(),
             )
+            apply_personality_tree(self.comm_session, cable_check_req)
 
             self.create_next_message(
                 CableCheck,
@@ -467,6 +502,7 @@ class ChargeParameterDiscovery(StateEVCC):
             ac_ev_charge_parameter=None,
             dc_ev_charge_parameter=dc_charge_parameter,
         )
+        apply_personality_tree(self.comm_session, charge_parameter_discovery_req)
 
         return charge_parameter_discovery_req
 
@@ -545,6 +581,7 @@ class CableCheck(StateEVCC):
             ev_target_voltage=dc_charge_params.dc_target_voltage,
             ev_target_current=dc_charge_params.dc_target_current,
         )
+        apply_personality_tree(self.comm_session, pre_charge_req)
         return pre_charge_req
 
     async def build_cable_check_req(self) -> CableCheckReq:
@@ -552,6 +589,7 @@ class CableCheck(StateEVCC):
         cable_check_req = CableCheckReq(
             dc_ev_status=await ev_controller.get_dc_ev_status_dinspec(),
         )
+        apply_personality_tree(self.comm_session, cable_check_req)
         return cable_check_req
 
 
@@ -626,6 +664,7 @@ class PreCharge(StateEVCC):
             ev_target_voltage=dc_charge_params.dc_target_voltage,
             ev_target_current=dc_charge_params.dc_target_current,
         )
+        apply_personality_tree(self.comm_session, pre_charge_req)
         return pre_charge_req
 
     async def build_power_delivery_req(self) -> PowerDeliveryReq:
@@ -637,6 +676,7 @@ class PreCharge(StateEVCC):
                 await ev_controller.get_dc_ev_power_delivery_parameter_dinspec()
             ),
         )
+        apply_personality_tree(self.comm_session, power_delivery_req)
         return power_delivery_req
 
 
@@ -690,7 +730,13 @@ class PowerDelivery(StateEVCC):
             ev_target_current=dc_charge_params.dc_target_current,
             ev_max_voltage_limit=dc_charge_params.dc_max_voltage_limit,
             ev_max_current_limit=dc_charge_params.dc_max_current_limit,
-            ev_max_power_limit=dc_charge_params.dc_max_power_limit,
+            # The Cadillac Lyriq omits EVMaximumPowerLimit from CurrentDemandReq
+            # (ABB_Cadillac_Lyric.pcapng), so the DIN builder leaves it unset —
+            # the per-message tree can override a field but not remove one, and
+            # a real device announces its power ceiling only in
+            # ChargeParameterDiscoveryReq. EVMaximumVoltageLimit /
+            # EVMaximumCurrentLimit below are tree-owned (500 A / 410 V).
+            ev_max_power_limit=None,
             bulk_charging_complete=(await ev_controller.is_bulk_charging_complete()),
             charging_complete=await ev_controller.is_charging_complete(),
             remaining_time_to_full_soc=(
@@ -703,6 +749,7 @@ class PowerDelivery(StateEVCC):
             ),
             ev_target_voltage=dc_charge_params.dc_target_voltage,
         )
+        apply_personality_tree(self.comm_session, current_demand_req)
         return current_demand_req
 
     async def build_welding_detection_req(self):
@@ -710,6 +757,7 @@ class PowerDelivery(StateEVCC):
         welding_detection_req: WeldingDetectionReq = WeldingDetectionReq(
             dc_ev_status=await ev_controller.get_dc_ev_status_dinspec()
         )
+        apply_personality_tree(self.comm_session, welding_detection_req)
         return welding_detection_req
 
 
@@ -773,6 +821,7 @@ class CurrentDemand(StateEVCC):
                 await ev_controller.get_dc_ev_power_delivery_parameter_dinspec()
             ),
         )
+        apply_personality_tree(self.comm_session, power_delivery_req)
         self.create_next_message(
             PowerDelivery,
             power_delivery_req,
@@ -792,7 +841,13 @@ class CurrentDemand(StateEVCC):
             ev_target_current=dc_charge_params.dc_target_current,
             ev_max_voltage_limit=dc_charge_params.dc_max_voltage_limit,
             ev_max_current_limit=dc_charge_params.dc_max_current_limit,
-            ev_max_power_limit=dc_charge_params.dc_max_power_limit,
+            # The Cadillac Lyriq omits EVMaximumPowerLimit from CurrentDemandReq
+            # (ABB_Cadillac_Lyric.pcapng), so the DIN builder leaves it unset —
+            # the per-message tree can override a field but not remove one, and
+            # a real device announces its power ceiling only in
+            # ChargeParameterDiscoveryReq. EVMaximumVoltageLimit /
+            # EVMaximumCurrentLimit below are tree-owned (500 A / 410 V).
+            ev_max_power_limit=None,
             bulk_charging_complete=(await ev_controller.is_bulk_charging_complete()),
             charging_complete=await ev_controller.is_charging_complete(),
             remaining_time_to_full_soc=(
@@ -809,10 +864,11 @@ class CurrentDemand(StateEVCC):
         )
         current = dc_charge_params.dc_target_current
         voltage = dc_charge_params.dc_target_voltage
-        max_power = dc_charge_params.dc_max_power_limit
         logger.info(f"EV Target Voltage: {voltage.value * (10 ** voltage.multiplier)} {voltage.unit.value}")
         logger.info(f"EV Target Current: {current.value * (10 ** current.multiplier)} {current.unit.value}")
-        logger.info(f"EV Max Power Limit: {max_power.value * (10 ** max_power.multiplier)} {max_power.unit.value}")
+        # EVMaximumPowerLimit is deliberately omitted from the DIN CurrentDemandReq
+        # (the Cadillac baseline; see the builder above), so it is not logged here.
+        apply_personality_tree(self.comm_session, current_demand_req)
         return current_demand_req
 
 
@@ -860,10 +916,12 @@ class WeldingDetection(StateEVCC):
         next_request: Any = WeldingDetectionReq(
             dc_ev_status=await ev_controller.get_dc_ev_status_dinspec()
         )
+        apply_personality_tree(self.comm_session, next_request)
         next_timeout = Timeouts.WELDING_DETECTION_REQ
         if await ev_controller.welding_detection_has_finished():
             next_state = SessionStop
             next_request = SessionStopReq()
+            apply_personality_tree(self.comm_session, next_request)
             next_timeout = Timeouts.SESSION_STOP_REQ
 
         self.create_next_message(

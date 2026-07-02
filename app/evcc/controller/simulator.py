@@ -124,6 +124,7 @@ from app.shared.messages.iso15118_20.dc import (
     ScheduledDCChargeLoopReqParams,
 )
 from app.shared.network import get_nic_mac_address
+from app.shared.personality.model import EVDCLimits
 
 logger = logging.getLogger(__name__)
 
@@ -162,20 +163,34 @@ class SimEVController(EVControllerInterface):
         `EVCCConfig.ev_dc_*`. DIN 70121 uses the *Din-suffixed PV classes
         because the EXI schema is distinct from ISO 15118-2; everything
         else uses the base PV classes.
+
+        DIN retirement (ADR-0006 / #74): on the DIN path the *announced maxima*
+        (max V/A/W) and battery capacity are wire-owned by the message field
+        tree at each `*Req` build site, so they are sourced here from the EV
+        DC-limit model defaults (`EVDCLimits`) rather than `config.ev_dc_*`. The
+        structured `ev_dc` maxima no longer feed the DIN wire; a personality that
+        wants different maxima sets the tree leaves. The `target_*` fields are
+        the issue's explicit carve-out — they stay computed/start-value from the
+        config (and pick up the live override in `get_dc_charge_params`), because
+        they ramp during the session and are not static baseline tree values.
+        ISO 15118-2 (`din=False`) is unchanged: every field comes from config.
         """
         cfg = self.config
-        max_c_mult, max_c_val = PhysicalValue.get_exponent_value_repr(
-            cfg.ev_dc_max_current_a
-        )
-        max_p_mult, max_p_val = PhysicalValue.get_exponent_value_repr(
-            cfg.ev_dc_max_power_w
-        )
-        max_v_mult, max_v_val = PhysicalValue.get_exponent_value_repr(
-            cfg.ev_dc_max_voltage_v
-        )
-        cap_mult, cap_val = PhysicalValue.get_exponent_value_repr(
-            cfg.ev_dc_energy_capacity_wh
-        )
+        if din:
+            limits = EVDCLimits()
+            max_current_a = limits.max_current_a
+            max_power_w = limits.max_power_w
+            max_voltage_v = limits.max_voltage_v
+            energy_capacity_wh = limits.energy_capacity_wh
+        else:
+            max_current_a = cfg.ev_dc_max_current_a
+            max_power_w = cfg.ev_dc_max_power_w
+            max_voltage_v = cfg.ev_dc_max_voltage_v
+            energy_capacity_wh = cfg.ev_dc_energy_capacity_wh
+        max_c_mult, max_c_val = PhysicalValue.get_exponent_value_repr(max_current_a)
+        max_p_mult, max_p_val = PhysicalValue.get_exponent_value_repr(max_power_w)
+        max_v_mult, max_v_val = PhysicalValue.get_exponent_value_repr(max_voltage_v)
+        cap_mult, cap_val = PhysicalValue.get_exponent_value_repr(energy_capacity_wh)
         target_c_mult, target_c_val = PhysicalValue.get_exponent_value_repr(
             cfg.ev_dc_target_current_a
         )
@@ -788,20 +803,30 @@ class SimEVController(EVControllerInterface):
 
     async def get_remaining_time_to_full_soc(
             self, protocol: Protocol) -> PVRemainingTimeToFullSOC:
+        # DIN retirement (ADR-0006 / #74): CurrentDemandReq's remaining-time
+        # estimate is wire-owned by the message field tree, so the DIN path uses
+        # the EV DC-limit model default rather than `config.ev_dc_remaining_*`.
+        if protocol == Protocol.DIN_SPEC_70121:
+            mult, val = PhysicalValue.get_exponent_value_repr(
+                EVDCLimits().remaining_time_to_full_soc_s
+            )
+            return PVRemainingTimeToFullSOCDin(multiplier=mult, value=val, unit="s")
         mult, val = PhysicalValue.get_exponent_value_repr(
             self.config.ev_dc_remaining_time_to_full_soc_s
         )
-        if protocol == Protocol.DIN_SPEC_70121:
-            return PVRemainingTimeToFullSOCDin(multiplier=mult, value=val, unit="s")
         return PVRemainingTimeToFullSOC(multiplier=mult, value=val, unit="s")
 
     async def get_remaining_time_to_bulk_soc(
             self, protocol: Protocol) -> PVRemainingTimeToBulkSOC:
+        # DIN retirement (ADR-0006 / #74): see get_remaining_time_to_full_soc.
+        if protocol == Protocol.DIN_SPEC_70121:
+            mult, val = PhysicalValue.get_exponent_value_repr(
+                EVDCLimits().remaining_time_to_bulk_soc_s
+            )
+            return PVRemainingTimeToBulkSOCDin(multiplier=mult, value=val, unit="s")
         mult, val = PhysicalValue.get_exponent_value_repr(
             self.config.ev_dc_remaining_time_to_bulk_soc_s
         )
-        if protocol == Protocol.DIN_SPEC_70121:
-            return PVRemainingTimeToBulkSOCDin(multiplier=mult, value=val, unit="s")
         return PVRemainingTimeToBulkSOC(multiplier=mult, value=val, unit="s")
 
     async def welding_detection_has_finished(self):

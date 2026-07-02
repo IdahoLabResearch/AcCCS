@@ -15,6 +15,7 @@ from typing import Type, Union
 from app.evcc import evcc_settings
 from app.evcc.comm_session_handler import EVCCCommunicationSession
 from app.evcc.states.din_spec_states import SessionSetup as SessionSetupDINSPEC
+from app.evcc.states.din_spec_states import apply_personality_tree
 from app.evcc.states.evcc_state import StateEVCC
 from app.evcc.states.iso15118_2_states import SessionSetup as SessionSetupV2
 from app.evcc.states.iso15118_20_states import SessionSetup as SessionSetupV20
@@ -128,6 +129,11 @@ class SupportedAppProtocol(StateEVCC):
                             Protocol.DIN_SPEC_70121, self.comm_session.iface
                         )
                     )
+                    # Route the DIN SessionSetupReq through the message field
+                    # tree too (ADR-0006 / #74) so a personality can override its
+                    # one wire field (EVCCID); the Cadillac baseline leaves it
+                    # computed from the NIC MAC.
+                    apply_personality_tree(self.comm_session, next_msg)
 
                     next_ns = Namespace.DIN_MSG_DEF
                     next_state = SessionSetupDINSPEC

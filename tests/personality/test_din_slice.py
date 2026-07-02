@@ -229,7 +229,14 @@ def test_secc_accepts_valid_energy_transfer_type_leaf():
 
 
 @pytest.mark.asyncio
-async def test_evcc_dc_charge_params_din_use_personality_limits():
+async def test_evcc_dc_charge_params_din_retire_ev_dc_maxima():
+    """Issue #74 / ADR-0006: the DIN EVCC announced maxima + capacity are no
+    longer sourced from the structured `power.ev_dc` block — they come from the
+    message field tree at each `*Req` build site. The controller builds only a
+    skeleton from the EV DC-limit model defaults, so a `power.ev_dc` set to
+    distinctive maxima does NOT surface here (the retirement). The `target_*`
+    fields are the issue's carve-out and DO still come from config, because they
+    ramp and are not static baseline tree values."""
     personality = EVCCPersonality.model_validate(
         {
             "power": {
@@ -248,9 +255,95 @@ async def test_evcc_dc_charge_params_din_use_personality_limits():
     sim = SimEVController(evcc_config)
     params = await sim.get_dc_charge_params(Protocol.DIN_SPEC_70121)
 
+    # Model defaults (EVDCLimits), NOT the personality's ev_dc maxima.
+    assert params.dc_max_voltage_limit.get_decimal_value() == 500.0
+    assert params.dc_max_current_limit.get_decimal_value() == 32.0
+    assert params.dc_max_power_limit.get_decimal_value() == 80000.0
+    assert params.dc_energy_capacity.get_decimal_value() == 70000.0
+    # Targets stay config-sourced (computed/start-value carve-out).
+    assert params.dc_target_voltage.get_decimal_value() == 750.0
+    assert params.dc_target_current.get_decimal_value() == 17.0
+
+
+@pytest.mark.asyncio
+async def test_evcc_dc_charge_params_iso2_still_use_personality_limits():
+    """The retirement is DIN-only: ISO 15118-2 still sources the full EV DC
+    envelope from `power.ev_dc` (issue #7 / ADR-0001), unchanged by #74."""
+    personality = EVCCPersonality.model_validate(
+        {
+            "power": {
+                "ev_dc": {
+                    "max_voltage_v": 800.0,
+                    "max_current_a": 120.0,
+                    "max_power_w": 200000.0,
+                    "energy_capacity_wh": 90000.0,
+                    "target_voltage_v": 750.0,
+                    "target_current_a": 17.0,
+                }
+            }
+        }
+    )
+    evcc_config = EVCCConfig.from_personality(personality)
+    sim = SimEVController(evcc_config)
+    params = await sim.get_dc_charge_params(Protocol.ISO_15118_2)
+
     assert params.dc_max_voltage_limit.get_decimal_value() == 800.0
     assert params.dc_max_current_limit.get_decimal_value() == 120.0
     assert params.dc_max_power_limit.get_decimal_value() == 200000.0
     assert params.dc_energy_capacity.get_decimal_value() == 90000.0
     assert params.dc_target_voltage.get_decimal_value() == 750.0
     assert params.dc_target_current.get_decimal_value() == 17.0
+
+
+@pytest.mark.asyncio
+async def test_evcc_din_current_demand_req_tree_sourced():
+    """The DIN EVCC wire values are sourced from the message field tree. Setting
+    the CurrentDemandReq leaves surfaces them on the built message via
+    construction-time substitution (apply_personality_tree at the build site)."""
+    from app.evcc.states.din_spec_states import apply_personality_tree
+    from app.shared.messages.din_spec.body import CurrentDemandReq
+    from app.shared.messages.datatypes import (
+        PVEVMaxCurrentLimitDin,
+        PVEVMaxVoltageLimitDin,
+        PVEVTargetCurrentDin,
+        PVEVTargetVoltageDin,
+    )
+    from app.shared.messages.enums import DCEVErrorCode, UnitSymbol
+    from app.shared.messages.din_spec.datatypes import DCEVStatus
+
+    personality = EVCCPersonality.model_validate(
+        {
+            "message_field_tree": {
+                "CurrentDemandReq": {
+                    "EVMaximumCurrentLimit": {"Value": 500, "Multiplier": 0},
+                    "EVMaximumVoltageLimit": {"Value": 410, "Multiplier": 0},
+                    "BulkChargingComplete": True,
+                    "DC_EVStatus": {"EVRESSSOC": 88},
+                }
+            }
+        }
+    )
+    config = EVCCConfig.from_personality(personality)
+
+    class _Session:
+        pass
+
+    session = _Session()
+    session.config = config
+
+    req = CurrentDemandReq(
+        dc_ev_status=DCEVStatus(
+            ev_ready=True, ev_error_code=DCEVErrorCode.NO_ERROR, ev_ress_soc=10
+        ),
+        ev_target_current=PVEVTargetCurrentDin(multiplier=0, value=1, unit=UnitSymbol.AMPERE),
+        ev_target_voltage=PVEVTargetVoltageDin(multiplier=0, value=400, unit=UnitSymbol.VOLTAGE),
+        ev_max_current_limit=PVEVMaxCurrentLimitDin(multiplier=0, value=32, unit=UnitSymbol.AMPERE),
+        ev_max_voltage_limit=PVEVMaxVoltageLimitDin(multiplier=0, value=500, unit=UnitSymbol.VOLTAGE),
+        charging_complete=False,
+    )
+    apply_personality_tree(session, req)
+
+    assert req.ev_max_current_limit.get_decimal_value() == 500
+    assert req.ev_max_voltage_limit.get_decimal_value() == 410
+    assert req.bulk_charging_complete is True
+    assert req.dc_ev_status.ev_ress_soc == 88

@@ -1,15 +1,33 @@
 # DIN SPEC 70121 EVCC baseline personality (ADR-0006).
 #
-# Per-role baseline for a DIN vehicle; device files `extends:` this and override
-# only the leaves that differ. The full Cadillac Lyriq DIN tree lands here in
-# #74; this slice keeps the EVCC's requested energy transfer mode in
-# `capabilities` (its message-field-tree migration is a later slice).
+# The per-role baseline supplies a DIN vehicle's full default wire output; device
+# files (e.g. din_dc_extended-evcc.yaml) `extends:` this and override only the
+# leaves that differ.
+#
+# This baseline replicates the Cadillac Lyriq from `ABB_Cadillac_Lyric.pcapng`
+# field-for-field (#74) — the vehicle-side mirror of the ABB `din-secc-baseline`
+# (#73). Every EVCC-emitted DIN message sources its wire values from the
+# `message_field_tree` below via construction-time substitution (ADR-0006); the
+# structured `power.ev_dc` maxima + remaining-time reads are retired from the DIN
+# EVCC path.
+#
+# Runtime/computed fields are NOT in the tree and stay computed / start-value:
+# SessionID, EVCCID (from the NIC MAC), EVReady, ChargingComplete, and the
+# present/target voltage & current that ramp during the session (the target
+# start values live in `power.ev_dc` on the device file). The Cadillac reports a
+# static 88% SOC across the whole capture, so EVRESSSOC *is* a baseline value and
+# is pinned per message.
 role: evcc
 capabilities:
   supported_protocols:
     - DIN_SPEC_70121
   supported_energy_services:
     - DC
+  # The EVCC's requested energy transfer mode is dual-purpose (emitted as
+  # ChargeParameterDiscoveryReq -> EVRequestedEnergyTransferType and consulted
+  # internally when matching the SECC's offer). It is a pre-tree wire section
+  # (CLAUDE.md "Configuration"); its message-field-tree migration is a later
+  # slice, so it stays single-sourced here and is not duplicated into the tree.
   energy_transfer_mode: DC_extended
 residual:
   tls:
@@ -17,3 +35,58 @@ residual:
     enable_tls_1_3: false
     use_tls: false
     enforce_tls: false
+message_field_tree:
+  # In the scope of DIN SPEC 70121, if ServiceCategory is used it is always
+  # "EVCharging"; the Cadillac sends it explicitly.
+  ServiceDiscoveryReq:
+    ServiceCategory: EVCharging
+  # Only "ExternalPayment" is used in DIN; the Cadillac selects the one charge
+  # service the ABB advertises (ServiceID 1). SelectedServiceList is a
+  # list-nested wire field (ADR-0006 issue #81) — the tree declares the whole
+  # SelectedService list, cardinality included.
+  ServicePaymentSelectionReq:
+    SelectedPaymentOption: ExternalPayment
+    SelectedServiceList:
+      SelectedService:
+        - ServiceID: 1
+  # The EV announces its charging envelope once, here: 500 A / 410 V, targeting
+  # a full battery (FullSOC 100, BulkSOC 80). The Cadillac omits
+  # EVMaximumPowerLimit and EVEnergyCapacity, so they are left unset (the builder
+  # does not emit them). EVReady/EVErrorCode stay computed; EVRESSSOC is pinned.
+  ChargeParameterDiscoveryReq:
+    DC_EVChargeParameter:
+      DC_EVStatus:
+        EVRESSSOC: 88
+      EVMaximumCurrentLimit: {Value: 500, Multiplier: 0}
+      EVMaximumVoltageLimit: {Value: 410, Multiplier: 0}
+      FullSOC: 100
+      BulkSOC: 80
+  CableCheckReq:
+    DC_EVStatus:
+      EVRESSSOC: 88
+  PreChargeReq:
+    DC_EVStatus:
+      EVRESSSOC: 88
+  # The Cadillac reports BulkChargingComplete already true (it is near full);
+  # ChargingComplete stays computed off the charge loop.
+  PowerDeliveryReq:
+    DC_EVPowerDeliveryParameter:
+      DC_EVStatus:
+        EVRESSSOC: 88
+      BulkChargingComplete: true
+  # Each CurrentDemandReq resends the max envelope (500 A / 410 V), reports bulk
+  # charging complete, and carries the EV's remaining-time estimates
+  # (RemainingTimeToFullSoC 2111 s, RemainingTimeToBulkSoC 0 s). EVTargetCurrent
+  # / EVTargetVoltage ramp and stay computed; EVMaximumPowerLimit is omitted
+  # (matching the capture).
+  CurrentDemandReq:
+    DC_EVStatus:
+      EVRESSSOC: 88
+    EVMaximumVoltageLimit: {Value: 410, Multiplier: 0}
+    EVMaximumCurrentLimit: {Value: 500, Multiplier: 0}
+    BulkChargingComplete: true
+    RemainingTimeToFullSoC: {Value: 2111, Multiplier: 0}
+    RemainingTimeToBulkSoC: {Value: 0, Multiplier: 0}
+  WeldingDetectionReq:
+    DC_EVStatus:
+      EVRESSSOC: 88

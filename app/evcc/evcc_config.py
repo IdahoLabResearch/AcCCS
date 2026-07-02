@@ -4,7 +4,7 @@
 """
 
 import logging
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -94,6 +94,13 @@ class EVCCConfig(BaseModel):
     ev_ac_v20: Optional[EVACLimitsV20] = None
     schedule_exchange_v20: Optional[ScheduleExchangeV20] = None
 
+    # The [[message field tree]] (ADR-0006): per-message, per-field emitted wire
+    # values, carried through from the personality so the EVCC DIN states can
+    # apply construction-time substitution onto each outbound `*Req` (#74, the
+    # vehicle-side mirror of the SECC's controller-held tree). Empty by default,
+    # so a leaf set nowhere falls back to whatever the message builder computes.
+    message_field_tree: Dict[str, Any] = Field(default_factory=dict)
+
     model_config = {"arbitrary_types_allowed": True}
 
     @classmethod
@@ -140,6 +147,7 @@ class EVCCConfig(BaseModel):
             ev_dc_v20=personality.power.ev_dc_v20,
             ev_ac_v20=personality.power.ev_ac_v20,
             schedule_exchange_v20=personality.power.schedule_exchange_v20,
+            message_field_tree=personality.message_field_tree,
         )
 
         logger.info("EVCC Settings (from personality):")
@@ -152,6 +160,11 @@ class EVCCConfig(BaseModel):
                 logger.info(f"{key:30}: {[item.name for item in value]}")
             elif key == "energy_transfer_mode" and value is not None:
                 logger.info(f"{key:30}: {value.name}")
+            elif key == "message_field_tree":
+                # The tree can be a large nested dict (the full DIN baseline);
+                # log only its message keys, not every leaf, to keep the
+                # startup summary readable.
+                logger.info(f"{key:30}: {sorted(value)}")
             elif not key.startswith("raw"):
                 logger.info(f"{key:30}: {value}")
 
