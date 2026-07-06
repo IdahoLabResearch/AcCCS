@@ -590,6 +590,36 @@ class _PersonalityBase(_StrictBase):
 
         return validate_message_field_tree(value)
 
+    @model_validator(mode="after")
+    def _check_message_field_tree_completeness(self) -> "_PersonalityBase":
+        """Fail at load on a missing mandatory tree-sourced wire field (#83).
+
+        Runs after the baseline + device deep-merge (the loader merges, then
+        validates), so it sees the *merged* tree. For every mandatory DIN wire
+        field of a message the role emits and the tree carries, the value must
+        resolve in the tree or be on the ADR-0006 #83 optional-field allowlist;
+        otherwise this raises, naming the message and field path.
+
+        Scoped to **DIN-exclusive** personalities — those whose only advertised
+        protocol is DIN SPEC 70121 (the shipped DIN baselines and the devices
+        that ``extends`` them). A multi-protocol personality still sources its
+        DIN wire values from the builders' pre-tree path (its tree is typically
+        empty or a partial red-team probe of a single field), so demanding a
+        complete DIN tree there would both mis-fire on the stock ``default-*``
+        personalities and forbid the established "set one field of one message"
+        probing pattern. DIN-only this slice; ISO-2 / ISO-20 extend the gate and
+        the allowlist as those slices land. Lazy import for the same reason as
+        the field validator above.
+        """
+        from app.shared.personality.completeness import (
+            check_message_field_tree_completeness,
+            is_din_exclusive,
+        )
+
+        if is_din_exclusive(self.capabilities.supported_protocols):
+            check_message_field_tree_completeness(self.message_field_tree, self.role)
+        return self
+
 
 class EVCCPersonality(_PersonalityBase):
     role: Literal["evcc"] = "evcc"

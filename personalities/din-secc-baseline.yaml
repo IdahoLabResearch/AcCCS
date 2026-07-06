@@ -44,6 +44,11 @@ message_field_tree:
     ChargeService:
       ServiceTag:
         ServiceID: 1
+        # In the scope of DIN SPEC 70121, ServiceCategory is always
+        # "EVCharging"; the ABB advertises it explicitly. Pinned here (config,
+        # not runtime-produced) so the load-time completeness check (#83) has a
+        # value for this required leaf — the builder already emits exactly this.
+        ServiceCategory: EVCharging
       FreeService: false
       EnergyTransferType: DC_extended
   ChargeParameterDiscoveryRes:

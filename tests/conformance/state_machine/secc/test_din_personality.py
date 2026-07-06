@@ -348,12 +348,25 @@ def tree_sourced_secc_personality() -> SECCPersonality:
     any assertion that the SECC advertises/accepts DC_core proves the value was
     read from the tree — not from capabilities.
     """
+    # This personality is DIN-exclusive, so the #83 load-time completeness check
+    # runs: a ServiceDiscoveryRes present in the tree must spell out its other
+    # required leaves (PaymentOptions / ServiceTag / FreeService) too. Only
+    # EnergyTransferType matters to these tests — the rest is boilerplate to
+    # satisfy completeness.
     return SECCPersonality.model_validate(
         {
             "capabilities": {"supported_protocols": ["DIN_SPEC_70121"]},
             "message_field_tree": {
                 "ServiceDiscoveryRes": {
-                    "ChargeService": {"EnergyTransferType": "DC_core"}
+                    "PaymentOptions": {"PaymentOption": ["ExternalPayment"]},
+                    "ChargeService": {
+                        "ServiceTag": {
+                            "ServiceID": 1,
+                            "ServiceCategory": "EVCharging",
+                        },
+                        "FreeService": False,
+                        "EnergyTransferType": "DC_core",
+                    },
                 }
             },
         }

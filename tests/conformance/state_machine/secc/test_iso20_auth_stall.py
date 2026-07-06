@@ -24,6 +24,7 @@ from time import time
 import pytest
 
 from app.secc.controller.simulator import SimEVSEController
+from app.shared.personality.model import SECCPersonality
 from app.secc.states.iso15118_20_states import Authorization
 from app.shared.live_control import LiveControl
 from app.shared.messages.enums import AuthEnum, Protocol
@@ -37,7 +38,7 @@ from tests.conformance.state_machine.harness import ScriptedPeer, StubCommSessio
 
 
 def _secc_session(live_control: LiveControl) -> StubCommSession:
-    controller = SimEVSEController(live_control=live_control)
+    controller = SimEVSEController(personality=SECCPersonality(), live_control=live_control)
     controller.set_selected_protocol(Protocol.ISO_15118_20_COMMON_MESSAGES)
     session = StubCommSession(
         protocol=Protocol.ISO_15118_20_COMMON_MESSAGES, session_id=bytes(1).hex()

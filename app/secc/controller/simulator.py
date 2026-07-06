@@ -266,21 +266,32 @@ class SimEVSEController(EVSEControllerInterface):
     A simulated version of an EVSE controller
     """
 
-    def __init__(self, personality=None, live_control=None):
+    def __init__(self, personality, live_control=None):
         """Construct a sim controller.
 
-        `personality` is an optional `SECCPersonality` (ADR-0001). When
-        present, `get_evse_id()` reads the EVSEID from
-        `personality.identity` instead of the legacy `.env.secc` lookup.
-        The conformance state-machine harness keeps invoking
-        `SimEVSEController()` without arguments — the EVSEID falls back to
-        the historical default in that case.
+        `personality` is a **required** `SECCPersonality` (ADR-0001 /
+        ADR-0006 issue #83). Every wire value the SECC emits is sourced from
+        it — `get_evse_id()` reads the EVSEID from `personality.identity`, the
+        DIN messages source their leaves from `personality.message_field_tree`,
+        and the ISO-2/-20 envelopes read `personality.power`. The
+        personality-less construction path (and the in-code `if self.personality
+        else <constant>` fallbacks it used to guard) is retired: a personality
+        is mandatory to run, so callers that once built the controller bare —
+        including the conformance state-machine harness — now pass a
+        role-appropriate personality (`SECCPersonality()` for the stock
+        defaults).
 
         `live_control` is the shared `LiveControl` object (ADR-0004); when
         present, the operator console can override the EVSE's reported present
         current/voltage in the ISO 15118-2 charge loop. `None` (the default)
         leaves present-value reads behaving exactly as before.
         """
+        if personality is None:
+            raise ValueError(
+                "SimEVSEController requires a personality (ADR-0006 #83); the "
+                "personality-less construction path is retired. Pass a "
+                "SECCPersonality (SECCPersonality() for the stock defaults)."
+            )
         super().__init__()
         self.personality = personality
         self.live_control = live_control
@@ -315,7 +326,7 @@ class SimEVSEController(EVSEControllerInterface):
         # Example: The DIN SPEC 91286 EVSE ID “49*89*6360” is represented
         # as “0x49 0xA8 0x9A 0x63 0x60”.
         
-        configured = self.personality.identity.evse_id if self.personality else None
+        configured = self.personality.identity.evse_id
         if protocol != Protocol.DIN_SPEC_70121:
             evse_id = configured or "ZZ00000"
         else:
@@ -340,13 +351,11 @@ class SimEVSEController(EVSEControllerInterface):
             # compares against, so advertised == accepted by construction. Both
             # the ServiceDiscoveryRes builder and the reject-gate call this
             # method, so routing the read through here is all it takes.
-            tree_leaf = UNSET
-            if self.personality is not None:
-                tree_leaf = resolve_tree_leaf(
-                    self.personality.message_field_tree,
-                    "ServiceDiscoveryRes",
-                    ("charge_service", "energy_transfer_type"),
-                )
+            tree_leaf = resolve_tree_leaf(
+                self.personality.message_field_tree,
+                "ServiceDiscoveryRes",
+                ("charge_service", "energy_transfer_type"),
+            )
             if tree_leaf is not UNSET:
                 # EnergyTransferType encodes as a restricted EXI enumeration, so
                 # the codec accepts only real EnergyTransferModeEnum wire values;
@@ -366,16 +375,12 @@ class SimEVSEController(EVSEControllerInterface):
                         f"energy transfer mode; it cannot be advertised on the wire"
                     ) from exc
 
-            # Fallback for personalities without the tree leaf (e.g. the
-            # symmetric din_reference, or any pre-tree personality): the legacy
+            # Fallback for a personality whose tree omits this leaf (e.g. the
+            # symmetric din_reference, or any pre-tree personality): the
             # capabilities-sourced mode. DIN SPEC permits only DC_CORE /
             # DC_EXTENDED, so a personality that picked a non-DC mode by hand
             # clamps to DC_EXTENDED.
-            configured = (
-                self.personality.capabilities.resolved_energy_transfer_mode()
-                if self.personality
-                else EnergyTransferModeEnum.DC_EXTENDED
-            )
+            configured = self.personality.capabilities.resolved_energy_transfer_mode()
             if configured in (
                 EnergyTransferModeEnum.DC_CORE,
                 EnergyTransferModeEnum.DC_EXTENDED,
@@ -418,16 +423,12 @@ class SimEVSEController(EVSEControllerInterface):
         tax / overstay meta-structures stay hardcoded — they are
         protocol-interop stubs, not personality.
         """
-        evse_se = (
-            self.personality.power.evse_schedule_exchange_v20
-            if self.personality
-            else None
-        )
-        schedule_duration = evse_se.schedule_duration_s if evse_se else 3600
-        charge_power_w = evse_se.charge_power_w if evse_se else 10000
-        discharge_power_w = evse_se.discharge_power_w if evse_se else 10000
-        available_energy_wh = evse_se.available_energy_wh if evse_se else 300000
-        power_tolerance_w = evse_se.power_tolerance_w if evse_se else 2000
+        evse_se = self.personality.power.evse_schedule_exchange_v20
+        schedule_duration = evse_se.schedule_duration_s
+        charge_power_w = evse_se.charge_power_w
+        discharge_power_w = evse_se.discharge_power_w
+        available_energy_wh = evse_se.available_energy_wh
+        power_tolerance_w = evse_se.power_tolerance_w
         charging_power_schedule_entry = PowerScheduleEntry(
             duration=schedule_duration,
             power=RationalNumber.get_rational_repr(charge_power_w),
@@ -624,13 +625,9 @@ class SimEVSEController(EVSEControllerInterface):
         Sources `departure_time`, `min_soc`, `target_soc`, and the price
         schedule duration from `personality.power.evse_schedule_exchange_v20`.
         """
-        evse_se = (
-            self.personality.power.evse_schedule_exchange_v20
-            if self.personality
-            else None
-        )
+        evse_se = self.personality.power.evse_schedule_exchange_v20
         price_level_schedule_entry = PriceLevelScheduleEntry(
-            duration=evse_se.schedule_duration_s if evse_se else 3600,
+            duration=evse_se.schedule_duration_s,
             price_level=1,
         )
 
@@ -648,9 +645,9 @@ class SimEVSEController(EVSEControllerInterface):
         )
 
         dynamic_params = DynamicScheduleExchangeResParams(
-            departure_time=evse_se.dynamic_departure_time_s if evse_se else 7200,
-            min_soc=evse_se.dynamic_min_soc_percent if evse_se else 30,
-            target_soc=evse_se.dynamic_target_soc_percent if evse_se else 80,
+            departure_time=evse_se.dynamic_departure_time_s,
+            min_soc=evse_se.dynamic_min_soc_percent,
+            target_soc=evse_se.dynamic_target_soc_percent,
             price_level_schedule=price_level_schedule,
         )
 
@@ -747,37 +744,21 @@ class SimEVSEController(EVSEControllerInterface):
             departure_time = 86400
 
         # PMaxSchedule entries. Per issue #8, the PMax value is sourced from
-        # `personality.power.evse_dc.iso2_sa_schedule_pmax_w`. The legacy
-        # alternation between 7000 W and 11000 W is preserved as the
-        # personality-less fallback for call sites that drive the simulator
-        # without a personality.
-        evse_dc_pers = (
-            self.personality.power.evse_dc if self.personality else None
-        )
-        configured_pmax_w = (
-            evse_dc_pers.iso2_sa_schedule_pmax_w if evse_dc_pers else None
-        )
+        # `personality.power.evse_dc.iso2_sa_schedule_pmax_w` (a personality is
+        # mandatory to run, ADR-0006 #83, so this is always available).
+        evse_dc_pers = self.personality.power.evse_dc
+        configured_pmax_w = evse_dc_pers.iso2_sa_schedule_pmax_w
         schedule_entries = []
         # SalesTariff
         sales_tariff_entries: List[SalesTariffEntry] = []
         remaining_charge_duration = departure_time
         counter = 1
         start = 0
-        current_pmax_val = 7000
         while remaining_charge_duration > 0:
-            if configured_pmax_w is not None:
-                pmax_mult, pmax_val = PhysicalValue.get_exponent_value_repr(
-                    configured_pmax_w
-                )
-                p_max = PVPMax(
-                    multiplier=pmax_mult, value=pmax_val, unit=UnitSymbol.WATT
-                )
-            elif current_pmax_val == 7000:
-                p_max = PVPMax(multiplier=0, value=11000, unit=UnitSymbol.WATT)
-                current_pmax_val = 11000
-            else:
-                p_max = PVPMax(multiplier=0, value=7000, unit=UnitSymbol.WATT)
-                current_pmax_val = 7000
+            pmax_mult, pmax_val = PhysicalValue.get_exponent_value_repr(
+                configured_pmax_w
+            )
+            p_max = PVPMax(multiplier=pmax_mult, value=pmax_val, unit=UnitSymbol.WATT)
 
             p_max_schedule_entry = PMaxScheduleEntry(
                 p_max=p_max, time_interval=RelativeTimeInterval(start=start)
@@ -813,9 +794,7 @@ class SimEVSEController(EVSEControllerInterface):
 
         sales_tariff = SalesTariff(
             id="id1",
-            sales_tariff_id=(
-                evse_dc_pers.iso2_sales_tariff_id if evse_dc_pers else 10
-            ),
+            sales_tariff_id=evse_dc_pers.iso2_sales_tariff_id,
             sales_tariff_entry=sales_tariff_entries,
             num_e_price_levels=len(sales_tariff_entries),
         )
@@ -849,10 +828,10 @@ class SimEVSEController(EVSEControllerInterface):
         per-message live reading remains runtime-derived and is layered
         in by the wire codec on top of the baseline.
         """
-        meter = self.personality.meter if self.personality else None
+        meter = self.personality.meter
         return MeterInfoV2(
-            meter_id=meter.meter_id if meter else "Switch-Meter-123",
-            meter_reading=meter.starting_reading_wh if meter else 12345,
+            meter_id=meter.meter_id,
+            meter_reading=meter.starting_reading_wh,
             t_meter=int(time.time()),
         )
 
@@ -864,10 +843,10 @@ class SimEVSEController(EVSEControllerInterface):
         (same field that seeds the ISO-2 / DIN meter reading) so the
         per-protocol wire values stay consistent for a given personality.
         """
-        meter = self.personality.meter if self.personality else None
+        meter = self.personality.meter
         return MeterInfoV20(
-            meter_id=meter.meter_id if meter else "Switch-Meter-123",
-            charged_energy_reading_wh=meter.starting_reading_wh if meter else 12345,
+            meter_id=meter.meter_id,
+            charged_energy_reading_wh=meter.starting_reading_wh,
             meter_timestamp=int(time.time()),
         )
 
@@ -939,20 +918,11 @@ class SimEVSEController(EVSEControllerInterface):
         """Overrides EVSEControllerInterface.get_ac_evse_charge_parameter().
 
         Per issue #8: sources the AC envelope from `personality.power.evse_ac`
-        when a personality is attached, with the legacy 400 V / 32 A
-        hardcodes as the fallback for personality-less call sites.
+        (a personality is mandatory to run, ADR-0006 #83).
         """
-        evse_ac = self.personality.power.evse_ac if self.personality else None
-        if evse_ac is not None:
-            v_mult, v_val = PhysicalValue.get_exponent_value_repr(
-                evse_ac.nominal_voltage_v
-            )
-            c_mult, c_val = PhysicalValue.get_exponent_value_repr(
-                evse_ac.max_current_a
-            )
-        else:
-            v_mult, v_val = 0, 400
-            c_mult, c_val = 0, 32
+        evse_ac = self.personality.power.evse_ac
+        v_mult, v_val = PhysicalValue.get_exponent_value_repr(evse_ac.nominal_voltage_v)
+        c_mult, c_val = PhysicalValue.get_exponent_value_repr(evse_ac.max_current_a)
         evse_nominal_voltage = PVEVSENominalVoltage(
             multiplier=v_mult, value=v_val, unit=UnitSymbol.VOLTAGE
         )
@@ -978,20 +948,12 @@ class SimEVSEController(EVSEControllerInterface):
         `personality.power.evse_ac_v20`. The phase-symmetric model holds
         a single magnitude per concept and the wire echoes it to L1/L2/L3.
         """
-        evse_ac_v20 = (
-            self.personality.power.evse_ac_v20 if self.personality else None
-        )
-        max_charge_power = evse_ac_v20.max_charge_power_w if evse_ac_v20 else 30000
-        min_charge_power = evse_ac_v20.min_charge_power_w if evse_ac_v20 else 100
-        nominal_frequency = (
-            evse_ac_v20.nominal_frequency_hz if evse_ac_v20 else 50
-        )
-        max_power_asymmetry = (
-            evse_ac_v20.max_power_asymmetry_w if evse_ac_v20 else 0
-        )
-        power_ramp_limit = (
-            evse_ac_v20.power_ramp_limit_w_per_s if evse_ac_v20 else 100
-        )
+        evse_ac_v20 = self.personality.power.evse_ac_v20
+        max_charge_power = evse_ac_v20.max_charge_power_w
+        min_charge_power = evse_ac_v20.min_charge_power_w
+        nominal_frequency = evse_ac_v20.nominal_frequency_hz
+        max_power_asymmetry = evse_ac_v20.max_power_asymmetry_w
+        power_ramp_limit = evse_ac_v20.power_ramp_limit_w_per_s
         ac_charge_parameter_discovery_res_params = ACChargeParameterDiscoveryResParams(
             evse_max_charge_power=RationalNumber.get_rational_repr(max_charge_power),
             evse_max_charge_power_l2=RationalNumber.get_rational_repr(
@@ -1021,12 +983,8 @@ class SimEVSEController(EVSEControllerInterface):
         if energy_service == ServiceV20.AC:
             return ac_charge_parameter_discovery_res_params
         elif energy_service == ServiceV20.AC_BPT:
-            bpt_max_discharge = (
-                evse_ac_v20.bpt_max_discharge_power_w if evse_ac_v20 else 30000
-            )
-            bpt_min_discharge = (
-                evse_ac_v20.bpt_min_discharge_power_w if evse_ac_v20 else 100
-            )
+            bpt_max_discharge = evse_ac_v20.bpt_max_discharge_power_w
+            bpt_min_discharge = evse_ac_v20.bpt_min_discharge_power_w
             return BPTACChargeParameterDiscoveryResParams(
                 **(ac_charge_parameter_discovery_res_params.model_dump()),
                 evse_max_discharge_power=RationalNumber.get_rational_repr(
@@ -1068,48 +1026,39 @@ class SimEVSEController(EVSEControllerInterface):
         """Overrides EVSEControllerInterface.get_dc_evse_charge_parameter().
 
         For ISO 15118-2 the per-session DC envelope is sourced from
-        `personality.power.evse_dc`, with the legacy hardcoded placeholder as
-        the no-personality fallback.
+        `personality.power.evse_dc` (a personality is mandatory to run,
+        ADR-0006 #83).
 
         For DIN 70121 the structured `evse_dc` read is **retired** (ADR-0006 /
         #73): the DIN wire DC envelope is sourced from the message field tree
         at the ChargeParameterDiscoveryRes build site. This method builds the
-        skeleton from the DC-limit model defaults so a DIN personality without
-        those tree leaves — and the bare-controller conformance harness — still
-        gets a valid, stable envelope for the tree to override.
+        skeleton from the DC-limit model defaults so it stays a valid, stable
+        envelope for the tree to override.
         """
         protocol = self.get_selected_protocol()
         if protocol == Protocol.DIN_SPEC_70121:
             evse_dc = EVSEDCLimits()
         else:
-            evse_dc = self.personality.power.evse_dc if self.personality else None
+            evse_dc = self.personality.power.evse_dc
 
-        if evse_dc is not None:
-            max_p_mult, max_p_val = PhysicalValue.get_exponent_value_repr(
-                evse_dc.max_power_w
-            )
-            max_c_mult, max_c_val = PhysicalValue.get_exponent_value_repr(
-                evse_dc.max_current_a
-            )
-            max_v_mult, max_v_val = PhysicalValue.get_exponent_value_repr(
-                evse_dc.max_voltage_v
-            )
-            min_c_mult, min_c_val = PhysicalValue.get_exponent_value_repr(
-                evse_dc.min_current_a
-            )
-            min_v_mult, min_v_val = PhysicalValue.get_exponent_value_repr(
-                evse_dc.min_voltage_v
-            )
-            ripple_mult, ripple_val = PhysicalValue.get_exponent_value_repr(
-                evse_dc.peak_current_ripple_a
-            )
-        else:
-            (max_p_mult, max_p_val) = (1, 230)
-            (max_c_mult, max_c_val) = (1, 4)
-            (max_v_mult, max_v_val) = (1, 4)
-            (min_c_mult, min_c_val) = (1, 2)
-            (min_v_mult, min_v_val) = (1, 4)
-            (ripple_mult, ripple_val) = (1, 4)
+        max_p_mult, max_p_val = PhysicalValue.get_exponent_value_repr(
+            evse_dc.max_power_w
+        )
+        max_c_mult, max_c_val = PhysicalValue.get_exponent_value_repr(
+            evse_dc.max_current_a
+        )
+        max_v_mult, max_v_val = PhysicalValue.get_exponent_value_repr(
+            evse_dc.max_voltage_v
+        )
+        min_c_mult, min_c_val = PhysicalValue.get_exponent_value_repr(
+            evse_dc.min_current_a
+        )
+        min_v_mult, min_v_val = PhysicalValue.get_exponent_value_repr(
+            evse_dc.min_voltage_v
+        )
+        ripple_mult, ripple_val = PhysicalValue.get_exponent_value_repr(
+            evse_dc.peak_current_ripple_a
+        )
 
         if protocol == Protocol.DIN_SPEC_70121:
             max_power = PVEVSEMaxPowerLimitDin(
@@ -1211,10 +1160,8 @@ class SimEVSEController(EVSEControllerInterface):
             # CurrentDemandRes.EVSEMaximumPowerLimit is tree-sourced at the
             # build site. Skeleton value = DC-limit model default.
             max_power_w = EVSEDCLimits().max_power_w
-        elif self.personality is not None:
-            max_power_w = self.personality.power.evse_dc.max_power_w
         else:
-            max_power_w = 10000.0
+            max_power_w = self.personality.power.evse_dc.max_power_w
         mult, val = PhysicalValue.get_exponent_value_repr(max_power_w)
         if protocol == Protocol.DIN_SPEC_70121:
             return PVEVSEMaxPowerLimitDin(multiplier=mult, value=val, unit="W")
@@ -1241,10 +1188,7 @@ class SimEVSEController(EVSEControllerInterface):
                 EVSEDCLimits().max_current_a
             )
             return PVEVSEMaxCurrentLimitDin(multiplier=mult, value=val, unit="A")
-        if (
-            self.personality is None
-            or self.evse_data_context.current_type != CurrentType.DC
-        ):
+        if self.evse_data_context.current_type != CurrentType.DC:
             return await super().get_evse_max_current_limit(protocol)
         mult, val = PhysicalValue.get_exponent_value_repr(
             self.personality.power.evse_dc.max_current_a
@@ -1262,10 +1206,7 @@ class SimEVSEController(EVSEControllerInterface):
                 EVSEDCLimits().max_voltage_v
             )
             return PVEVSEMaxVoltageLimitDin(multiplier=mult, value=val, unit="V")
-        if (
-            self.personality is None
-            or self.evse_data_context.current_type != CurrentType.DC
-        ):
+        if self.evse_data_context.current_type != CurrentType.DC:
             return await super().get_evse_max_voltage_limit(protocol)
         mult, val = PhysicalValue.get_exponent_value_repr(
             self.personality.power.evse_dc.max_voltage_v
@@ -1284,30 +1225,28 @@ class SimEVSEController(EVSEControllerInterface):
         distinct from the DIN/ISO-2 `evse_dc` block because the ISO-20
         DC wire encoding and field set are different.
         """
-        evse_dc_v20 = (
-            self.personality.power.evse_dc_v20 if self.personality else None
-        )
+        evse_dc_v20 = self.personality.power.evse_dc_v20
         dc_charge_parameter_discovery_res = DCChargeParameterDiscoveryResParams(
             evse_max_charge_power=RationalNumber.get_rational_repr(
-                evse_dc_v20.max_charge_power_w if evse_dc_v20 else 1000
+                evse_dc_v20.max_charge_power_w
             ),
             evse_min_charge_power=RationalNumber.get_rational_repr(
-                evse_dc_v20.min_charge_power_w if evse_dc_v20 else 100
+                evse_dc_v20.min_charge_power_w
             ),
             evse_max_charge_current=RationalNumber.get_rational_repr(
-                evse_dc_v20.max_charge_current_a if evse_dc_v20 else 100
+                evse_dc_v20.max_charge_current_a
             ),
             evse_min_charge_current=RationalNumber.get_rational_repr(
-                evse_dc_v20.min_charge_current_a if evse_dc_v20 else 10
+                evse_dc_v20.min_charge_current_a
             ),
             evse_max_voltage=RationalNumber.get_rational_repr(
-                evse_dc_v20.max_voltage_v if evse_dc_v20 else 500
+                evse_dc_v20.max_voltage_v
             ),
             evse_min_voltage=RationalNumber.get_rational_repr(
-                evse_dc_v20.min_voltage_v if evse_dc_v20 else 10
+                evse_dc_v20.min_voltage_v
             ),
             evse_power_ramp_limit=RationalNumber.get_rational_repr(
-                evse_dc_v20.power_ramp_limit_w_per_s if evse_dc_v20 else 10
+                evse_dc_v20.power_ramp_limit_w_per_s
             ),
         )
         if energy_service == ServiceV20.DC:
@@ -1316,16 +1255,16 @@ class SimEVSEController(EVSEControllerInterface):
             return BPTDCChargeParameterDiscoveryResParams(
                 **(dc_charge_parameter_discovery_res.model_dump()),
                 evse_max_discharge_power=RationalNumber.get_rational_repr(
-                    evse_dc_v20.bpt_max_discharge_power_w if evse_dc_v20 else 1000
+                    evse_dc_v20.bpt_max_discharge_power_w
                 ),
                 evse_min_discharge_power=RationalNumber.get_rational_repr(
-                    evse_dc_v20.bpt_min_discharge_power_w if evse_dc_v20 else 100
+                    evse_dc_v20.bpt_min_discharge_power_w
                 ),
                 evse_max_discharge_current=RationalNumber.get_rational_repr(
-                    evse_dc_v20.bpt_max_discharge_current_a if evse_dc_v20 else 100
+                    evse_dc_v20.bpt_max_discharge_current_a
                 ),
                 evse_min_discharge_current=RationalNumber.get_rational_repr(
-                    evse_dc_v20.bpt_min_discharge_current_a if evse_dc_v20 else 10
+                    evse_dc_v20.bpt_min_discharge_current_a
                 ),
             )
         else:

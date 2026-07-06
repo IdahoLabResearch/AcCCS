@@ -35,6 +35,7 @@ from time import time
 import pytest
 
 from app.secc.controller.simulator import SimEVSEController
+from app.shared.personality.model import SECCPersonality
 from app.shared.messages.enums import Protocol, SessionStopAction
 from app.shared.states import Terminate
 from tests.conformance.state_machine.harness import ScriptedPeer, StubCommSession
@@ -59,7 +60,7 @@ async def test_din_session_stop_terminates_cycle(exi_codec):
     session = StubCommSession(
         protocol=Protocol.DIN_SPEC_70121, session_id=bytes(1).hex()
     )
-    session.evse_controller = SimEVSEController()
+    session.evse_controller = SimEVSEController(personality=SECCPersonality())
     session.writer = _stub_writer()
     peer = ScriptedPeer(session, start_state=SessionStop)
 
@@ -100,7 +101,7 @@ async def test_din_cable_check_accepts_session_stop(exi_codec):
     session = StubCommSession(
         protocol=Protocol.DIN_SPEC_70121, session_id=bytes(1).hex()
     )
-    session.evse_controller = SimEVSEController()
+    session.evse_controller = SimEVSEController(personality=SECCPersonality())
     session.writer = _stub_writer()
     peer = ScriptedPeer(session, start_state=CableCheck)
 
@@ -163,7 +164,7 @@ async def test_din_pre_charge_states_accept_session_stop(exi_codec, state_name):
     session = StubCommSession(
         protocol=Protocol.DIN_SPEC_70121, session_id=bytes(1).hex()
     )
-    session.evse_controller = SimEVSEController()
+    session.evse_controller = SimEVSEController(personality=SECCPersonality())
     session.writer = _stub_writer()
     peer = ScriptedPeer(session, start_state=start_state)
 
@@ -189,7 +190,7 @@ async def test_din_pre_charge_states_accept_session_stop(exi_codec, state_name):
 
 
 def _iso20_session(*, renegotiation_supported: bool) -> StubCommSession:
-    controller = SimEVSEController()
+    controller = SimEVSEController(personality=SECCPersonality())
     controller.set_selected_protocol(Protocol.ISO_15118_20_COMMON_MESSAGES)
     if renegotiation_supported:
         async def _supported() -> bool:

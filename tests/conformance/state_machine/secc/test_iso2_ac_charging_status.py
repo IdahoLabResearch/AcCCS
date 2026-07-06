@@ -21,6 +21,7 @@ import pytest
 
 from app.secc.controller.evse_data import CurrentType
 from app.secc.controller.simulator import SimEVSEController
+from app.shared.personality.model import SECCPersonality
 from app.secc.states.iso15118_2_states import ChargingStatus
 from app.shared.messages.datatypes import PVEVSEMaxCurrent
 from app.shared.messages.enums import Protocol
@@ -44,7 +45,7 @@ def _secc_ac_session() -> StubCommSession:
     set -- ``current_type`` -- is set here directly since this test enters at
     ``ChargingStatus``.
     """
-    controller = SimEVSEController()
+    controller = SimEVSEController(personality=SECCPersonality())
     controller.set_selected_protocol(Protocol.ISO_15118_2)
     controller.evse_data_context.current_type = CurrentType.AC
     session = StubCommSession(protocol=Protocol.ISO_15118_2, session_id=bytes(1).hex())

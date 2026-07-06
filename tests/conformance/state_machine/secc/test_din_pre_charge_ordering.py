@@ -26,6 +26,7 @@ from __future__ import annotations
 import pytest
 
 from app.secc.controller.simulator import SimEVSEController
+from app.shared.personality.model import SECCPersonality
 from app.secc.states.din_spec_states import CurrentDemand, PowerDelivery, PreCharge
 from app.shared.messages.datatypes import (
     PVEVTargetCurrentDin,
@@ -66,7 +67,7 @@ def _din_session() -> StubCommSession:
     session = StubCommSession(
         protocol=Protocol.DIN_SPEC_70121, session_id=bytes(1).hex()
     )
-    session.evse_controller = SimEVSEController()
+    session.evse_controller = SimEVSEController(personality=SECCPersonality())
     session.writer = _StubWriter()
     session.failed_responses_din_spec = init_failed_responses_din_spec_70121()
     session.charge_progress_started = False

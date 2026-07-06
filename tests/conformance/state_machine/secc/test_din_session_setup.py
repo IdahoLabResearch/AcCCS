@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 
 from app.secc.controller.simulator import SimEVSEController
+from app.shared.personality.model import SECCPersonality
 from app.secc.states.din_spec_states import ServiceDiscovery, SessionSetup
 from app.shared.messages.din_spec.body import (
     Body,
@@ -32,7 +33,7 @@ def secc_din_session(exi_codec):
         protocol=Protocol.DIN_SPEC_70121,
         session_id=bytes(1).hex(),
     )
-    session.evse_controller = SimEVSEController()
+    session.evse_controller = SimEVSEController(personality=SECCPersonality())
     return session
 
 
