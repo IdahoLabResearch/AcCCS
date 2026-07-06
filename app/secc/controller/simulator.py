@@ -53,19 +53,7 @@ from app.shared.messages.datatypes import (
     PVEVSEPeakCurrentRippleDin,
 )
 from app.shared.messages.din_spec.datatypes import (
-    PMaxScheduleEntry as PMaxScheduleEntryDINSPEC,
-)
-from app.shared.messages.din_spec.datatypes import (
-    PMaxScheduleEntryDetails as PMaxScheduleEntryDetailsDINSPEC,
-)
-from app.shared.messages.din_spec.datatypes import (
-    RelativeTimeInterval as RelativeTimeIntervalDINSPEC,
-)
-from app.shared.messages.din_spec.datatypes import (
     ResponseCode as ResponseCodeDINSPEC,
-)
-from app.shared.messages.din_spec.datatypes import (
-    SAScheduleTupleEntry as SAScheduleTupleEntryDINSPEC,
 )
 from app.shared.messages.enums import (
     AuthorizationStatus,
@@ -699,34 +687,6 @@ class SimEVSEController(EVSEControllerInterface):
             authorization_status=AuthorizationStatus.ACCEPTED,
             certificate_response_status=response_code,
         )
-
-    async def get_sa_schedule_list_dinspec(
-        self, max_schedule_entries: Optional[int], departure_time: int = 0
-    ) -> Optional[List[SAScheduleTupleEntryDINSPEC]]:
-        """Overrides EVSEControllerInterface.get_sa_schedule_list_dinspec().
-
-        The DIN `SAScheduleList` is a list-nested wire value sourced from the
-        `message_field_tree` (ADR-0006 issue #81): the SECC state applies the
-        personality's `ChargeParameterDiscoveryRes -> SAScheduleList` tree,
-        which replaces the whole list wholesale. This helper therefore emits
-        only a *minimal 1-tuple / 1-entry scaffold from in-code constants* — the
-        placeholder the tree overrides, and the actual output on the
-        personality-less path (the conformance harness runs the simulator bare).
-        Interim: to be removed once a personality is mandatory to run (#83).
-        """
-        entry_details = PMaxScheduleEntryDetailsDINSPEC(
-            p_max=200,
-            time_interval=RelativeTimeIntervalDINSPEC(start=0, duration=3600),
-        )
-        pmax_schedule_entry = PMaxScheduleEntryDINSPEC(
-            p_max_schedule_id=0, entry_details=[entry_details]
-        )
-        sa_schedule_tuple_entry = SAScheduleTupleEntryDINSPEC(
-            sa_schedule_tuple_id=1,
-            p_max_schedule=pmax_schedule_entry,
-            sales_tariff=None,
-        )
-        return [sa_schedule_tuple_entry]
 
     async def get_sa_schedule_list(
         self,

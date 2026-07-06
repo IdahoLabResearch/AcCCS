@@ -45,7 +45,11 @@ from app.shared.messages.din_spec.body import (
 from app.shared.messages.din_spec.datatypes import (
     AuthOptionList,
     ChargeService,
+    PMaxScheduleEntry,
+    PMaxScheduleEntryDetails,
+    RelativeTimeInterval,
     SAScheduleList,
+    SAScheduleTupleEntry,
     ServiceCategory,
     ServiceDetails,
     ServiceID,
@@ -107,6 +111,42 @@ def apply_personality_tree(
         apply_message_field_tree(
             res, message_name, personality.message_field_tree, skip_fields=skip_fields
         )
+
+
+def _default_din_sa_schedule_list() -> SAScheduleList:
+    """The pre-tree builder default for the DIN ``SAScheduleList`` (ADR-0006 #83).
+
+    Per ADR-0006 #83 a personality that is empty- or partial-tree (the stock
+    ``default-*``, the DIN-exclusive conformance/smoke personalities) sources
+    its DIN wire values from the builders' pre-tree path; a personality that
+    carries a ``ChargeParameterDiscoveryRes -> SAScheduleList`` tree (the
+    shipped ``din-secc-baseline``, byte-exact to ``ABB_Cadillac_Lyric.pcapng``)
+    overrides this wholesale in :func:`apply_personality_tree`.
+
+    It is built **non-empty** — a single one-tuple, one-entry schedule — because
+    the EVCC's ``process_sa_schedules_dinspec`` pops a tuple off the list; an
+    empty list would crash the peer. This is the minimal scaffold value the
+    retired ``get_sa_schedule_list_dinspec`` controller method used to return
+    (#86 / #83 follow-up); it is the pre-tree fallback only, no longer wired to
+    the advance-to-CableCheck transition.
+    """
+    return SAScheduleList(
+        values=[
+            SAScheduleTupleEntry(
+                sa_schedule_tuple_id=1,
+                p_max_schedule=PMaxScheduleEntry(
+                    p_max_schedule_id=0,
+                    entry_details=[
+                        PMaxScheduleEntryDetails(
+                            p_max=200,
+                            time_interval=RelativeTimeInterval(start=0, duration=3600),
+                        )
+                    ],
+                ),
+                sales_tariff=None,
+            )
+        ]
+    )
 
 
 # ============================================================================
@@ -532,19 +572,22 @@ class ChargeParameterDiscovery(StateSECC):
         )
         evse_data_context.current_type = CurrentType.DC
 
-        sa_schedule_list = (
-            await self.comm_session.evse_controller.get_sa_schedule_list_dinspec(
-                None, 0
-            )
-        )
+        # Advance to CableCheck unconditionally: this slice completes
+        # ChargeParameterDiscovery immediately (no ONGOING hold). The transition
+        # used to piggyback on the truthiness of the retired
+        # get_sa_schedule_list_dinspec scaffold, which always returned a tuple —
+        # so FINISHED was already unconditional in practice. It is now stated
+        # directly, decoupled from the SAScheduleList construction below
+        # (#86 / #83 follow-up).
+        evse_processing: EVSEProcessing = EVSEProcessing.FINISHED
+        next_state: Type["State"] = CableCheck
 
-        evse_processing: EVSEProcessing = EVSEProcessing.ONGOING
-        next_state: Type["State"] = None
-        sa_schedules = None
-        if sa_schedule_list:
-            evse_processing = EVSEProcessing.FINISHED
-            next_state = CableCheck
-            sa_schedules = SAScheduleList(values=sa_schedule_list)
+        # The SAScheduleList is a wire value: a personality that carries a
+        # ChargeParameterDiscoveryRes -> SAScheduleList tree overrides this
+        # wholesale in apply_personality_tree below; the builder default is only
+        # the pre-tree fallback for empty-/partial-tree personalities (ADR-0006
+        # #83).
+        sa_schedules = _default_din_sa_schedule_list()
 
         charge_parameter_discovery_res: ChargeParameterDiscoveryRes = (
             ChargeParameterDiscoveryRes(

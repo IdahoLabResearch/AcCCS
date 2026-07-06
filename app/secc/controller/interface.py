@@ -33,9 +33,6 @@ from app.shared.messages.datatypes import (
 from app.shared.messages.din_spec.datatypes import (
     ResponseCode as ResponseCodeDINSPEC,
 )
-from app.shared.messages.din_spec.datatypes import (
-    SAScheduleTupleEntry as SAScheduleTupleEntryDINSPEC,
-)
 from app.shared.messages.enums import (
     AuthorizationStatus,
     AuthorizationTokenType,
@@ -261,35 +258,6 @@ class EVSEControllerInterface(ABC):
         Args:
             ev_data_context: contains all the limits of the EV for AC and DC
             is_free_charging_service: Indicates if free sa schedules are to be returned.
-            max_schedule_entries: The maximum amount of schedule entries the EVCC
-                                  can handle, or None if not provided
-            departure_time: The departure time given in seconds from the time of
-                            sending the ChargeParameterDiscoveryReq. If the
-                            request doesn't provide a departure time, then this
-                            implies the need to start charging immediately.
-
-        Returns:
-            A list of SAScheduleTupleEntry values to influence the EV's charging profile
-            if the backend/charger can provide the information already, or None if
-            the calculation is still ongoing.
-
-        Relevant for:
-        - ISO 15118-2
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    async def get_sa_schedule_list_dinspec(
-        self, max_schedule_entries: Optional[int], departure_time: int = 0
-    ) -> Optional[List[SAScheduleTupleEntryDINSPEC]]:
-        """
-        Requests the charging schedule from a secondary actor (SA) like a
-        charge point operator, if available. If no backend information is given
-        regarding the restrictions imposed on an EV charging profile, then the
-        charging schedule is solely influenced by the max rating of the charger
-        and the ampacity of the charging cable.
-
-        Args:
             max_schedule_entries: The maximum amount of schedule entries the EVCC
                                   can handle, or None if not provided
             departure_time: The departure time given in seconds from the time of

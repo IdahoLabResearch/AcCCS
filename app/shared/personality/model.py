@@ -181,9 +181,11 @@ class EVSEDCLimits(_StrictBase):
     # NB: the DIN SAScheduleList PMax / duration are no longer structured
     # fields. They are list-nested wire values sourced from the
     # `message_field_tree` (ADR-0006 issue #81 amendment) —
-    # ChargeParameterDiscoveryRes -> SAScheduleList -> SAScheduleTuple. The
-    # DIN SECC path builds a minimal constant fallback only when no
-    # personality is attached; see `get_sa_schedule_list_dinspec`.
+    # ChargeParameterDiscoveryRes -> SAScheduleList -> SAScheduleTuple. A
+    # personality that omits that tree (empty-/partial-tree, ADR-0006 #83)
+    # falls back to the DIN SECC state's minimal pre-tree builder default;
+    # see `_default_din_sa_schedule_list` in
+    # `app/secc/states/din_spec_states.py` (#86).
     # ISO 15118-2 SAScheduleList PMaxScheduleEntry — the EVSE-advertised
     # power envelope for the ISO-2 charging schedule. Distinct from DIN's
     # field because ISO-2's PMax goes on the wire as a PVPMax (PhysicalValue

@@ -156,22 +156,24 @@ async def test_secc_max_power_limit_din_retire_evse_dc():
     assert pmax.get_decimal_value() == 80000.0
 
 
-@pytest.mark.asyncio
-async def test_secc_sa_schedule_dinspec_returns_constant_scaffold():
+def test_secc_default_din_sa_schedule_list_is_constant():
     """The DIN SAScheduleList is list-nested and sourced from the message field
-    tree (#81), so `get_sa_schedule_list_dinspec` no longer reads `evse_dc`; it
-    emits only a minimal constant scaffold that the tree replaces wholesale at
-    the build site. A personality's `evse_dc` does not influence it."""
-    personality = SECCPersonality.model_validate(
-        {"power": {"evse_dc": {"max_power_w": 25000}}}
-    )
-    ctrl = SimEVSEController(personality=personality)
-    schedules = await ctrl.get_sa_schedule_list_dinspec(None, 0)
-    assert schedules is not None
-    [entry] = schedules
+    tree (#81). The retired `get_sa_schedule_list_dinspec` controller scaffold
+    (#86) is replaced by the SECC state's `_default_din_sa_schedule_list`
+    pre-tree builder default: a fixed 1-tuple / 1-entry schedule (PMax 200)
+    that a personality's `ChargeParameterDiscoveryRes -> SAScheduleList` tree
+    overrides wholesale at the build site (ADR-0006 #83). It is a constant, not
+    derived from any personality field."""
+    from app.secc.states.din_spec_states import _default_din_sa_schedule_list
+
+    schedule_list = _default_din_sa_schedule_list()
+    [entry] = schedule_list.values
+    assert entry.sa_schedule_tuple_id == 1
+    assert entry.p_max_schedule.p_max_schedule_id == 0
     [details] = entry.p_max_schedule.entry_details
-    # In-code constant scaffold (PMax 200), not derived from the personality.
+    # Pre-tree builder default (PMax 200), not derived from a personality.
     assert details.p_max == 200
+    assert details.time_interval.start == 0
 
 
 @pytest.mark.asyncio
