@@ -395,8 +395,11 @@ async def test_evcc_allowlist_entries_populate_from_empty_tree(exi_codec):
         )
     )
 
-    # ServiceDiscoveryRes -> ServicePaymentSelectionReq
-    _decode(
+    # ServiceDiscoveryRes -> ServicePaymentSelectionReq. Advertise a ServiceID
+    # the well-known enum does NOT name (4660 / 0x1234, as the Tellus Power
+    # charger does) so the capture proves the EVCC echoes the advertised value
+    # rather than a static tree pin — the builder fallback the allowlist claims.
+    captured["ServicePaymentSelectionReq"] = _decode(
         await peer.feed(
             V2GMessageDINSPEC(
                 header=hdr(),
@@ -406,7 +409,8 @@ async def test_evcc_allowlist_entries_populate_from_empty_tree(exi_codec):
                         auth_option_list=AuthOptionList(auth_options=[AuthEnum.EIM_V2]),
                         charge_service=ChargeService(
                             service_tag=ServiceDetails(
-                                service_id=1, service_category=ServiceCategory.CHARGING
+                                service_id=4660,
+                                service_category=ServiceCategory.CHARGING,
                             ),
                             free_service=False,
                             energy_transfer_type=EnergyTransferModeEnum.DC_EXTENDED,
@@ -416,6 +420,9 @@ async def test_evcc_allowlist_entries_populate_from_empty_tree(exi_codec):
             )
         )
     )
+    # The echoed ServiceID must be the advertised 4660, not a static pin.
+    [echoed] = captured["ServicePaymentSelectionReq"].selected_service_list.selected_service
+    assert echoed.service_id == 4660
 
     # ServicePaymentSelectionRes -> ContractAuthenticationReq
     _decode(

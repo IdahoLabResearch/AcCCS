@@ -162,6 +162,13 @@ _SECC_MESSAGE_ALLOWLIST: Dict[str, Set[LeafPath]] = {
 _EVCC_MESSAGE_ALLOWLIST: Dict[str, Set[LeafPath]] = {
     # EVCCID is the NIC MAC, resolved at runtime.
     "SessionSetupReq": {("evcc_id",)},
+    # The SelectedServiceList must reference a service the SECC advertised, so
+    # the EVCC echoes the ServiceID from the received ServiceDiscoveryRes rather
+    # than emitting a static wire value — a real charger may advertise any
+    # xs:unsignedShort (the Tellus Power uses 4660), and pinning it would send an
+    # unadvertised ServiceID and draw FAILED_ServiceSelectionInvalid. Runtime-
+    # produced (an echo), so it is omitted from the tree.
+    "ServicePaymentSelectionReq": {("selected_service_list", "selected_service")},
     # EVRequestedEnergyTransferType is single-sourced from the pre-tree
     # `capabilities.energy_transfer_mode` section this slice (its tree migration
     # is deferred), so the builder always produces it without the tree (#83

@@ -136,8 +136,9 @@ async def test_din_evcc_baseline_reproduces_cadillac_capture(exi_codec):
     assert res.service_category == ServiceCategory.CHARGING
 
     # --- ServiceDiscoveryRes -> ServicePaymentSelectionReq -------------------
-    # Offer exactly what the ABB advertises so the EVCC's own selection matches
-    # the tree pins (ExternalPayment / ServiceID 1).
+    # Offer exactly what the ABB advertises (ServiceID 1). SelectedPaymentOption
+    # is the tree pin (ExternalPayment); the selected ServiceID is echoed from
+    # this ServiceDiscoveryRes, so advertising 1 yields a selected 1.
     res = _decode(
         await peer.feed(
             V2GMessageDINSPEC(

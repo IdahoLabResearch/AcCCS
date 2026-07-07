@@ -43,7 +43,15 @@ Certificate = conbytes(max_length=800)
 
 
 class ServiceID(IntEnum):
-    """Annex A.1.1.6 in DIN SPEC 70121"""
+    """Annex A.1.1.6 in DIN SPEC 70121.
+
+    These are the *well-known* service identifiers the standard names. The XSD
+    type is ``xs:unsignedShort`` [0..65535], however, so a real SECC may
+    legitimately advertise any value in that range (e.g. the Tellus Power
+    charger uses ``0x1234`` / 4660). Use these members as constants when
+    *building* our own messages; do not restrict a decoded ``ServiceID`` to
+    them — see ``ServiceDetails.service_id``.
+    """
 
     CHARGING = 1
     CERTIFICATE = 2
@@ -85,8 +93,12 @@ class ServiceDetails(BaseModel):
     element “ServiceScope” shall not be used.
     """
 
-    # XSD type unsignedShort (16 bit integer) with value range [0..65535]
-    service_id: ServiceID = Field(..., ge=0, le=65535, alias="ServiceID")
+    # XSD type unsignedShort (16 bit integer) with value range [0..65535].
+    # Modeled as a plain int, NOT the ServiceID enum: the enum only names the
+    # well-known values, but a real SECC may advertise any unsignedShort (the
+    # Tellus Power charger uses 4660 / 0x1234). Restricting to the enum made
+    # ServiceDiscoveryRes undecodable against such chargers.
+    service_id: int = Field(..., ge=0, le=65535, alias="ServiceID")
     service_name: Optional[ServiceName] = Field(None, max_length=32, alias="ServiceName")
     service_category: ServiceCategory = Field(..., alias="ServiceCategory")
     service_scope: Optional[str] = Field(None, max_length=64, alias="ServiceScope")

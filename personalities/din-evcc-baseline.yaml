@@ -40,15 +40,18 @@ message_field_tree:
   # "EVCharging"; the Cadillac sends it explicitly.
   ServiceDiscoveryReq:
     ServiceCategory: EVCharging
-  # Only "ExternalPayment" is used in DIN; the Cadillac selects the one charge
-  # service the ABB advertises (ServiceID 1). SelectedServiceList is a
-  # list-nested wire field (ADR-0006 issue #81) — the tree declares the whole
-  # SelectedService list, cardinality included.
+  # Only "ExternalPayment" is used in DIN, so the selected payment option is a
+  # static wire value. The SelectedServiceList is NOT: a valid EVCC must select
+  # a service the SECC actually advertised, so the EVCC echoes the ServiceID it
+  # received in ServiceDiscoveryRes (which is an xs:unsignedShort — real
+  # chargers use values well beyond the well-known 1, e.g. the Tellus Power
+  # advertises 0x1234 / 4660). Pinning it to 1 here made the EVCC send
+  # ServiceID 1 to any charger, and a charger advertising anything else rejects
+  # ServicePaymentSelectionReq with FAILED_ServiceSelectionInvalid. It is
+  # therefore a runtime-produced field on the completeness allowlist, not a tree
+  # leaf.
   ServicePaymentSelectionReq:
     SelectedPaymentOption: ExternalPayment
-    SelectedServiceList:
-      SelectedService:
-        - ServiceID: 1
   # The EV announces its charging envelope once, here: 500 A / 410 V, targeting
   # a full battery (FullSOC 100, BulkSOC 80). The Cadillac omits
   # EVMaximumPowerLimit and EVEnergyCapacity, so they are left unset (the builder
