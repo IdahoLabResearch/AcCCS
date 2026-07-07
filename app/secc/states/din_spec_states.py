@@ -193,9 +193,14 @@ class SessionSetup(StateSECC):
 
         session_setup_req: SessionSetupReq = msg.body.session_setup_req
 
-        # Check session ID. Most likely, we need to create a new one
+        # Check session ID. Most likely, we need to create a new one.
+        # A new session is requested with a zero SessionID; per DIN the EVCC may
+        # send that as the single sentinel byte ("00") or as an empty (0-byte)
+        # hexBinary. Treat any all-zero / empty value as the new-session request
+        # rather than misclassifying an empty ID as a mismatched one.
         session_id: str = get_random_bytes(8).hex().upper()
-        if msg.header.session_id == bytes(1).hex():
+        evcc_session_id = msg.header.session_id
+        if evcc_session_id == "" or int(evcc_session_id, 16) == 0:
             # A new charging session is established
             self.response_code = ResponseCode.OK_NEW_SESSION_ESTABLISHED
         elif msg.header.session_id == self.comm_session.session_id:

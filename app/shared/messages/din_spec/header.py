@@ -40,6 +40,12 @@ class MessageHeader(BaseModel):
         """
         # pylint: disable=no-self-argument
         # pylint: disable=no-self-use
+        # A zero-length hexBinary is a legal SessionID: a real EVCC sends an
+        # empty SessionID in its first SessionSetupReq to request a new session
+        # (the SECC assigns the real one in the response). ``int("", 16)`` would
+        # otherwise raise and reject that opening message.
+        if value == "":
+            return value
         try:
             # convert value to int, assuming base 16
             int(value, 16)

@@ -578,14 +578,23 @@ class _Walker:
                 value = bytes(value["characters"]).decode("utf-8")
             return self._int_to_enum(value, py_type)
 
-        if isinstance(value, dict) and "bytes" in value:
-            data = bytes(value["bytes"])
+        if isinstance(value, dict) and ("bytes" in value or "bytesLen" in value):
+            # A zero-length hexBinary field arrives as ``{"bytesLen": 0}`` with
+            # the ``bytes`` key elided (libcbv2g's JSON omits empty arrays, just
+            # as it elides ``array`` for ``{"arrayLen": 0}`` handled above).
+            # Convert the missing key to an empty byte string rather than
+            # leaking the raw dict, which Pydantic would reject. A real EVCC
+            # sends an empty ``SessionID`` in its first ``SessionSetupReq`` to
+            # request a new session.
+            data = bytes(value.get("bytes", []))
             if py_type is bytes or py_type is bytearray:
                 return data
             return data.hex().upper()
 
-        if isinstance(value, dict) and "characters" in value:
-            return bytes(value["characters"]).decode("utf-8")
+        if isinstance(value, dict) and (
+            "characters" in value or "charactersLen" in value
+        ):
+            return bytes(value.get("characters", [])).decode("utf-8")
 
         if py_type is bool and isinstance(value, int):
             return bool(value)
