@@ -16,6 +16,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("SLAC")
 
+# Cadence at which the re-key thread re-checks its deadline. It now runs
+# alongside the receive loop (issue #90), so an unpaced loop would busy-spin a
+# core for the whole wait; the deadline it guards is coarse (seconds), so a
+# 100ms tick is both free and prompt enough for the end-of-cycle join.
+TIMEOUT_POLL_INTERVAL = 0.1
+# Upper bound on the end-of-cycle join, so a wedged timer thread degrades to a
+# logged leak rather than hanging the operator's quit.
+TIMEOUT_JOIN_TIMEOUT = 2.0
+
 # Handles all SLAC communications
 class SLACHandler:
     def __init__(self, evse: "EVSE"):
@@ -157,11 +166,27 @@ class SLACHandler:
         self.runID = None
         self.timeSinceLastPkt = int(time.time())
         self.create_socket()
-        self.handleSLAC()
 
-        # Thread to determine if EVSE timed out or SLAC error occured and restart SLAC process
+        # Thread to determine if EVSE timed out or SLAC error occured and re-key.
+        # It must start *before* handleSLAC(), not after: handleSLAC() parks in
+        # its receive loop until SLAC completes or the operator quits, so a
+        # timer started afterwards could only ever run once the wait it exists
+        # to cover was already over — the re-key never fired while the SECC sat
+        # waiting for a vehicle (issue #90).
         self.timeoutThread = Thread(target=self.checkForTimeout)
         self.timeoutThread.start()
+        try:
+            self.handleSLAC()
+        finally:
+            # However handleSLAC ended — matched, operator quit, or socket
+            # failure — this cycle's SLAC is over, so the timer must not outlive
+            # it. Ending and reaping it here keeps a re-armed cycle (ADR-0005)
+            # from stacking a second timer thread on the reused handler, and
+            # keeps a re-key from racing the next cycle's fresh socket.
+            self.stop = True
+            self.timeoutThread.join(TIMEOUT_JOIN_TIMEOUT)
+            if self.timeoutThread.is_alive():
+                logger.error("SLAC timeout thread did not exit within %ss", TIMEOUT_JOIN_TIMEOUT)
 
     def checkForTimeout(self):
         # `not self.quit` guards the re-arm race: if a quit lands after `start()`
@@ -175,7 +200,12 @@ class SLACHandler:
                 if not self._send(self.buildSetKey()):
                     return
                 self.timeSinceLastPkt = int(time.time())
-                
+            # Pace the poll: this loop now runs concurrently with the receive
+            # loop for the whole SLAC wait, where an unpaced spin would peg a
+            # core (issue #90).
+            time.sleep(TIMEOUT_POLL_INTERVAL)
+
+
     def handleSLAC(self):
         # A quit may land between start()'s re-arm check and here; bail before
         # touching the socket so the operator quit isn't undone (issue #40).
