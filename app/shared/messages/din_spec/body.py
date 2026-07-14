@@ -124,9 +124,15 @@ class SessionSetupRes(Response):
     This must be represented in hexbinary.
     Example: The DIN SPEC 91286 EVSE ID “49*89*6360” is represented
      as “0x49 0xA8 0x9A 0x63 0x60”.
+
+    The bounds below count hex *characters*, but DIN's ``evseIDType`` is
+    ``hexBinary`` and XSD length facets on ``hexBinary`` count octets: the
+    schema maximum is 32 bytes (libcbv2g: ``din_evseIDType_BYTES_SIZE``), so
+    the string bound is twice that.
+    => max_length = 64
     """
 
-    evse_id: str = Field(..., min_length=2, max_length=32, alias="EVSEID")
+    evse_id: str = Field(..., min_length=2, max_length=64, alias="EVSEID")
     datetime_now: Optional[int] = Field(None, alias="DateTimeNow")
 
 
