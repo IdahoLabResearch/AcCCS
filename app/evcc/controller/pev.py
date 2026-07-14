@@ -209,6 +209,9 @@ class PEV:
                             self.evcc_config, self.live_control
                         ),
                         live_control=self.live_control,
+                        ongoing_poll_interval=(
+                            self.runtime.poll.ongoing_interval_seconds
+                        ),
                     ).start()
                 except Exception as exc:  # noqa: BLE001 - failures return to idle
                     # An unexpected SLAC exception, an SDP failure, a mid-session

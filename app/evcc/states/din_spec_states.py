@@ -378,6 +378,11 @@ class ContractAuthentication(StateEVCC):
             next_state = ChargeParameterDiscovery
             next_message = await self.build_charge_parameter_discovery_req()
             timeout = Timeouts.CHARGE_PARAMETER_DISCOVERY_REQ
+        else:
+            # The SECC is still waiting on external payment authorization (EIM
+            # RFID / app / backend). Poll at a cadence instead of re-sending as
+            # fast as it can answer (issue #88); FINISHED above never waits.
+            await self.pace_ongoing_poll()
 
         self.create_next_message(
             next_state,
@@ -483,6 +488,7 @@ class ChargeParameterDiscovery(StateEVCC):
                 await self.build_charge_parameter_discovery_req()
             )
 
+            await self.pace_ongoing_poll()
             self.create_next_message(
                 None,
                 charge_parameter_discovery_req,
@@ -574,9 +580,12 @@ class CableCheck(StateEVCC):
             elif self.comm_session.ongoing_timer == -1:
                 self.comm_session.ongoing_timer = time()
 
+            cable_check_req = await self.build_cable_check_req()
+
+            await self.pace_ongoing_poll()
             self.create_next_message(
                 None,
-                await self.build_cable_check_req(),
+                cable_check_req,
                 Timeouts.CABLE_CHECK_REQ,
                 Namespace.DIN_MSG_DEF,
             )

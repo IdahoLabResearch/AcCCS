@@ -766,6 +766,25 @@ class RearmRuntime(_StrictBase):
     auto: bool = False
 
 
+class PollRuntime(_StrictBase):
+    """Pacing for the EVCC's ONGOING poll loops (issue #88).
+
+    An SECC that answers `EVSEProcessing.ONGOING` — as a real charger does at
+    ContractAuthentication while it waits on external payment authorization —
+    keeps the EVCC re-sending the same request. Unpaced, that re-send is a hot
+    spin (~190 req/s observed in the field); `ongoing_interval_seconds` is the
+    beat the EVCC waits between re-sends instead. It never delays the FINISHED
+    transition, which is taken the moment the SECC reports it.
+
+    A per-invocation operational decision, not device identity, so per ADR-0001
+    it is a runtime knob (`--poll-interval`) and never a [[personality]] field.
+    Only the EVCC polls, so only the EVCC reads it. `0` disables pacing and
+    restores the un-paced re-send, which stays available for red-team probing.
+    """
+
+    ongoing_interval_seconds: float = Field(default=1.0, ge=0)
+
+
 class ConsoleRuntime(_StrictBase):
     """Operator console activation mode, per ADR-0004.
 
@@ -813,6 +832,9 @@ class Runtime(_StrictBase):
     # operator intent, CLI-overridable (--auto-rearm), off by default, and
     # deliberately not a personality field.
     rearm: RearmRuntime = Field(default_factory=RearmRuntime)
+    # EVCC ONGOING-poll pacing (issue #88): how long the EVCC waits before
+    # re-sending a request the SECC answered with EVSEProcessing.ONGOING.
+    poll: PollRuntime = Field(default_factory=PollRuntime)
     # Source port for the EVCC/SECC TCP listener. `None` means "random in
     # the dynamic range" (EVCC) or 25565 (SECC); both run scripts retain
     # their historical defaults when this is unset.

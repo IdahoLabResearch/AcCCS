@@ -443,6 +443,7 @@ class Authorization(StateEVCC):
                     TimeoutsShared.V2G_EVCC_ONGOING_TIMEOUT - elapsed_time,
                 )
 
+            await self.pace_ongoing_poll()
             self.create_next_message(
                 Authorization,
                 auth_req,
@@ -837,6 +838,7 @@ class ScheduleExchange(StateEVCC):
         schedule_exchange_res: ScheduleExchangeRes = cast(ScheduleExchangeRes, msg)
 
         if schedule_exchange_res.evse_processing == Processing.ONGOING:
+            await self.pace_ongoing_poll()
             self.create_next_message(
                 ScheduleExchange,
                 self.comm_session.ongoing_schedule_exchange_req,
@@ -1501,6 +1503,7 @@ class DCCableCheck(StateEVCC):
                     timestamp=int(time.time()),
                 )
             )
+            await self.pace_ongoing_poll()
             self.create_next_message(
                 None,
                 cable_check_req,

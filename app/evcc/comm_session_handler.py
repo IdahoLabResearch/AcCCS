@@ -65,6 +65,7 @@ from app.shared.notifications import (
     StopNotification,
     UDPPacketNotification,
 )
+from app.shared.personality.model import PollRuntime
 from app.shared.utils import cancel_task, wait_for_tasks
 
 from app.shared.settings import SettingKey, shared_settings
@@ -72,6 +73,13 @@ from app.shared.settings import SettingKey, shared_settings
 logger = logging.getLogger(__name__)
 
 SDP_MAX_REQUEST_COUNTER = 50
+
+# Fallback ONGOING-poll cadence (issue #88) for callers that construct the EVCC
+# without a runtime — the real one comes from `runtime.poll.ongoing_interval_
+# seconds`, which is single-sourced here so the two cannot drift.
+DEFAULT_ONGOING_POLL_INTERVAL: float = PollRuntime.model_fields[
+    "ongoing_interval_seconds"
+].default
 
 
 class EVCCCommunicationSession(V2GCommunicationSession):
@@ -88,6 +96,7 @@ class EVCCCommunicationSession(V2GCommunicationSession):
         iface: str,
         ev_controller: EVControllerInterface,
         live_control: Optional[LiveControl] = None,
+        ongoing_poll_interval: float = DEFAULT_ONGOING_POLL_INTERVAL,
     ):
         # Need to import here to avoid a circular import error
         # pylint: disable=import-outside-toplevel
@@ -126,6 +135,10 @@ class EVCCCommunicationSession(V2GCommunicationSession):
         # Once the timer is up, the EV will terminate the communication session.
         # A value >= 0 means the timer is running, a value < 0 means it stopped.
         self.ongoing_timer: float = -1
+        # Seconds the EVCC waits before re-sending a request the SECC answered
+        # with EVSEProcessing.ONGOING (issue #88). Sourced from the runtime knob
+        # `poll.ongoing_interval_seconds`; 0 restores the un-paced re-send.
+        self.ongoing_poll_interval: float = ongoing_poll_interval
         # Temporarily save the ScheduleExchangeReq, which need to be resent to the SECC
         # if the response message's EVSEProcessing field is set to "Ongoing"
         self.ongoing_schedule_exchange_req: Optional[ScheduleExchangeReq] = None
@@ -286,6 +299,7 @@ class CommunicationSessionHandler:
         codec: EXPyEXICodec,
         ev_controller: EVControllerInterface,
         live_control: Optional[LiveControl] = None,
+        ongoing_poll_interval: float = DEFAULT_ONGOING_POLL_INTERVAL,
     ):
         self.list_of_tasks: List[Coroutine] = []
         self.udp_client: UDPClient = None
@@ -298,6 +312,8 @@ class CommunicationSessionHandler:
         # Shared live operator control (ADR-0004); forwarded into each
         # EVCCCommunicationSession so state machines can reach it.
         self.live_control: Optional[LiveControl] = live_control
+        # ONGOING-poll pacing (issue #88); forwarded into each session below.
+        self.ongoing_poll_interval: float = ongoing_poll_interval
         self.sdp_retries_number = SDP_MAX_REQUEST_COUNTER
         self._sdp_retry_cycles = self.config.sdp_retry_cycles
 
@@ -464,6 +480,7 @@ class CommunicationSessionHandler:
             self.iface,
             self.ev_controller,
             self.live_control,
+            self.ongoing_poll_interval,
         )
         # Overwriting is_tls field in EVCCCommunicationSession with the setting
         # returned from SDP response. Remember is_tls field in config still represents

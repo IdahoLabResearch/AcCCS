@@ -54,6 +54,9 @@ class StubCommSession:
     # Optional collaborators. Filled in by harness factory functions.
     evse_controller: Optional[Any] = None
     ev_controller: Optional[Any] = None
+    # EVCC ONGOING-poll cadence (issue #88). Defaults to 0 — un-paced — so a
+    # test that isn't about pacing runs at full speed; the pacing tests set it.
+    ongoing_poll_interval: float = 0.0
     # Role-specific fields populated by states during a session. Allowing them
     # as Any keeps the stub honest about being a *stub* while still permitting
     # the assignments the production code does.

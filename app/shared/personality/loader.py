@@ -267,6 +267,8 @@ _CLI_FIELD_MAP = {
     "console_mode": "console.mode",
     # Auto-rearm (ADR-0005).
     "auto_rearm": "rearm.auto",
+    # EVCC ONGOING-poll pacing (issue #88).
+    "poll_interval": "poll.ongoing_interval_seconds",
 }
 
 
@@ -426,6 +428,19 @@ def add_runtime_cli_args(
             "Re-arm automatically after each session cycle instead of waiting "
             "for the console [a]dvance; with both sides set, cycle sessions "
             "continuously until quit (the EVCC paces itself between cycles)"
+        ),
+    )
+    # EVCC ONGOING-poll pacing (issue #88). A runtime knob: how hard this run
+    # leans on the link while an SECC holds a gate open, not device identity.
+    parser.add_argument(
+        "--poll-interval",
+        dest="poll_interval",
+        type=float,
+        default=None,
+        help=(
+            "EVCC: seconds to wait before re-sending a request the SECC "
+            "answered with EVSEProcessing=ONGOING (default 1.0; 0 disables "
+            "pacing and re-sends as fast as the peer replies)"
         ),
     )
     # --console / --no-console both write console.mode. argparse keeps the last

@@ -392,6 +392,7 @@ def test_secc_clean_session_ends_cycle_and_tears_down_servers(monkeypatch):
 from app.evcc.controller.pev import PEV  # noqa: E402
 from app.secc.controller.evse import EVSE  # noqa: E402
 from app.shared.live_control import LiveControl  # noqa: E402
+from app.shared.personality import Runtime  # noqa: E402
 
 
 @pytest.mark.parametrize("controller_cls", [PEV, EVSE])
@@ -525,6 +526,9 @@ async def _drive_two_cycles(
         ctrl = PEV.__new__(PEV)
         ctrl.evcc_config = object()
         ctrl.sourceMAC = "02:00:00:00:00:01"
+        # The EVCC reads the ONGOING-poll cadence off the runtime when it builds
+        # the session handler (issue #88); defaults are fine for the lifecycle.
+        ctrl.runtime = Runtime()
 
         class _FakeHandler:
             def __init__(self, **_kwargs):

@@ -48,6 +48,15 @@ are CLI-overridable.
 | `--nmap-ports <SPEC>` | `runtime.nmap.ports` |
 | `--source-port <PORT>` | `runtime.source_port` |
 | `--modified-cordset` | `runtime.modified_cordset` (SECC only) |
+| `--poll-interval <SECONDS>` | `runtime.poll.ongoing_interval_seconds` (EVCC only) |
+
+`--poll-interval` is the cadence at which the EVCC re-sends a request the
+SECC answered with `EVSEProcessing=ONGOING` — a real charger holds
+ContractAuthentication that way while it waits on external payment
+authorization, and an unpaced EVCC re-sends as fast as the charger can
+reply (~190 req/s observed in the field). It defaults to 1 s, never delays
+the `FINISHED` transition, and accepts `0` to restore the un-paced hot
+re-send for probing.
 
 ## File search order
 

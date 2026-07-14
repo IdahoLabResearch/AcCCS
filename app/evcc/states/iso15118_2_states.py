@@ -756,6 +756,7 @@ class Authorization(StateEVCC):
                     TimeoutsShared.V2G_EVCC_ONGOING_TIMEOUT - elapsed_time,
                 )
 
+            await self.pace_ongoing_poll()
             self.create_next_message(
                 Authorization,
                 AuthorizationReq(),
@@ -863,6 +864,7 @@ class ChargeParameterDiscovery(StateEVCC):
                 dc_ev_charge_parameter=charge_params.dc_parameters,
             )
 
+            await self.pace_ongoing_poll()
             self.create_next_message(
                 ChargeParameterDiscovery,
                 charge_parameter_discovery_req,
@@ -1318,6 +1320,7 @@ class CableCheck(StateEVCC):
             cable_check_req = CableCheckReq(
                 dc_ev_status=await self.comm_session.ev_controller.get_dc_ev_status(),
             )
+            await self.pace_ongoing_poll()
             self.create_next_message(
                 CableCheck,
                 cable_check_req,

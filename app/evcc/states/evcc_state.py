@@ -3,6 +3,7 @@ This module contains the abstract class for an EVCC-specific state,
 which extends the state shared between the EVCC and SECC.
 """
 
+import asyncio
 import logging
 import time
 from abc import ABC
@@ -92,6 +93,26 @@ class StateEVCC(State, ABC):
         self.comm_session: "EVCCCommunicationSession" = comm_session
 
     T = TypeVar("T")
+
+    async def pace_ongoing_poll(self) -> None:
+        """Wait out the poll interval before re-sending on ONGOING (issue #88).
+
+        The SECC answering `EVSEProcessing.ONGOING` means "not yet" — it is
+        still waiting on something slow (external payment authorization at
+        ContractAuthentication, an isolation test at CableCheck). The EVCC
+        re-sends the same request until it hears FINISHED, and re-sending with
+        no delay is a hot spin: ~190 req/s were observed against a real charger
+        holding the DIN ContractAuthentication gate. Call this in the ONGOING
+        branch, immediately before `create_next_message()`, so the *next*
+        request leaves at the configured cadence.
+
+        Only the re-send is paced. The FINISHED transition never calls this, so
+        it costs the session no latency, and neither do the ongoing-timer abort
+        paths — the elapsed-time checks run before the sleep and return early.
+        """
+        interval = self.comm_session.ongoing_poll_interval
+        if interval > 0:
+            await asyncio.sleep(interval)
 
     def check_msg_din_spec(
         self,
