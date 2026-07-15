@@ -21,7 +21,7 @@ Related: [[evcc]], [[secc]], [[message field tree]], [[live-override]].
 
 ## Message field tree
 
-The part of a [[personality]] that defines every field the emulated device emits on the wire, keyed by message name and then by nested field path mirroring the protocol's message models (e.g. `ChargeParameterDiscoveryRes → DC_EVSEChargeParameter → DC_EVSEStatus → EVSEIsolationStatus`). It replaces the older concern-first structured wire sections (the flat `power` / per-protocol limit blocks) as the single way to configure emitted bytes.
+The part of a [[personality]] that defines every field the emulated device emits on the wire, keyed by **protocol**, then by message name, then by nested field path mirroring the protocol's message models (e.g. `ISO_15118_2 → ChargeParameterDiscoveryRes → DC_EVSEChargeParameter → DC_EVSEStatus → EVSEIsolationStatus`). The protocol top level disambiguates a message name that exists in more than one protocol (`SessionSetupReq`, `PowerDeliveryReq`, and `CableCheckReq` are all defined by DIN, ISO 15118-2, *and* ISO 15118-20), and each top-level key is one of the personality's advertised `supported_protocols` strings. It replaces the older concern-first structured wire sections (the flat `power` / per-protocol limit blocks) as the single way to configure emitted bytes.
 
 The tree is **layered**: a baseline tree (shipped per role) supplies the device's full default output, and a device file overrides only the leaves that differ, via YAML anchors; a leaf set nowhere falls back to the message model's own default. Overrides take effect at message *construction* time, so an overridden value flows into both the emitted bytes *and* any internal logic that reads that field.
 
