@@ -256,7 +256,7 @@ class V2GMessageValidationError(Exception):
         response_code: Union[ResponseCode, ResponseCodeV20, ResponseCodeDIN],
         message: Any,
     ):
-        Exception.__init__(self)
+        Exception.__init__(self, reason)
         self.reason = reason
         self.response_code = response_code
         self.message = message
