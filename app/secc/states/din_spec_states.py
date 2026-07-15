@@ -109,7 +109,11 @@ def apply_personality_tree(
     personality = getattr(comm_session.evse_controller, "personality", None)
     if personality is not None and personality.message_field_tree:
         apply_message_field_tree(
-            res, message_name, personality.message_field_tree, skip_fields=skip_fields
+            res,
+            "DIN_SPEC_70121",
+            message_name,
+            personality.message_field_tree,
+            skip_fields=skip_fields,
         )
 
 

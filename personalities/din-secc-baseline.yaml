@@ -33,89 +33,92 @@ residual:
     use_tls: false
     enforce_tls: false
 message_field_tree:
-  # "If an SECC cannot provide such ID data, the value of the EVSEID is set to
-  # zero (00hex)." The ABB charger does exactly that.
-  SessionSetupRes:
-    EVSEID: "00"
-  ServiceDiscoveryRes:
-    PaymentOptions:
-      PaymentOption:
-        - ExternalPayment
-    ChargeService:
-      ServiceTag:
-        ServiceID: 1
-        # In the scope of DIN SPEC 70121, ServiceCategory is always
-        # "EVCharging"; the ABB advertises it explicitly. Pinned here (config,
-        # not runtime-produced) so the load-time completeness check (#83) has a
-        # value for this required leaf — the builder already emits exactly this.
-        ServiceCategory: EVCharging
-      FreeService: false
-      EnergyTransferType: DC_extended
-  ChargeParameterDiscoveryRes:
-    DC_EVSEChargeParameter:
-      # Isolation monitoring is active while the EVSE runs the cable check, so
-      # this response reports Invalid / IsolationMonitoringActive (the original
-      # motivation for the message field tree, ADR-0006).
+  # ADR-0006 protocol-keyed tree: DIN messages live under
+  # the DIN_SPEC_70121 protocol key.
+  DIN_SPEC_70121:
+    # "If an SECC cannot provide such ID data, the value of the EVSEID is set to
+    # zero (00hex)." The ABB charger does exactly that.
+    SessionSetupRes:
+      EVSEID: "00"
+    ServiceDiscoveryRes:
+      PaymentOptions:
+        PaymentOption:
+          - ExternalPayment
+      ChargeService:
+        ServiceTag:
+          ServiceID: 1
+          # In the scope of DIN SPEC 70121, ServiceCategory is always
+          # "EVCharging"; the ABB advertises it explicitly. Pinned here (config,
+          # not runtime-produced) so the load-time completeness check (#83) has a
+          # value for this required leaf — the builder already emits exactly this.
+          ServiceCategory: EVCharging
+        FreeService: false
+        EnergyTransferType: DC_extended
+    ChargeParameterDiscoveryRes:
+      DC_EVSEChargeParameter:
+        # Isolation monitoring is active while the EVSE runs the cable check, so
+        # this response reports Invalid / IsolationMonitoringActive (the original
+        # motivation for the message field tree, ADR-0006).
+        DC_EVSEStatus:
+          NotificationMaxDelay: 0
+          EVSENotification: None
+          EVSEIsolationStatus: Invalid
+          EVSEStatusCode: EVSE_IsolationMonitoringActive
+        EVSEMaximumVoltageLimit: {Value: 451, Multiplier: 0, Unit: V}
+        EVSEMaximumCurrentLimit: {Value: 60, Multiplier: 0, Unit: A}
+        EVSEMaximumPowerLimit: {Value: 24000, Multiplier: 0, Unit: W}
+        EVSEMinimumVoltageLimit: {Value: 150, Multiplier: 0, Unit: V}
+        EVSEMinimumCurrentLimit: {Value: 1, Multiplier: 0, Unit: A}
+        EVSEPeakCurrentRipple: {Value: 3, Multiplier: 0, Unit: A}
+      # The charging schedule the ABB advertises: one tuple, one PMax entry at
+      # 24000 W starting at t=0. List-nested wire field sourced from the tree
+      # (ADR-0006 issue #81) — the tree declares the whole SAScheduleTuple list,
+      # cardinality included. RelativeTimeInterval.duration is Optional and left
+      # unset, matching the ABB capture (which omits it).
+      SAScheduleList:
+        SAScheduleTuple:
+          - SAScheduleTupleID: 1
+            PMaxSchedule:
+              PMaxScheduleID: 1
+              PMaxScheduleEntry:
+                - PMax: 24000
+                  RelativeTimeInterval:
+                    start: 0
+    # Still monitoring isolation: CableCheckRes stays Invalid /
+    # IsolationMonitoringActive. The completion transition to PreCharge is driven
+    # by get_cable_check_status(), not by this per-message wire value.
+    CableCheckRes:
       DC_EVSEStatus:
         NotificationMaxDelay: 0
         EVSENotification: None
         EVSEIsolationStatus: Invalid
         EVSEStatusCode: EVSE_IsolationMonitoringActive
+    # Isolation valid from PreCharge onward: Valid / EVSE_Ready.
+    PreChargeRes:
+      DC_EVSEStatus:
+        NotificationMaxDelay: 0
+        EVSENotification: None
+        EVSEIsolationStatus: Valid
+        EVSEStatusCode: EVSE_Ready
+    PowerDeliveryRes:
+      DC_EVSEStatus:
+        NotificationMaxDelay: 0
+        EVSENotification: None
+        EVSEIsolationStatus: Valid
+        EVSEStatusCode: EVSE_Ready
+    CurrentDemandRes:
+      DC_EVSEStatus:
+        NotificationMaxDelay: 0
+        EVSENotification: None
+        EVSEIsolationStatus: Valid
+        EVSEStatusCode: EVSE_Ready
+      # The ABB charger echoes its max V/A/W envelope in every CurrentDemandRes.
       EVSEMaximumVoltageLimit: {Value: 451, Multiplier: 0, Unit: V}
       EVSEMaximumCurrentLimit: {Value: 60, Multiplier: 0, Unit: A}
       EVSEMaximumPowerLimit: {Value: 24000, Multiplier: 0, Unit: W}
-      EVSEMinimumVoltageLimit: {Value: 150, Multiplier: 0, Unit: V}
-      EVSEMinimumCurrentLimit: {Value: 1, Multiplier: 0, Unit: A}
-      EVSEPeakCurrentRipple: {Value: 3, Multiplier: 0, Unit: A}
-    # The charging schedule the ABB advertises: one tuple, one PMax entry at
-    # 24000 W starting at t=0. List-nested wire field sourced from the tree
-    # (ADR-0006 issue #81) — the tree declares the whole SAScheduleTuple list,
-    # cardinality included. RelativeTimeInterval.duration is Optional and left
-    # unset, matching the ABB capture (which omits it).
-    SAScheduleList:
-      SAScheduleTuple:
-        - SAScheduleTupleID: 1
-          PMaxSchedule:
-            PMaxScheduleID: 1
-            PMaxScheduleEntry:
-              - PMax: 24000
-                RelativeTimeInterval:
-                  start: 0
-  # Still monitoring isolation: CableCheckRes stays Invalid /
-  # IsolationMonitoringActive. The completion transition to PreCharge is driven
-  # by get_cable_check_status(), not by this per-message wire value.
-  CableCheckRes:
-    DC_EVSEStatus:
-      NotificationMaxDelay: 0
-      EVSENotification: None
-      EVSEIsolationStatus: Invalid
-      EVSEStatusCode: EVSE_IsolationMonitoringActive
-  # Isolation valid from PreCharge onward: Valid / EVSE_Ready.
-  PreChargeRes:
-    DC_EVSEStatus:
-      NotificationMaxDelay: 0
-      EVSENotification: None
-      EVSEIsolationStatus: Valid
-      EVSEStatusCode: EVSE_Ready
-  PowerDeliveryRes:
-    DC_EVSEStatus:
-      NotificationMaxDelay: 0
-      EVSENotification: None
-      EVSEIsolationStatus: Valid
-      EVSEStatusCode: EVSE_Ready
-  CurrentDemandRes:
-    DC_EVSEStatus:
-      NotificationMaxDelay: 0
-      EVSENotification: None
-      EVSEIsolationStatus: Valid
-      EVSEStatusCode: EVSE_Ready
-    # The ABB charger echoes its max V/A/W envelope in every CurrentDemandRes.
-    EVSEMaximumVoltageLimit: {Value: 451, Multiplier: 0, Unit: V}
-    EVSEMaximumCurrentLimit: {Value: 60, Multiplier: 0, Unit: A}
-    EVSEMaximumPowerLimit: {Value: 24000, Multiplier: 0, Unit: W}
-  WeldingDetectionRes:
-    DC_EVSEStatus:
-      NotificationMaxDelay: 0
-      EVSENotification: None
-      EVSEIsolationStatus: Valid
-      EVSEStatusCode: EVSE_Ready
+    WeldingDetectionRes:
+      DC_EVSEStatus:
+        NotificationMaxDelay: 0
+        EVSENotification: None
+        EVSEIsolationStatus: Valid
+        EVSEStatusCode: EVSE_Ready

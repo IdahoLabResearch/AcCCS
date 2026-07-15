@@ -1,14 +1,21 @@
 """The [[message field tree]] — per-message, per-field emitted wire values.
 
 Per [ADR-0006](../../../docs/adr/0006-message-field-tree-personality.md) a
-personality's wire output is a tree keyed by message name and then by nested
-field path, mirroring the protocol's Pydantic message models down to each leaf
-(e.g. ``ChargeParameterDiscoveryRes -> DC_EVSEChargeParameter -> DC_EVSEStatus
--> EVSEIsolationStatus``). This module is the *machinery* behind that tree:
+personality's wire output is a tree keyed by **protocol**, then by message name,
+then by nested field path, mirroring the protocol's Pydantic message models down
+to each leaf (e.g. ``ISO_15118_2 -> ChargeParameterDiscoveryRes ->
+DC_EVSEChargeParameter -> DC_EVSEStatus -> EVSEIsolationStatus``). The protocol
+top level (ADR-0006 protocol-keyed amendment) disambiguates a message name that
+exists in more than one protocol — ``SessionSetupReq``, ``PowerDeliveryReq``, and
+``CableCheckReq`` are each defined by DIN, ISO 15118-2, *and* ISO 15118-20 as
+*different* models, and one personality advertises several protocols, so a flat
+message-name key would silently bind to whichever registry resolved first. This
+module is the *machinery* behind that tree:
 
 * :func:`validate_message_field_tree` — **path-strict, value-raw** validation.
-  Every path segment must resolve to a real field (by Python name *or* XSD
-  alias) on the mirrored message model; a typo is a hard error (ADR-0001
+  The top-level key must be a known protocol; every path segment beneath it must
+  resolve to a real field (by Python name *or* XSD alias) on the mirrored message
+  model *within that protocol's registry*; a typo is a hard error (ADR-0001
   strictness). The leaf *value* is deliberately **not** range/enum-checked —
   illegal-but-encodable values are the red-team point (ADR-0004), bounded only
   by what the codec can serialize.
@@ -22,11 +29,13 @@ field path, mirroring the protocol's Pydantic message models down to each leaf
   (:func:`_lax_set`), which is why the poke bypasses Pydantic's
   ``validate_assignment``.
 
-The tree's shape is single-sourced from the message models: message name →
-model class comes from :func:`app.shared.messages.din_spec.body.get_msg_type`
-(DIN only in this slice; ISO-2 / ISO-20 land in later slices), and each path
-segment is resolved against ``model_fields`` rather than a hand-maintained
-schema.
+The tree's shape is single-sourced from the message models: protocol +
+message name → model class comes from each protocol's ``get_msg_type`` (see
+:data:`_PROTOCOL_REGISTRIES`), and each path segment is resolved against
+``model_fields`` rather than a hand-maintained schema. DIN is the only
+*tree-backed* protocol whose values actually flow to the wire today; ISO-2 and
+ISO-20 are registered so a personality can tree-source them (the ISO-2 tracer),
+with their full baselines landing in later slices.
 """
 
 from __future__ import annotations
@@ -34,6 +43,7 @@ from __future__ import annotations
 import logging
 from typing import (
     Any,
+    Callable,
     Dict,
     Iterable,
     List,
@@ -65,22 +75,65 @@ UNSET = object()
 
 
 # ---------------------------------------------------------------------------
-# Model-shape helpers
+# Protocol registries (the tree's top-level key -> message model resolver)
 # ---------------------------------------------------------------------------
 
 
-def _message_class(message_name: str) -> Optional[Type[BaseModel]]:
-    """Resolve a top-level message name to its mirrored model class.
-
-    DIN only in this slice — the tree derives its message set from
-    :func:`get_msg_type` so the mapping is single-sourced from the DIN body
-    module rather than duplicated here.
-    """
+def _din_registry(message_name: str) -> Optional[Type[BaseModel]]:
     # Imported lazily so this module can be imported from the personality model
     # without dragging the full message package into that import path.
     from app.shared.messages.din_spec.body import get_msg_type
 
     return get_msg_type(message_name)
+
+
+def _iso2_registry(message_name: str) -> Optional[Type[BaseModel]]:
+    from app.shared.messages.iso15118_2.body import get_msg_type
+
+    return get_msg_type(message_name)
+
+
+def _iso20_registry(message_name: str) -> Optional[Type[BaseModel]]:
+    from app.shared.messages.iso15118_20.registry import get_msg_type
+
+    return get_msg_type(message_name)
+
+
+# Each advertisable, tree-addressable protocol string maps to its message-name
+# registry. The two ISO-20 keys share one registry because ISO-20's common
+# messages ride both AC and DC sessions and its variant messages are uniquely
+# named (ADR-0006 protocol-keyed amendment). This is the authoritative set of
+# *known* protocol keys — a top-level tree key outside it is a hard load error.
+_PROTOCOL_REGISTRIES: Dict[str, Callable[[str], Optional[Type[BaseModel]]]] = {
+    "DIN_SPEC_70121": _din_registry,
+    "ISO_15118_2": _iso2_registry,
+    "ISO_15118_20_DC": _iso20_registry,
+    "ISO_15118_20_AC": _iso20_registry,
+}
+
+
+def known_protocols() -> Tuple[str, ...]:
+    """The protocol strings the tree may be keyed by (a top-level key set)."""
+    return tuple(_PROTOCOL_REGISTRIES)
+
+
+# ---------------------------------------------------------------------------
+# Model-shape helpers
+# ---------------------------------------------------------------------------
+
+
+def _message_class(protocol: str, message_name: str) -> Optional[Type[BaseModel]]:
+    """Resolve ``(protocol, message name)`` to its mirrored model class.
+
+    The message name is resolved *within* the named protocol's registry, so a
+    name defined by several protocols (``SessionSetupReq``) binds to the right
+    model. Returns ``None`` when the protocol is unknown or the name is not a
+    message of that protocol.
+    """
+    registry = _PROTOCOL_REGISTRIES.get(protocol)
+    if registry is None:
+        return None
+    return registry(message_name)
 
 
 def _resolve_field(
@@ -142,32 +195,46 @@ def _list_element_model(annotation: Any) -> Optional[Type[BaseModel]]:
 def validate_message_field_tree(tree: Any) -> Dict[str, Any]:
     """Validate a raw message field tree; return it unchanged on success.
 
-    Path-strict: every message name must be a known message and every nested
-    key must resolve to a real field/alias on the mirrored model. Value-raw:
-    leaf values are never inspected. Raises :class:`MessageFieldTreeError` on
-    the first unresolvable path.
+    Path-strict at every level: the top-level key must be a known protocol
+    (:func:`known_protocols`); each message name beneath it must be a message of
+    *that* protocol; and every nested key must resolve to a real field/alias on
+    the mirrored model. Value-raw: leaf values are never inspected. Raises
+    :class:`MessageFieldTreeError` on the first unresolvable path — an unknown
+    protocol key or an unknown message-within-a-protocol included.
     """
     if tree is None:
         return {}
     if not isinstance(tree, Mapping):
         raise MessageFieldTreeError(
-            f"message_field_tree must be a mapping of message name -> fields, "
-            f"got {type(tree).__name__}"
+            f"message_field_tree must be a mapping of protocol -> message -> "
+            f"fields, got {type(tree).__name__}"
         )
 
-    for message_name, fields in tree.items():
-        model_cls = _message_class(str(message_name))
-        if model_cls is None:
+    for protocol, messages in tree.items():
+        if str(protocol) not in _PROTOCOL_REGISTRIES:
+            valid = ", ".join(repr(p) for p in known_protocols())
             raise MessageFieldTreeError(
-                f"unknown message {message_name!r} in message_field_tree "
-                f"(not a DIN message name)"
+                f"unknown protocol {protocol!r} at the top of message_field_tree; "
+                f"a tree is keyed by protocol first. Use one of: {valid}."
             )
-        if not isinstance(fields, Mapping):
+        if not isinstance(messages, Mapping):
             raise MessageFieldTreeError(
-                f"message_field_tree[{message_name!r}] must be a mapping of "
-                f"field path -> value, got {type(fields).__name__}"
+                f"message_field_tree[{protocol!r}] must be a mapping of message "
+                f"name -> fields, got {type(messages).__name__}"
             )
-        _validate_node(model_cls, fields, str(message_name))
+        for message_name, fields in messages.items():
+            model_cls = _message_class(str(protocol), str(message_name))
+            if model_cls is None:
+                raise MessageFieldTreeError(
+                    f"unknown message {message_name!r} under protocol {protocol!r} "
+                    f"in message_field_tree (not a {protocol} message name)"
+                )
+            if not isinstance(fields, Mapping):
+                raise MessageFieldTreeError(
+                    f"message_field_tree[{protocol!r}][{message_name!r}] must be a "
+                    f"mapping of field path -> value, got {type(fields).__name__}"
+                )
+            _validate_node(model_cls, fields, f"{protocol} -> {message_name}")
 
     return dict(tree)
 
@@ -222,15 +289,19 @@ def _validate_node(
 
 
 def resolve_tree_leaf(
-    tree: Mapping[str, Any], message_name: str, python_path: Tuple[str, ...]
+    tree: Mapping[str, Any],
+    protocol: str,
+    message_name: str,
+    python_path: Tuple[str, ...],
 ) -> Any:
-    """Return the tree's leaf value at ``message_name -> python_path``, or UNSET.
+    """Return the leaf at ``protocol -> message_name -> python_path``, or UNSET.
 
     ``python_path`` is the sequence of *Python* field names to walk (e.g.
     ``("charge_service", "energy_transfer_type")``); the tree itself may spell
     each segment as either the Python name or the XSD alias, so this resolves
     each segment against the model like the validator does. Returns
-    :data:`UNSET` when the tree carries nothing at that path.
+    :data:`UNSET` when the tree carries nothing at that path (including when the
+    protocol subtree is absent).
 
     This is how a *dual-purpose* field (both emitted and consulted internally)
     is single-sourced from the tree per ADR-0006: the internal decision — e.g.
@@ -238,9 +309,12 @@ def resolve_tree_leaf(
     reads the same tree entry the message builder advertises, so advertised ==
     accepted by construction.
     """
-    model_cls = _message_class(message_name)
-    node: Any = tree.get(message_name)
-    if model_cls is None or not isinstance(node, Mapping):
+    model_cls = _message_class(protocol, message_name)
+    protocol_subtree = tree.get(protocol)
+    if model_cls is None or not isinstance(protocol_subtree, Mapping):
+        return UNSET
+    node: Any = protocol_subtree.get(message_name)
+    if not isinstance(node, Mapping):
         return UNSET
 
     cursor_cls: Optional[Type[BaseModel]] = model_cls
@@ -273,16 +347,18 @@ def resolve_tree_leaf(
 
 def apply_message_field_tree(
     model: BaseModel,
+    protocol: str,
     message_name: str,
     tree: Mapping[str, Any],
     skip_fields: Optional[Iterable[str]] = None,
 ) -> None:
     """Substitute a message's tree overrides onto a constructed *model*.
 
-    Applies every leaf the tree sets for *message_name* to the already-built
-    *model* instance in place. A leaf set nowhere is left untouched, so an
-    unset field keeps whatever the builder computed (the fallback the tracer
-    relies on). No-op when the tree carries nothing for this message.
+    Applies every leaf the tree sets for *message_name* under *protocol* to the
+    already-built *model* instance in place. A leaf set nowhere is left
+    untouched, so an unset field keeps whatever the builder computed (the
+    fallback the tracer relies on). No-op when the tree carries nothing for this
+    protocol/message.
 
     *skip_fields* names top-level fields of the message (by Python name) to
     leave to the builder's computed value even when the tree sets them — the
@@ -293,12 +369,15 @@ def apply_message_field_tree(
     or its XSD alias, so each node key is resolved to its Python name before
     matching.
     """
-    fields = tree.get(message_name)
+    protocol_subtree = tree.get(protocol)
+    if not isinstance(protocol_subtree, Mapping):
+        return
+    fields = protocol_subtree.get(message_name)
     if not fields:
         return
     if skip_fields:
         skip = set(skip_fields)
-        model_cls = _message_class(message_name)
+        model_cls = _message_class(protocol, message_name)
         kept: Dict[str, Any] = {}
         for key, value in fields.items():
             resolved = _resolve_field(model_cls, str(key)) if model_cls else None
@@ -309,7 +388,7 @@ def apply_message_field_tree(
         fields = kept
         if not fields:
             return
-    _apply_node(model, fields, message_name)
+    _apply_node(model, fields, f"{protocol} -> {message_name}")
 
 
 def _apply_node(instance: BaseModel, node: Mapping[str, Any], path: str) -> None:

@@ -7,10 +7,13 @@ capabilities:
   supported_protocols:
   - DIN_SPEC_70121
 message_field_tree:
-  ChargeParameterDiscoveryRes:
-    DC_EVSEChargeParameter:
-      DC_EVSEStatus:
-        EVSEIsolationStatus: Invalid
+  # ADR-0006 protocol-keyed tree: DIN messages live under
+  # the DIN_SPEC_70121 protocol key.
+  DIN_SPEC_70121:
+    ChargeParameterDiscoveryRes:
+      DC_EVSEChargeParameter:
+        DC_EVSEStatus:
+          EVSEIsolationStatus: Invalid
 residual:
   network:
     interface: acccs_secc

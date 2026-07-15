@@ -108,18 +108,20 @@ async def test_secc_dc_charge_parameters_din_tree_sourced():
     personality = SECCPersonality.model_validate(
         {
             "message_field_tree": {
-                "ChargeParameterDiscoveryRes": {
-                    "DC_EVSEChargeParameter": {
-                        "EVSEMaximumVoltageLimit": {
-                            "Value": 451,
-                            "Multiplier": 0,
-                            "Unit": "V",
-                        },
-                        "EVSEMaximumCurrentLimit": {
-                            "Value": 60,
-                            "Multiplier": 0,
-                            "Unit": "A",
-                        },
+                "DIN_SPEC_70121": {
+                    "ChargeParameterDiscoveryRes": {
+                        "DC_EVSEChargeParameter": {
+                            "EVSEMaximumVoltageLimit": {
+                                "Value": 451,
+                                "Multiplier": 0,
+                                "Unit": "V",
+                            },
+                            "EVSEMaximumCurrentLimit": {
+                                "Value": 60,
+                                "Multiplier": 0,
+                                "Unit": "A",
+                            },
+                        }
                     }
                 }
             }
@@ -199,8 +201,21 @@ def test_secc_rejects_mistyped_energy_transfer_type_leaf():
         SECCPersonality.model_validate(
             {
                 "message_field_tree": {
-                    "ServiceDiscoveryRes": {
-                        "ChargeService": {"EnergyTransferType": "DC_EXTENDED"}
+                    "DIN_SPEC_70121": {
+                        "ServiceDiscoveryRes": {
+                            "PaymentOptions": {"PaymentOption": ["ExternalPayment"]},
+                            "ChargeService": {
+                                "ServiceTag": {
+                                    "ServiceID": 1,
+                                    "ServiceCategory": "EVCharging",
+                                },
+                                "FreeService": False,
+                                # The field under test: an enum *name* rather than
+                                # its wire *value* — the rest of the message is
+                                # complete so only the #76 gate can reject.
+                                "EnergyTransferType": "DC_EXTENDED",
+                            },
+                        }
                     }
                 }
             }
@@ -213,15 +228,25 @@ def test_secc_accepts_valid_energy_transfer_type_leaf():
     personality = SECCPersonality.model_validate(
         {
             "message_field_tree": {
-                "ServiceDiscoveryRes": {
-                    "ChargeService": {"EnergyTransferType": "DC_extended"}
+                "DIN_SPEC_70121": {
+                    "ServiceDiscoveryRes": {
+                        "PaymentOptions": {"PaymentOption": ["ExternalPayment"]},
+                        "ChargeService": {
+                            "ServiceTag": {
+                                "ServiceID": 1,
+                                "ServiceCategory": "EVCharging",
+                            },
+                            "FreeService": False,
+                            "EnergyTransferType": "DC_extended",
+                        },
+                    }
                 }
             }
         }
     )
-    charge_service = personality.message_field_tree["ServiceDiscoveryRes"][
-        "ChargeService"
-    ]
+    charge_service = personality.message_field_tree["DIN_SPEC_70121"][
+        "ServiceDiscoveryRes"
+    ]["ChargeService"]
     assert charge_service["EnergyTransferType"] == "DC_extended"
 
 
@@ -316,11 +341,13 @@ async def test_evcc_din_current_demand_req_tree_sourced():
     personality = EVCCPersonality.model_validate(
         {
             "message_field_tree": {
-                "CurrentDemandReq": {
-                    "EVMaximumCurrentLimit": {"Value": 500, "Multiplier": 0},
-                    "EVMaximumVoltageLimit": {"Value": 410, "Multiplier": 0},
-                    "BulkChargingComplete": True,
-                    "DC_EVStatus": {"EVRESSSOC": 88},
+                "DIN_SPEC_70121": {
+                    "CurrentDemandReq": {
+                        "EVMaximumCurrentLimit": {"Value": 500, "Multiplier": 0},
+                        "EVMaximumVoltageLimit": {"Value": 410, "Multiplier": 0},
+                        "BulkChargingComplete": True,
+                        "DC_EVStatus": {"EVRESSSOC": 88},
+                    }
                 }
             }
         }

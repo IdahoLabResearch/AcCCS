@@ -66,6 +66,7 @@ def variant_secc_personality() -> SECCPersonality:
                 "supported_protocols": ["DIN_SPEC_70121"],
             },
             "message_field_tree": {
+              "DIN_SPEC_70121": {
                 "ChargeParameterDiscoveryRes": {
                     "SAScheduleList": {
                         "SAScheduleTuple": [
@@ -117,6 +118,7 @@ def variant_secc_personality() -> SECCPersonality:
                         },
                     }
                 }
+              }
             },
         }
     )
@@ -357,6 +359,7 @@ def tree_sourced_secc_personality() -> SECCPersonality:
         {
             "capabilities": {"supported_protocols": ["DIN_SPEC_70121"]},
             "message_field_tree": {
+              "DIN_SPEC_70121": {
                 "ServiceDiscoveryRes": {
                     "PaymentOptions": {"PaymentOption": ["ExternalPayment"]},
                     "ChargeService": {
@@ -368,6 +371,7 @@ def tree_sourced_secc_personality() -> SECCPersonality:
                         "EnergyTransferType": "DC_core",
                     },
                 }
+              }
             },
         }
     )

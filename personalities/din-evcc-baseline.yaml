@@ -36,60 +36,63 @@ residual:
     use_tls: false
     enforce_tls: false
 message_field_tree:
-  # In the scope of DIN SPEC 70121, if ServiceCategory is used it is always
-  # "EVCharging"; the Cadillac sends it explicitly.
-  ServiceDiscoveryReq:
-    ServiceCategory: EVCharging
-  # Only "ExternalPayment" is used in DIN, so the selected payment option is a
-  # static wire value. The SelectedServiceList is NOT: a valid EVCC must select
-  # a service the SECC actually advertised, so the EVCC echoes the ServiceID it
-  # received in ServiceDiscoveryRes (which is an xs:unsignedShort — real
-  # chargers use values well beyond the well-known 1, e.g. the Tellus Power
-  # advertises 0x1234 / 4660). Pinning it to 1 here made the EVCC send
-  # ServiceID 1 to any charger, and a charger advertising anything else rejects
-  # ServicePaymentSelectionReq with FAILED_ServiceSelectionInvalid. It is
-  # therefore a runtime-produced field on the completeness allowlist, not a tree
-  # leaf.
-  ServicePaymentSelectionReq:
-    SelectedPaymentOption: ExternalPayment
-  # The EV announces its charging envelope once, here: 500 A / 410 V, targeting
-  # a full battery (FullSOC 100, BulkSOC 80). The Cadillac omits
-  # EVMaximumPowerLimit and EVEnergyCapacity, so they are left unset (the builder
-  # does not emit them). EVReady/EVErrorCode stay computed; EVRESSSOC is pinned.
-  ChargeParameterDiscoveryReq:
-    DC_EVChargeParameter:
+  # ADR-0006 protocol-keyed tree: DIN messages live under
+  # the DIN_SPEC_70121 protocol key.
+  DIN_SPEC_70121:
+    # In the scope of DIN SPEC 70121, if ServiceCategory is used it is always
+    # "EVCharging"; the Cadillac sends it explicitly.
+    ServiceDiscoveryReq:
+      ServiceCategory: EVCharging
+    # Only "ExternalPayment" is used in DIN, so the selected payment option is a
+    # static wire value. The SelectedServiceList is NOT: a valid EVCC must select
+    # a service the SECC actually advertised, so the EVCC echoes the ServiceID it
+    # received in ServiceDiscoveryRes (which is an xs:unsignedShort — real
+    # chargers use values well beyond the well-known 1, e.g. the Tellus Power
+    # advertises 0x1234 / 4660). Pinning it to 1 here made the EVCC send
+    # ServiceID 1 to any charger, and a charger advertising anything else rejects
+    # ServicePaymentSelectionReq with FAILED_ServiceSelectionInvalid. It is
+    # therefore a runtime-produced field on the completeness allowlist, not a tree
+    # leaf.
+    ServicePaymentSelectionReq:
+      SelectedPaymentOption: ExternalPayment
+    # The EV announces its charging envelope once, here: 500 A / 410 V, targeting
+    # a full battery (FullSOC 100, BulkSOC 80). The Cadillac omits
+    # EVMaximumPowerLimit and EVEnergyCapacity, so they are left unset (the builder
+    # does not emit them). EVReady/EVErrorCode stay computed; EVRESSSOC is pinned.
+    ChargeParameterDiscoveryReq:
+      DC_EVChargeParameter:
+        DC_EVStatus:
+          EVRESSSOC: 88
+        EVMaximumCurrentLimit: {Value: 500, Multiplier: 0}
+        EVMaximumVoltageLimit: {Value: 410, Multiplier: 0}
+        FullSOC: 100
+        BulkSOC: 80
+    CableCheckReq:
       DC_EVStatus:
         EVRESSSOC: 88
-      EVMaximumCurrentLimit: {Value: 500, Multiplier: 0}
+    PreChargeReq:
+      DC_EVStatus:
+        EVRESSSOC: 88
+    # The Cadillac reports BulkChargingComplete already true (it is near full);
+    # ChargingComplete stays computed off the charge loop.
+    PowerDeliveryReq:
+      DC_EVPowerDeliveryParameter:
+        DC_EVStatus:
+          EVRESSSOC: 88
+        BulkChargingComplete: true
+    # Each CurrentDemandReq resends the max envelope (500 A / 410 V), reports bulk
+    # charging complete, and carries the EV's remaining-time estimates
+    # (RemainingTimeToFullSoC 2111 s, RemainingTimeToBulkSoC 0 s). EVTargetCurrent
+    # / EVTargetVoltage ramp and stay computed; EVMaximumPowerLimit is omitted
+    # (matching the capture).
+    CurrentDemandReq:
+      DC_EVStatus:
+        EVRESSSOC: 88
       EVMaximumVoltageLimit: {Value: 410, Multiplier: 0}
-      FullSOC: 100
-      BulkSOC: 80
-  CableCheckReq:
-    DC_EVStatus:
-      EVRESSSOC: 88
-  PreChargeReq:
-    DC_EVStatus:
-      EVRESSSOC: 88
-  # The Cadillac reports BulkChargingComplete already true (it is near full);
-  # ChargingComplete stays computed off the charge loop.
-  PowerDeliveryReq:
-    DC_EVPowerDeliveryParameter:
+      EVMaximumCurrentLimit: {Value: 500, Multiplier: 0}
+      BulkChargingComplete: true
+      RemainingTimeToFullSoC: {Value: 2111, Multiplier: 0}
+      RemainingTimeToBulkSoC: {Value: 0, Multiplier: 0}
+    WeldingDetectionReq:
       DC_EVStatus:
         EVRESSSOC: 88
-      BulkChargingComplete: true
-  # Each CurrentDemandReq resends the max envelope (500 A / 410 V), reports bulk
-  # charging complete, and carries the EV's remaining-time estimates
-  # (RemainingTimeToFullSoC 2111 s, RemainingTimeToBulkSoC 0 s). EVTargetCurrent
-  # / EVTargetVoltage ramp and stay computed; EVMaximumPowerLimit is omitted
-  # (matching the capture).
-  CurrentDemandReq:
-    DC_EVStatus:
-      EVRESSSOC: 88
-    EVMaximumVoltageLimit: {Value: 410, Multiplier: 0}
-    EVMaximumCurrentLimit: {Value: 500, Multiplier: 0}
-    BulkChargingComplete: true
-    RemainingTimeToFullSoC: {Value: 2111, Multiplier: 0}
-    RemainingTimeToBulkSoC: {Value: 0, Multiplier: 0}
-  WeldingDetectionReq:
-    DC_EVStatus:
-      EVRESSSOC: 88

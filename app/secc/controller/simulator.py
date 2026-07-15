@@ -341,6 +341,7 @@ class SimEVSEController(EVSEControllerInterface):
             # method, so routing the read through here is all it takes.
             tree_leaf = resolve_tree_leaf(
                 self.personality.message_field_tree,
+                "DIN_SPEC_70121",
                 "ServiceDiscoveryRes",
                 ("charge_service", "energy_transfer_type"),
             )

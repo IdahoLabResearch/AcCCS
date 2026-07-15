@@ -1,0 +1,29 @@
+# ISO 15118-2 SECC personality demonstrating the ADR-0006 protocol-keyed
+# message field tree tracer (issue #95).
+#
+# ISO-2 is not yet a *tree-backed* protocol — its wire values otherwise come
+# from the builders' pre-tree path and there is no shipped ISO-2 baseline — so
+# this file pins exactly one ISO-2 leaf to prove the protocol-keyed path reaches
+# the wire end-to-end:
+#
+#   ISO_15118_2 -> ChargeParameterDiscoveryRes -> DC_EVSEChargeParameter
+#                -> DC_EVSEStatus -> EVSEIsolationStatus = Invalid
+#
+# The simulator otherwise hardcodes this field to Valid, so observing Invalid on
+# the wire is proof the ISO-2 ChargeParameterDiscovery construction site calls
+# the (now protocol-keyed) apply pass for that one message.
+#
+# Run the virtual two-session ISO-2 demo (TLS is off for EIM, so no PKI needed):
+#
+#   sudo .../python run_secc.py --config iso2-isolation-tracer-secc --virtual
+#   sudo .../python run_evcc.py --config iso2_eim_dc --virtual
+#
+# Extends the EIM ISO-2 example, overriding only the role and the tracer leaf.
+extends: iso2_eim_dc
+role: secc
+message_field_tree:
+  ISO_15118_2:
+    ChargeParameterDiscoveryRes:
+      DC_EVSEChargeParameter:
+        DC_EVSEStatus:
+          EVSEIsolationStatus: Invalid

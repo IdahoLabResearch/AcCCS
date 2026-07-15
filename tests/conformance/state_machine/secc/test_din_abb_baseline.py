@@ -379,9 +379,9 @@ async def test_cable_check_finished_keeps_isolation_but_applies_other_tree_field
     # only pins DC_EVSEStatus). "Ongoing" is a legal EVSEProcessing member, so
     # it coerces and encodes normally — the point is only that it survives the
     # completing-response skip that used to drop the whole tree.
-    session.evse_controller.personality.message_field_tree["CableCheckRes"][
-        "EVSEProcessing"
-    ] = "Ongoing"
+    session.evse_controller.personality.message_field_tree["DIN_SPEC_70121"][
+        "CableCheckRes"
+    ]["EVSEProcessing"] = "Ongoing"
 
     cc = ScriptedPeer(session, CableCheck)
     # First feed: contactors close, isolation monitoring still Ongoing.

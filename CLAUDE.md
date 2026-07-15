@@ -29,8 +29,12 @@ and [ADR-0006](docs/adr/0006-message-field-tree-personality.md):
 
 - A **personality** (YAML) describes *who* the emulated device is. Per
   ADR-0006 it has two parts: a **`message_field_tree`** — the per-message,
-  per-field values the device emits on the wire (keyed by message name and
-  field path, DIN-only this slice) — and a **`residual`** section for
+  per-field values the device emits on the wire (keyed by **protocol**, then
+  message name, then field path; a protocol top-level key is one of the
+  advertised `supported_protocols` and disambiguates a message name defined by
+  several protocols. DIN is the only fully tree-backed protocol; ISO-2 carries
+  a single tracer field this slice, ISO-20 has a registry but no baseline) —
+  and a **`residual`** section for
   everything with *no* wire representation (`tls`, `slac`, `certificates`,
   `network`, `charge_profile`, and behavioral flags under `behavior`). The
   dividing rule is mechanical: on the wire → tree; not on the wire →

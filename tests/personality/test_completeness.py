@@ -18,7 +18,7 @@ from pydantic import ValidationError
 from app.shared.personality.completeness import (
     allowlist_for,
     check_message_field_tree_completeness,
-    is_din_exclusive,
+    is_tree_backed,
 )
 from app.shared.personality.loader import _apply_extends, _load_yaml, load_personality
 from app.shared.personality.model import EVCCPersonality, SECCPersonality
@@ -85,9 +85,11 @@ def test_non_din_shipped_personalities_load(name, role):
 def test_missing_required_secc_leaf_fails_at_load():
     data = _merged_tree_data("din-secc-baseline.yaml")
     # EVSEStatusCode is a required DIN wire field, not on the allowlist.
-    del data["message_field_tree"]["CableCheckRes"]["DC_EVSEStatus"]["EVSEStatusCode"]
+    tree = data["message_field_tree"]["DIN_SPEC_70121"]
+    del tree["CableCheckRes"]["DC_EVSEStatus"]["EVSEStatusCode"]
     with pytest.raises(
-        ValidationError, match="CableCheckRes -> dc_evse_status -> evse_status_code"
+        ValidationError,
+        match="DIN_SPEC_70121 -> CableCheckRes -> dc_evse_status -> evse_status_code",
     ):
         SECCPersonality.model_validate(data)
 
@@ -95,9 +97,11 @@ def test_missing_required_secc_leaf_fails_at_load():
 def test_missing_required_evcc_leaf_fails_at_load():
     data = _merged_tree_data("din-evcc-baseline.yaml")
     # EVRESSSOC is required and config-only (the Cadillac pins 88%), not allowlisted.
-    del data["message_field_tree"]["CableCheckReq"]["DC_EVStatus"]["EVRESSSOC"]
+    tree = data["message_field_tree"]["DIN_SPEC_70121"]
+    del tree["CableCheckReq"]["DC_EVStatus"]["EVRESSSOC"]
     with pytest.raises(
-        ValidationError, match="CableCheckReq -> dc_ev_status -> ev_ress_soc"
+        ValidationError,
+        match="DIN_SPEC_70121 -> CableCheckReq -> dc_ev_status -> ev_ress_soc",
     ):
         EVCCPersonality.model_validate(data)
 
@@ -105,10 +109,11 @@ def test_missing_required_evcc_leaf_fails_at_load():
 def test_missing_nested_secc_leaf_names_full_path():
     data = _merged_tree_data("din-secc-baseline.yaml")
     # Drop only the EVSENotification leaf; siblings keep the message in the tree.
-    del data["message_field_tree"]["PreChargeRes"]["DC_EVSEStatus"]["EVSENotification"]
+    tree = data["message_field_tree"]["DIN_SPEC_70121"]
+    del tree["PreChargeRes"]["DC_EVSEStatus"]["EVSENotification"]
     with pytest.raises(
         ValidationError,
-        match="PreChargeRes -> dc_evse_status -> evse_notification",
+        match="DIN_SPEC_70121 -> PreChargeRes -> dc_evse_status -> evse_notification",
     ):
         SECCPersonality.model_validate(data)
 
@@ -127,17 +132,19 @@ def test_omitting_allowlisted_field_loads_clean():
         {
             "capabilities": {"supported_protocols": ["DIN_SPEC_70121"]},
             "message_field_tree": {
-                "CurrentDemandRes": {
-                    "DC_EVSEStatus": {
-                        "NotificationMaxDelay": 0,
-                        "EVSENotification": "None",
-                        "EVSEStatusCode": "EVSE_Ready",
+                "DIN_SPEC_70121": {
+                    "CurrentDemandRes": {
+                        "DC_EVSEStatus": {
+                            "NotificationMaxDelay": 0,
+                            "EVSENotification": "None",
+                            "EVSEStatusCode": "EVSE_Ready",
+                        }
                     }
                 }
             },
         }
     )
-    assert "CurrentDemandRes" in personality.message_field_tree
+    assert "CurrentDemandRes" in personality.message_field_tree["DIN_SPEC_70121"]
 
 
 def test_response_code_omission_is_allowed_everywhere():
@@ -145,10 +152,13 @@ def test_response_code_omission_is_allowed_everywhere():
     # that pins other required leaves but never ResponseCode loads.
     check_message_field_tree_completeness(
         {
-            "SessionSetupRes": {"EVSEID": "00"},
-            "SessionStopRes": {},
+            "DIN_SPEC_70121": {
+                "SessionSetupRes": {"EVSEID": "00"},
+                "SessionStopRes": {},
+            },
         },
         "secc",
+        ["DIN_SPEC_70121"],
     )
 
 
@@ -174,13 +184,15 @@ def test_allowlisted_field_set_in_tree_is_applied():
     personality = SECCPersonality.model_validate(
         {
             "message_field_tree": {
-                "CurrentDemandRes": {
-                    "DC_EVSEStatus": {
-                        "NotificationMaxDelay": 0,
-                        "EVSENotification": "None",
-                        "EVSEStatusCode": "EVSE_Ready",
-                    },
-                    "EVSECurrentLimitAchieved": True,
+                "DIN_SPEC_70121": {
+                    "CurrentDemandRes": {
+                        "DC_EVSEStatus": {
+                            "NotificationMaxDelay": 0,
+                            "EVSENotification": "None",
+                            "EVSEStatusCode": "EVSE_Ready",
+                        },
+                        "EVSECurrentLimitAchieved": True,
+                    }
                 }
             }
         }
@@ -235,42 +247,76 @@ def test_unknown_role_rejected():
     with pytest.raises(ValueError, match="unknown role"):
         allowlist_for("bogus")
     with pytest.raises(ValueError, match="unknown role"):
-        check_message_field_tree_completeness({"SessionSetupRes": {}}, "bogus")
+        check_message_field_tree_completeness(
+            {"DIN_SPEC_70121": {"SessionSetupRes": {}}}, "bogus", ["DIN_SPEC_70121"]
+        )
 
 
 # ---------------------------------------------------------------------------
-# The DIN-exclusive gate: the check only runs for DIN-only personalities
+# The per-protocol tree-backed gate: the check runs per supported, tree-backed
+# protocol (DIN today); a supported-but-not-tree-backed protocol is exempt.
 # ---------------------------------------------------------------------------
 
 
-def test_is_din_exclusive_gate():
-    assert is_din_exclusive(["DIN_SPEC_70121"]) is True
-    assert is_din_exclusive(["DIN_SPEC_70121", "ISO_15118_2"]) is False
-    assert is_din_exclusive(["ISO_15118_2"]) is False
-    assert is_din_exclusive([]) is False
+def test_is_tree_backed_gate():
+    assert is_tree_backed("DIN_SPEC_70121") is True
+    assert is_tree_backed("ISO_15118_2") is False
+    assert is_tree_backed("ISO_15118_20_DC") is False
 
 
-def test_incomplete_din_tree_fails_only_when_din_exclusive():
+def test_incomplete_din_subtree_fails_whenever_din_is_supported():
     # An incomplete ServiceDiscoveryRes (only the EnergyTransferType leaf; the
-    # required PaymentOptions / ServiceTag / FreeService are absent).
+    # required PaymentOptions / ServiceTag / FreeService are absent), under the
+    # DIN protocol key.
     incomplete_tree = {
         "message_field_tree": {
-            "ServiceDiscoveryRes": {
-                "ChargeService": {"EnergyTransferType": "DC_extended"}
+            "DIN_SPEC_70121": {
+                "ServiceDiscoveryRes": {
+                    "ChargeService": {"EnergyTransferType": "DC_extended"}
+                }
             }
         }
     }
 
-    # DIN-exclusive → the check runs and rejects the partial message.
-    din_exclusive = dict(
+    # DIN-only → the DIN subtree is walked and the partial message rejected.
+    din_only = dict(
         incomplete_tree,
         capabilities={"supported_protocols": ["DIN_SPEC_70121"]},
     )
     with pytest.raises(
-        ValidationError, match="ServiceDiscoveryRes -> auth_option_list"
+        ValidationError, match="DIN_SPEC_70121 -> ServiceDiscoveryRes -> auth_option_list"
     ):
-        SECCPersonality.model_validate(din_exclusive)
+        SECCPersonality.model_validate(din_only)
 
-    # Multi-protocol (the default) → the gate is off, so the same partial tree
-    # loads: setting one field of one message stays a legal red-team probe.
-    SECCPersonality.model_validate(incomplete_tree)
+    # Multi-protocol → per-protocol scoping: DIN is still tree-backed and
+    # supported, so its subtree is still checked and the partial message still
+    # fails (the old all-or-nothing "DIN-exclusive" gate is gone).
+    multi_protocol = dict(
+        incomplete_tree,
+        capabilities={"supported_protocols": ["DIN_SPEC_70121", "ISO_15118_2"]},
+    )
+    with pytest.raises(
+        ValidationError, match="DIN_SPEC_70121 -> ServiceDiscoveryRes -> auth_option_list"
+    ):
+        SECCPersonality.model_validate(multi_protocol)
+
+
+def test_multi_protocol_personality_with_absent_din_subtree_loads():
+    # A SECC advertising DIN + ISO_15118_2 whose tree carries no DIN subtree:
+    # DIN is supported and tree-backed, but the per-message-present rule finds no
+    # DIN messages to walk (its subtree is absent), so the gate stays silent.
+    SECCPersonality.model_validate(
+        {"capabilities": {"supported_protocols": ["DIN_SPEC_70121", "ISO_15118_2"]}}
+    )
+
+
+def test_supported_but_not_tree_backed_protocol_subtree_is_exempt():
+    # ISO_15118_2 is supported and even carries a (deliberately bare) subtree,
+    # but it is not yet tree-backed, so it is never walked — an incomplete ISO-2
+    # subtree cannot trip the completeness gate, and the absent DIN subtree is a
+    # no-op.
+    check_message_field_tree_completeness(
+        {"ISO_15118_2": {"SessionSetupRes": {}}},
+        "secc",
+        ["DIN_SPEC_70121", "ISO_15118_2"],
+    )

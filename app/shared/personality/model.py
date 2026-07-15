@@ -597,29 +597,30 @@ class _PersonalityBase(_StrictBase):
         """Fail at load on a missing mandatory tree-sourced wire field (#83).
 
         Runs after the baseline + device deep-merge (the loader merges, then
-        validates), so it sees the *merged* tree. For every mandatory DIN wire
-        field of a message the role emits and the tree carries, the value must
+        validates), so it sees the *merged* tree. Per-protocol (ADR-0006
+        protocol-keyed amendment): for every protocol the personality both
+        supports and that is *tree-backed* (DIN today), every mandatory wire
+        field of a message the role emits and the protocol's subtree carries must
         resolve in the tree or be on the ADR-0006 #83 optional-field allowlist;
-        otherwise this raises, naming the message and field path.
+        otherwise this raises, naming the protocol, message, and field path.
 
-        Scoped to **DIN-exclusive** personalities — those whose only advertised
-        protocol is DIN SPEC 70121 (the shipped DIN baselines and the devices
-        that ``extends`` them). A multi-protocol personality still sources its
-        DIN wire values from the builders' pre-tree path (its tree is typically
-        empty or a partial red-team probe of a single field), so demanding a
-        complete DIN tree there would both mis-fire on the stock ``default-*``
-        personalities and forbid the established "set one field of one message"
-        probing pattern. DIN-only this slice; ISO-2 / ISO-20 extend the gate and
-        the allowlist as those slices land. Lazy import for the same reason as
-        the field validator above.
+        A supported protocol that is not yet tree-backed (ISO-2 / ISO-20 this
+        slice) is skipped entirely — it still sources its wire values from the
+        builders' pre-tree path, so it carries no subtree (or a partial
+        single-field red-team probe, which the per-message-present rule tolerates
+        because completeness only demands leaves for messages the subtree names).
+        This lets each protocol slice become tree-backed independently. Lazy
+        import for the same reason as the field validator above.
         """
         from app.shared.personality.completeness import (
             check_message_field_tree_completeness,
-            is_din_exclusive,
         )
 
-        if is_din_exclusive(self.capabilities.supported_protocols):
-            check_message_field_tree_completeness(self.message_field_tree, self.role)
+        check_message_field_tree_completeness(
+            self.message_field_tree,
+            self.role,
+            self.capabilities.supported_protocols,
+        )
         return self
 
 
@@ -660,6 +661,7 @@ class SECCPersonality(_PersonalityBase):
 
         leaf = resolve_tree_leaf(
             self.message_field_tree,
+            "DIN_SPEC_70121",
             "ServiceDiscoveryRes",
             ("charge_service", "energy_transfer_type"),
         )

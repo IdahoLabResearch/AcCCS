@@ -316,13 +316,21 @@ def test_extends_sparse_tree_override_equals_full_tree(tmp_path, monkeypatch):
             "tree-base-secc.yaml": """
                 role: secc
                 message_field_tree:
-                  ServiceDiscoveryRes:
-                    ChargeService:
-                      EnergyTransferType: DC_extended
-                  ChargeParameterDiscoveryRes:
-                    DC_EVSEChargeParameter:
-                      DC_EVSEStatus:
-                        EVSEIsolationStatus: Valid
+                  DIN_SPEC_70121:
+                    ServiceDiscoveryRes:
+                      PaymentOptions:
+                        PaymentOption:
+                          - ExternalPayment
+                      ChargeService:
+                        ServiceTag:
+                          ServiceID: 1
+                          ServiceCategory: EVCharging
+                        FreeService: false
+                        EnergyTransferType: DC_extended
+                    ChargeParameterDiscoveryRes:
+                      DC_EVSEChargeParameter:
+                        DC_EVSEStatus:
+                          EVSEIsolationStatus: Valid
                 """,
             # Overrides only the isolation leaf; the energy-transfer leaf is
             # inherited from the baseline.
@@ -330,22 +338,31 @@ def test_extends_sparse_tree_override_equals_full_tree(tmp_path, monkeypatch):
                 extends: tree-base-secc
                 role: secc
                 message_field_tree:
-                  ChargeParameterDiscoveryRes:
-                    DC_EVSEChargeParameter:
-                      DC_EVSEStatus:
-                        EVSEIsolationStatus: Invalid
+                  DIN_SPEC_70121:
+                    ChargeParameterDiscoveryRes:
+                      DC_EVSEChargeParameter:
+                        DC_EVSEStatus:
+                          EVSEIsolationStatus: Invalid
                 """,
             # The same effective tree, spelled out in full.
             "tree-full-secc.yaml": """
                 role: secc
                 message_field_tree:
-                  ServiceDiscoveryRes:
-                    ChargeService:
-                      EnergyTransferType: DC_extended
-                  ChargeParameterDiscoveryRes:
-                    DC_EVSEChargeParameter:
-                      DC_EVSEStatus:
-                        EVSEIsolationStatus: Invalid
+                  DIN_SPEC_70121:
+                    ServiceDiscoveryRes:
+                      PaymentOptions:
+                        PaymentOption:
+                          - ExternalPayment
+                      ChargeService:
+                        ServiceTag:
+                          ServiceID: 1
+                          ServiceCategory: EVCharging
+                        FreeService: false
+                        EnergyTransferType: DC_extended
+                    ChargeParameterDiscoveryRes:
+                      DC_EVSEChargeParameter:
+                        DC_EVSEStatus:
+                          EVSEIsolationStatus: Invalid
                 """,
         },
     )

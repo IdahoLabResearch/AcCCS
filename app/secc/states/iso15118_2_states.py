@@ -124,6 +124,7 @@ from app.shared.messages.iso15118_20.common_types import (
 from app.shared.messages.timeouts import Timeouts
 from app.shared.messages.xmldsig import Signature
 from app.shared.notifications import StopNotification
+from app.shared.personality.message_field_tree import apply_message_field_tree
 from app.shared.security import (
     CertPath,
     KeyEncoding,
@@ -144,6 +145,31 @@ from app.shared.security import (
 from app.shared.states import Base64, Pause, State, Terminate
 
 logger = logging.getLogger(__name__)
+
+
+def apply_personality_tree(comm_session, res, message_name: str) -> None:
+    """Substitute the personality's ISO-15118-2 tree overrides onto a built Res.
+
+    Construction-time substitution per ADR-0006 (protocol-keyed amendment), the
+    ISO-2 counterpart of the DIN SECC helper: after an ISO-2 state builds an
+    outbound ``*Res`` the SECC pokes every leaf the personality's
+    ``message_field_tree`` sets for ``ISO_15118_2 -> message_name`` onto it, so a
+    configured value replaces the builder's computed one (and flows into any
+    internal logic that reads the field). A leaf set nowhere leaves the built
+    value untouched.
+
+    ISO-2 is not yet a *tree-backed* protocol — its wire values still come from
+    the builders' pre-tree path and there is no shipped ISO-2 baseline — so this
+    is the single **tracer** seam proving the protocol-keyed path end-to-end: a
+    personality that sets one ISO-2 leaf (e.g. ``ChargeParameterDiscoveryRes ->
+    DC_EVSEChargeParameter -> DC_EVSEStatus -> EVSEIsolationStatus``) sees it on
+    the wire. No-op when no personality is attached or the tree carries nothing
+    for ``ISO_15118_2 -> message_name``.
+    """
+    personality = getattr(comm_session.evse_controller, "personality", None)
+    tree = getattr(personality, "message_field_tree", None)
+    if tree:
+        apply_message_field_tree(res, "ISO_15118_2", message_name, tree)
 
 
 # ============================================================================
@@ -1505,6 +1531,14 @@ class ChargeParameterDiscovery(StateSECC):
             sa_schedule_list=SAScheduleList(schedule_tuples=sa_schedule_list),
             ac_charge_parameter=ac_evse_charge_params,
             dc_charge_parameter=dc_evse_charge_params,
+        )
+
+        # ADR-0006 protocol-keyed tracer: source any ISO-2
+        # ChargeParameterDiscoveryRes leaf the personality sets (e.g. the
+        # DC_EVSEStatus -> EVSEIsolationStatus isolation progression) from the
+        # tree. A no-op unless a personality pins an ISO_15118_2 leaf.
+        apply_personality_tree(
+            self.comm_session, charge_params_res, "ChargeParameterDiscoveryRes"
         )
 
         self.create_next_message(

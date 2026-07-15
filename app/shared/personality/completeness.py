@@ -9,26 +9,32 @@ there, that is a **load-time error naming the message and field path** — unles
 the field is on the :data:`OPTIONAL_FIELD_ALLOWLIST`, the standalone list of
 fields the emulator produces on its own at runtime.
 
-Scope (ADR-0006 #83, "DIN-only this slice"):
+Scope (ADR-0006 #83 + the protocol-keyed amendment):
 
-* **DIN only.** The message set comes from
-  :func:`app.shared.messages.din_spec.body.get_msg_type`; ISO-15118-2 / -20
-  add their own allowlist entries and message sets as those slices land.
-* **DIN-exclusive personalities only.** The caller (the personality model
-  validator) runs this check only when the personality advertises DIN SPEC
-  70121 as its *sole* protocol — see :func:`is_din_exclusive`. That is exactly
-  the shipped DIN baselines and the devices that ``extends`` them. A
-  multi-protocol personality (the stock ``default-*``, the ISO / no-TLS smokes)
-  still sources its DIN wire values from the builders' pre-tree path, so its
-  tree is empty or a partial single-field red-team probe; demanding a complete
-  DIN tree there would mis-fire and forbid that probing pattern.
-* **Per-message-present.** Within a DIN-exclusive personality a required leaf is
-  only demanded for a message the tree *contains an entry for* — the same
+* **Per supported, tree-backed protocol.** The gate is now per-protocol
+  (:func:`is_tree_backed`): a supported protocol whose slice has landed (its
+  values actually flow to the wire from the tree — DIN today) must carry a
+  **present and complete** subtree; a supported protocol still on the builders'
+  pre-tree structured path (ISO-2 / ISO-20 this slice) needs *nothing* in the
+  tree and is exempt. Each protocol slice can therefore land independently — no
+  flag-day cutover — while the end state (every supported protocol tree-backed
+  and checked) is the strong "a personality cannot claim a protocol it does not
+  fully back" guarantee. The caller passes the personality's
+  ``supported_protocols``; only the supported *and* tree-backed ones are walked.
+  This replaces the old DIN-exclusive scoping: a multi-protocol personality that
+  advertises DIN is now checked for DIN too (its tree is typically empty, so the
+  per-message-present rule below makes the walk a no-op there).
+* **Per protocol's own message set + allowlist.** DIN's message set comes from
+  :func:`app.shared.messages.din_spec.body.get_msg_type` via the tree machinery;
+  ISO-15118-2 / -20 register their own message sets and allowlist entries as
+  those slices become tree-backed.
+* **Per-message-present.** Within a tree-backed protocol subtree a required leaf
+  is only demanded for a message the subtree *contains an entry for* — the same
   "validate only what the tree actually specifies" stance the #76
   energy-transfer-mode check takes (an absent tree leaf is UNSET → skipped
   there; an absent *message* is skipped here). A DIN personality ``extends`` a
-  baseline that spells out every DIN message, so its merged tree carries every
-  message and gets full coverage.
+  baseline that spells out every DIN message, so its merged subtree carries
+  every message and gets full coverage.
 
 The required-leaf walk and the "resolves to a value" query reuse the tree
 machinery in :mod:`app.shared.personality.message_field_tree` rather than a
@@ -37,7 +43,7 @@ hand-maintained parallel schema.
 
 from __future__ import annotations
 
-from typing import Dict, List, Set, Tuple, Type
+from typing import Dict, Iterable, List, Set, Tuple, Type
 
 from pydantic import BaseModel
 
@@ -63,21 +69,29 @@ class MessageFieldTreeIncompleteError(ValueError):
     """
 
 
-# The one DIN protocol string, matched against a personality's advertised
-# `capabilities.supported_protocols` to decide whether the completeness check
-# applies (see the module docstring).
+# The DIN protocol string — the one protocol whose slice has landed, so it is
+# the only *tree-backed* protocol this slice. ISO-2 / ISO-20 join this set as
+# their slices migrate their wire values into the tree.
 _DIN_PROTOCOL = "DIN_SPEC_70121"
 
+# The protocols whose emitted wire values actually come from the tree today. A
+# supported protocol in this set must carry a complete subtree; a supported
+# protocol outside it is still driven by the builders' pre-tree path and needs
+# nothing in the tree (ADR-0006 protocol-keyed amendment).
+_TREE_BACKED_PROTOCOLS: frozenset = frozenset({_DIN_PROTOCOL})
 
-def is_din_exclusive(supported_protocols) -> bool:
-    """True when DIN SPEC 70121 is the *only* protocol the personality offers.
 
-    That is the discriminator between a DIN device (whose wire output is fully
-    tree-sourced and must therefore be complete) and a multi-protocol
-    personality (which still drives DIN via the builders' pre-tree path and may
-    carry an empty or partial tree). Order- and duplicate-insensitive.
+def is_tree_backed(protocol: str) -> bool:
+    """True when *protocol*'s emitted wire values are sourced from the tree.
+
+    The per-protocol replacement for the old ``is_din_exclusive`` all-or-nothing
+    scoping (ADR-0006 protocol-keyed amendment). A tree-backed *and* supported
+    protocol must carry a present, complete subtree (the completeness gate runs
+    for it); a supported protocol that is not yet tree-backed drives its wire
+    values through the builders' pre-tree path and is exempt from the gate until
+    its slice lands. DIN is the only tree-backed protocol this slice.
     """
-    return set(supported_protocols) == {_DIN_PROTOCOL}
+    return protocol in _TREE_BACKED_PROTOCOLS
 
 
 # ---------------------------------------------------------------------------
@@ -270,43 +284,65 @@ def _required_leaf_paths(
 # ---------------------------------------------------------------------------
 
 
-def check_message_field_tree_completeness(tree: Dict, role: str) -> None:
-    """Raise if the merged *tree* omits a mandatory, non-allowlisted DIN leaf.
+# The completeness data (which messages a role emits, and which required leaves
+# are emulator-produced) is per-protocol. DIN is the only tree-backed protocol
+# this slice, so it is the only entry; ISO-2 / ISO-20 add their own as they
+# migrate. Keyed protocol -> role -> emitted message set, mirroring the
+# tree-backed set in :data:`_TREE_BACKED_PROTOCOLS`.
+_PROTOCOL_ROLE_MESSAGES: Dict[str, Dict[str, Tuple[str, ...]]] = {
+    _DIN_PROTOCOL: {"secc": SECC_MESSAGES, "evcc": EVCC_MESSAGES},
+}
 
-    Per-message-present (see the module docstring): only messages the *role*
-    emits *and* that appear as a key in *tree* are walked. For each such message,
-    every mandatory leaf must either resolve to a value in the tree or be on the
-    role's allowlist; the first violation raises
-    :class:`MessageFieldTreeIncompleteError` naming the message and the field
-    path. A no-op for an empty tree.
+
+def check_message_field_tree_completeness(
+    tree: Dict, role: str, supported_protocols: Iterable[str]
+) -> None:
+    """Raise if a supported, tree-backed protocol's subtree is incomplete.
+
+    Per-protocol (ADR-0006 protocol-keyed amendment): for each protocol the
+    personality both *supports* and that :func:`is_tree_backed` — DIN today — the
+    protocol's subtree must carry a value for every mandatory wire field of every
+    message the *role* emits, unless the leaf is on the role's allowlist. A
+    supported but not-yet-tree-backed protocol is skipped entirely (its wire
+    values come from the builders' pre-tree path).
+
+    Per-message-present (see the module docstring): only messages the role emits
+    *and* that appear as a key in the protocol's subtree are walked. The first
+    violation raises :class:`MessageFieldTreeIncompleteError` naming the
+    protocol, message, and field path. A no-op for an empty tree.
     """
     if not tree:
         return
-    if role == "secc":
-        messages = SECC_MESSAGES
-    elif role == "evcc":
-        messages = EVCC_MESSAGES
-    else:
+    if role not in ("secc", "evcc"):
         raise ValueError(f"unknown role {role!r}; expected 'evcc' or 'secc'")
 
-    allowlist = allowlist_for(role)
-    for message_name in messages:
-        if message_name not in tree:
+    for protocol in supported_protocols:
+        if not is_tree_backed(protocol):
             continue
-        model_cls = _message_class(message_name)
-        if model_cls is None:  # pragma: no cover - defensive; role sets are DIN
+        subtree = tree.get(protocol)
+        if not subtree:
             continue
-        allowed = allowlist.get(message_name, set())
-        for path in _required_leaf_paths(model_cls):
-            if path in allowed:
+        messages = _PROTOCOL_ROLE_MESSAGES.get(protocol, {}).get(role)
+        if messages is None:  # pragma: no cover - defensive; tree-backed => known
+            continue
+        allowlist = allowlist_for(role)
+        for message_name in messages:
+            if message_name not in subtree:
                 continue
-            if resolve_tree_leaf(tree, message_name, path) is UNSET:
-                pretty = " -> ".join(path)
-                raise MessageFieldTreeIncompleteError(
-                    f"{message_name} -> {pretty}: mandatory wire field is absent "
-                    f"from the merged message field tree and is not an "
-                    f"emulator-produced (allowlisted) field. Either set it in the "
-                    f"personality's message_field_tree or, if the emulator "
-                    f"produces it at runtime, add it to the ADR-0006 #83 "
-                    f"optional-field allowlist."
-                )
+            model_cls = _message_class(protocol, message_name)
+            if model_cls is None:  # pragma: no cover - defensive
+                continue
+            allowed = allowlist.get(message_name, set())
+            for path in _required_leaf_paths(model_cls):
+                if path in allowed:
+                    continue
+                if resolve_tree_leaf(tree, protocol, message_name, path) is UNSET:
+                    pretty = " -> ".join(path)
+                    raise MessageFieldTreeIncompleteError(
+                        f"{protocol} -> {message_name} -> {pretty}: mandatory wire "
+                        f"field is absent from the merged message field tree and is "
+                        f"not an emulator-produced (allowlisted) field. Either set "
+                        f"it in the personality's message_field_tree or, if the "
+                        f"emulator produces it at runtime, add it to the ADR-0006 "
+                        f"#83 optional-field allowlist."
+                    )

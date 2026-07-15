@@ -101,10 +101,10 @@ def _secc_session(*, tree_present: bool, live_control: LiveControl) -> StubCommS
         # Present V/I is a runtime measurement the baseline deliberately leaves
         # out of the tree; a red-team personality may still pin it, which is the
         # "set in the tree" half of the precedence.
-        personality.message_field_tree["CurrentDemandRes"]["EVSEPresentVoltage"] = {
+        personality.message_field_tree["DIN_SPEC_70121"]["CurrentDemandRes"]["EVSEPresentVoltage"] = {
             "Value": TREE_VOLTAGE, "Multiplier": 0, "Unit": "V",
         }
-        personality.message_field_tree["CurrentDemandRes"]["EVSEPresentCurrent"] = {
+        personality.message_field_tree["DIN_SPEC_70121"]["CurrentDemandRes"]["EVSEPresentCurrent"] = {
             "Value": TREE_CURRENT, "Multiplier": 0, "Unit": "A",
         }
     session = StubCommSession(
@@ -198,10 +198,10 @@ def _evcc_session(*, tree_target: bool, live_control: LiveControl) -> StubCommSe
     if tree_target:
         # Target V/I ramps and stays computed in the baseline; a personality may
         # still pin it — the "set in the tree" half of the precedence.
-        personality.message_field_tree["CurrentDemandReq"]["EVTargetVoltage"] = {
+        personality.message_field_tree["DIN_SPEC_70121"]["CurrentDemandReq"]["EVTargetVoltage"] = {
             "Value": TREE_VOLTAGE, "Multiplier": 0, "Unit": "V",
         }
-        personality.message_field_tree["CurrentDemandReq"]["EVTargetCurrent"] = {
+        personality.message_field_tree["DIN_SPEC_70121"]["CurrentDemandReq"]["EVTargetCurrent"] = {
             "Value": TREE_CURRENT, "Multiplier": 0, "Unit": "A",
         }
     config = EVCCConfig.from_personality(personality)

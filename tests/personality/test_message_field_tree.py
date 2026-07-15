@@ -36,7 +36,9 @@ from app.shared.messages.iso15118_2.datatypes import ResponseCode
 from app.secc.controller.simulator import SimEVSEController
 from app.shared.personality.message_field_tree import (
     MessageFieldTreeError,
+    _message_class,
     apply_message_field_tree,
+    validate_message_field_tree,
 )
 from app.shared.personality.model import SECCPersonality
 
@@ -45,9 +47,11 @@ from app.shared.personality.model import SECCPersonality
 # issue uses. A helper keeps the deep nesting out of every test body.
 def _isolation_tree(value):
     return {
-        "ChargeParameterDiscoveryRes": {
-            "DC_EVSEChargeParameter": {
-                "DC_EVSEStatus": {"EVSEIsolationStatus": value}
+        "DIN_SPEC_70121": {
+            "ChargeParameterDiscoveryRes": {
+                "DC_EVSEChargeParameter": {
+                    "DC_EVSEStatus": {"EVSEIsolationStatus": value}
+                }
             }
         }
     }
@@ -60,7 +64,7 @@ def _isolation_tree(value):
 
 def test_personality_carries_isolation_tree_entry():
     p = SECCPersonality.model_validate({"message_field_tree": _isolation_tree("Invalid")})
-    leaf = p.message_field_tree["ChargeParameterDiscoveryRes"][
+    leaf = p.message_field_tree["DIN_SPEC_70121"]["ChargeParameterDiscoveryRes"][
         "DC_EVSEChargeParameter"
     ]["DC_EVSEStatus"]["EVSEIsolationStatus"]
     assert leaf == "Invalid"
@@ -73,9 +77,11 @@ def test_default_tree_is_empty():
 def test_path_accepts_python_field_names_too():
     # ADR-0006: a segment resolves by field name *or* alias.
     tree = {
-        "ChargeParameterDiscoveryRes": {
-            "dc_charge_parameter": {
-                "dc_evse_status": {"evse_isolation_status": "Warning"}
+        "DIN_SPEC_70121": {
+            "ChargeParameterDiscoveryRes": {
+                "dc_charge_parameter": {
+                    "dc_evse_status": {"evse_isolation_status": "Warning"}
+                }
             }
         }
     }
@@ -85,7 +91,11 @@ def test_path_accepts_python_field_names_too():
 def test_unknown_message_name_is_hard_error():
     with pytest.raises(ValidationError):
         SECCPersonality.model_validate(
-            {"message_field_tree": {"ChargeParameterDiscoveryRezz": {}}}
+            {
+                "message_field_tree": {
+                    "DIN_SPEC_70121": {"ChargeParameterDiscoveryRezz": {}}
+                }
+            }
         )
 
 
@@ -94,9 +104,11 @@ def test_misspelled_leaf_is_hard_error():
         SECCPersonality.model_validate(
             {
                 "message_field_tree": {
-                    "ChargeParameterDiscoveryRes": {
-                        "DC_EVSEChargeParameter": {
-                            "DC_EVSEStatus": {"EVSEIsolationStatuz": "Invalid"}
+                    "DIN_SPEC_70121": {
+                        "ChargeParameterDiscoveryRes": {
+                            "DC_EVSEChargeParameter": {
+                                "DC_EVSEStatus": {"EVSEIsolationStatuz": "Invalid"}
+                            }
                         }
                     }
                 }
@@ -109,9 +121,11 @@ def test_misspelled_mid_path_is_hard_error():
         SECCPersonality.model_validate(
             {
                 "message_field_tree": {
-                    "ChargeParameterDiscoveryRes": {
-                        "DC_EVSEChargeParametr": {  # typo
-                            "DC_EVSEStatus": {"EVSEIsolationStatus": "Invalid"}
+                    "DIN_SPEC_70121": {
+                        "ChargeParameterDiscoveryRes": {
+                            "DC_EVSEChargeParametr": {  # typo
+                                "DC_EVSEStatus": {"EVSEIsolationStatus": "Invalid"}
+                            }
                         }
                     }
                 }
@@ -126,7 +140,9 @@ def test_descending_into_a_leaf_is_hard_error():
         SECCPersonality.model_validate(
             {
                 "message_field_tree": {
-                    "ChargeParameterDiscoveryRes": {"EVSEProcessing": {"x": 1}}
+                    "DIN_SPEC_70121": {
+                        "ChargeParameterDiscoveryRes": {"EVSEProcessing": {"x": 1}}
+                    }
                 }
             }
         )
@@ -156,7 +172,7 @@ def test_illegal_enum_value_accepted_at_load():
     # 'Bogus' is not an IsolationLevel member — the model would reject it, but
     # the tree layer must not range/enum-check it.
     p = SECCPersonality.model_validate({"message_field_tree": _isolation_tree("Bogus")})
-    leaf = p.message_field_tree["ChargeParameterDiscoveryRes"][
+    leaf = p.message_field_tree["DIN_SPEC_70121"]["ChargeParameterDiscoveryRes"][
         "DC_EVSEChargeParameter"
     ]["DC_EVSEStatus"]["EVSEIsolationStatus"]
     assert leaf == "Bogus"
@@ -166,15 +182,17 @@ def test_out_of_range_numeric_leaf_accepted_at_load():
     # NotificationMaxDelay is xs:unsignedShort (le=65535) on the model; the tree
     # layer accepts an out-of-range value (bounded only by codec serializability).
     tree = {
-        "ChargeParameterDiscoveryRes": {
-            "DC_EVSEChargeParameter": {
-                "DC_EVSEStatus": {"NotificationMaxDelay": 999_999}
+        "DIN_SPEC_70121": {
+            "ChargeParameterDiscoveryRes": {
+                "DC_EVSEChargeParameter": {
+                    "DC_EVSEStatus": {"NotificationMaxDelay": 999_999}
+                }
             }
         }
     }
     p = SECCPersonality.model_validate({"message_field_tree": tree})
     assert (
-        p.message_field_tree["ChargeParameterDiscoveryRes"][
+        p.message_field_tree["DIN_SPEC_70121"]["ChargeParameterDiscoveryRes"][
             "DC_EVSEChargeParameter"
         ]["DC_EVSEStatus"]["NotificationMaxDelay"]
         == 999_999
@@ -199,7 +217,9 @@ def _built_dc_evse_status():
 
 def test_apply_coerces_valid_value_to_enum():
     msg = _built_dc_evse_status()
-    apply_message_field_tree(msg, "ChargeParameterDiscoveryRes", _isolation_tree("Invalid"))
+    apply_message_field_tree(
+        msg, "DIN_SPEC_70121", "ChargeParameterDiscoveryRes", _isolation_tree("Invalid")
+    )
     # A valid string is coerced to the real enum so it encodes normally.
     assert (
         msg.dc_charge_parameter.dc_evse_status.evse_isolation_status
@@ -209,7 +229,9 @@ def test_apply_coerces_valid_value_to_enum():
 
 def test_apply_pokes_illegal_value_raw_via_lax_build():
     msg = _built_dc_evse_status()
-    apply_message_field_tree(msg, "ChargeParameterDiscoveryRes", _isolation_tree("Bogus"))
+    apply_message_field_tree(
+        msg, "DIN_SPEC_70121", "ChargeParameterDiscoveryRes", _isolation_tree("Bogus")
+    )
     # validate_assignment=True on the model would normally reject 'Bogus'; the
     # lax-build seam poked it raw.
     assert msg.dc_charge_parameter.dc_evse_status.evse_isolation_status == "Bogus"
@@ -217,7 +239,7 @@ def test_apply_pokes_illegal_value_raw_via_lax_build():
 
 def test_apply_leaves_unset_leaf_untouched():
     msg = _built_dc_evse_status()
-    apply_message_field_tree(msg, "ChargeParameterDiscoveryRes", {})
+    apply_message_field_tree(msg, "DIN_SPEC_70121", "ChargeParameterDiscoveryRes", {})
     assert (
         msg.dc_charge_parameter.dc_evse_status.evse_isolation_status
         is IsolationLevel.VALID
@@ -229,8 +251,9 @@ def test_apply_ignores_other_message_entries():
     # A tree entry for a different message must not touch this one.
     apply_message_field_tree(
         msg,
+        "DIN_SPEC_70121",
         "ChargeParameterDiscoveryRes",
-        {"CableCheckRes": {"DC_EVSEStatus": {"EVSEIsolationStatus": "Fault"}}},
+        {"DIN_SPEC_70121": {"CableCheckRes": {"DC_EVSEStatus": {"EVSEIsolationStatus": "Fault"}}}},
     )
     assert (
         msg.dc_charge_parameter.dc_evse_status.evse_isolation_status
@@ -272,12 +295,14 @@ def _built_cable_check_res():
 # would be caught.
 def _cable_check_tree():
     return {
-        "CableCheckRes": {
-            "DC_EVSEStatus": {
-                "EVSEIsolationStatus": "Invalid",
-                "EVSEStatusCode": "EVSE_IsolationMonitoringActive",
-            },
-            "EVSEProcessing": "Ongoing",
+        "DIN_SPEC_70121": {
+            "CableCheckRes": {
+                "DC_EVSEStatus": {
+                    "EVSEIsolationStatus": "Invalid",
+                    "EVSEStatusCode": "EVSE_IsolationMonitoringActive",
+                },
+                "EVSEProcessing": "Ongoing",
+            }
         }
     }
 
@@ -285,7 +310,11 @@ def _cable_check_tree():
 def test_skip_fields_leaves_named_field_computed():
     msg = _built_cable_check_res()
     apply_message_field_tree(
-        msg, "CableCheckRes", _cable_check_tree(), skip_fields={"dc_evse_status"}
+        msg,
+        "DIN_SPEC_70121",
+        "CableCheckRes",
+        _cable_check_tree(),
+        skip_fields={"dc_evse_status"},
     )
     # DC_EVSEStatus was skipped: the computed Valid / EVSE_Ready survives.
     assert msg.dc_evse_status.evse_isolation_status is IsolationLevel.VALID
@@ -295,7 +324,11 @@ def test_skip_fields_leaves_named_field_computed():
 def test_skip_fields_still_applies_the_rest_of_the_tree():
     msg = _built_cable_check_res()
     apply_message_field_tree(
-        msg, "CableCheckRes", _cable_check_tree(), skip_fields={"dc_evse_status"}
+        msg,
+        "DIN_SPEC_70121",
+        "CableCheckRes",
+        _cable_check_tree(),
+        skip_fields={"dc_evse_status"},
     )
     # The non-isolation field is *not* skipped and reaches the message — the
     # trap the old whole-tree skip introduced (#82).
@@ -306,14 +339,20 @@ def test_skip_fields_resolves_alias_spelling():
     # The skip set names Python fields, but a tree may spell the field with its
     # XSD alias (DC_EVSEStatus); the skip must still match.
     msg = _built_cable_check_res()
-    tree = {"CableCheckRes": {"DC_EVSEStatus": {"EVSEIsolationStatus": "Fault"}}}
-    apply_message_field_tree(msg, "CableCheckRes", tree, skip_fields={"dc_evse_status"})
+    tree = {
+        "DIN_SPEC_70121": {
+            "CableCheckRes": {"DC_EVSEStatus": {"EVSEIsolationStatus": "Fault"}}
+        }
+    }
+    apply_message_field_tree(
+        msg, "DIN_SPEC_70121", "CableCheckRes", tree, skip_fields={"dc_evse_status"}
+    )
     assert msg.dc_evse_status.evse_isolation_status is IsolationLevel.VALID
 
 
 def test_no_skip_fields_applies_everything():
     msg = _built_cable_check_res()
-    apply_message_field_tree(msg, "CableCheckRes", _cable_check_tree())
+    apply_message_field_tree(msg, "DIN_SPEC_70121", "CableCheckRes", _cable_check_tree())
     # Without a skip set the whole tree lands, isolation sub-tree included.
     assert msg.dc_evse_status.evse_isolation_status == "Invalid"
     assert msg.evse_processing is EVSEProcessing.ONGOING
@@ -344,7 +383,9 @@ def _roundtrip_isolation(tree_value):
         dc_charge_parameter=dc,
     )
     if p.message_field_tree:
-        apply_message_field_tree(msg, "ChargeParameterDiscoveryRes", p.message_field_tree)
+        apply_message_field_tree(
+            msg, "DIN_SPEC_70121", "ChargeParameterDiscoveryRes", p.message_field_tree
+        )
 
     doc = V2GMessageDINSPEC(
         header=MessageHeader(session_id="00"),
@@ -381,7 +422,11 @@ def test_wire_warning_is_emitted():
 
 
 def _sa_schedule_tree(tuples):
-    return {"ChargeParameterDiscoveryRes": {"SAScheduleList": {"SAScheduleTuple": tuples}}}
+    return {
+        "DIN_SPEC_70121": {
+            "ChargeParameterDiscoveryRes": {"SAScheduleList": {"SAScheduleTuple": tuples}}
+        }
+    }
 
 
 def _tuple(tuple_id=1, pmax=24000, schedule_id=1, entries=None):
@@ -444,19 +489,21 @@ def test_list_element_typo_is_hard_error():
 
 def test_list_element_accepts_python_field_names():
     tree = {
-        "ChargeParameterDiscoveryRes": {
-            "sa_schedule_list": {
-                "values": [
-                    {
-                        "sa_schedule_tuple_id": 1,
-                        "p_max_schedule": {
-                            "p_max_schedule_id": 1,
-                            "entry_details": [
-                                {"p_max": 24000, "time_interval": {"start": 0}}
-                            ],
-                        },
-                    }
-                ]
+        "DIN_SPEC_70121": {
+            "ChargeParameterDiscoveryRes": {
+                "sa_schedule_list": {
+                    "values": [
+                        {
+                            "sa_schedule_tuple_id": 1,
+                            "p_max_schedule": {
+                                "p_max_schedule_id": 1,
+                                "entry_details": [
+                                    {"p_max": 24000, "time_interval": {"start": 0}}
+                                ],
+                            },
+                        }
+                    ]
+                }
             }
         }
     }
@@ -481,7 +528,7 @@ def test_apply_builds_whole_list_from_tree():
 
     msg = _built_cpd_with_scaffold()
     tree = _sa_schedule_tree([_tuple(tuple_id=1, pmax=24000), _tuple(tuple_id=2, pmax=5000)])
-    apply_message_field_tree(msg, "ChargeParameterDiscoveryRes", tree)
+    apply_message_field_tree(msg, "DIN_SPEC_70121", "ChargeParameterDiscoveryRes", tree)
 
     values = msg.sa_schedule_list.values
     assert len(values) == 2
@@ -495,7 +542,9 @@ def test_apply_builds_whole_list_from_tree():
 
 def test_apply_empty_list_replaces_scaffold():
     msg = _built_cpd_with_scaffold()
-    apply_message_field_tree(msg, "ChargeParameterDiscoveryRes", _sa_schedule_tree([]))
+    apply_message_field_tree(
+        msg, "DIN_SPEC_70121", "ChargeParameterDiscoveryRes", _sa_schedule_tree([])
+    )
     assert msg.sa_schedule_list.values == []
 
 
@@ -507,7 +556,10 @@ def test_apply_illegal_leaf_inside_element_survives_as_model():
 
     msg = _built_cpd_with_scaffold()
     apply_message_field_tree(
-        msg, "ChargeParameterDiscoveryRes", _sa_schedule_tree([_tuple(pmax=99999)])
+        msg,
+        "DIN_SPEC_70121",
+        "ChargeParameterDiscoveryRes",
+        _sa_schedule_tree([_tuple(pmax=99999)]),
     )
     [entry] = msg.sa_schedule_list.values
     assert isinstance(entry, SAScheduleTupleEntry)
@@ -525,7 +577,9 @@ def test_wire_sa_schedule_list_round_trips():
         {"message_field_tree": _sa_schedule_tree([_tuple(pmax=24000)])}
     )
     msg = _built_cpd_with_scaffold()
-    apply_message_field_tree(msg, "ChargeParameterDiscoveryRes", p.message_field_tree)
+    apply_message_field_tree(
+        msg, "DIN_SPEC_70121", "ChargeParameterDiscoveryRes", p.message_field_tree
+    )
 
     doc = V2GMessageDINSPEC(
         header=MessageHeader(session_id="00"),
@@ -553,7 +607,9 @@ def test_device_override_replaces_list_wholesale():
     device = _sa_schedule_tree([_tuple(tuple_id=1, pmax=32000)])
     merged = _deep_merge(baseline, device)
 
-    tuples = merged["ChargeParameterDiscoveryRes"]["SAScheduleList"]["SAScheduleTuple"]
+    tuples = merged["DIN_SPEC_70121"]["ChargeParameterDiscoveryRes"]["SAScheduleList"][
+        "SAScheduleTuple"
+    ]
     assert len(tuples) == 1
     assert tuples[0]["PMaxSchedule"]["PMaxScheduleEntry"][0]["PMax"] == 32000
 
@@ -593,7 +649,7 @@ def test_apply_bare_mapping_for_list_field_does_not_crash(caplog):
 
     with caplog.at_level(logging.WARNING):
         apply_message_field_tree(
-            msg, "ChargeParameterDiscoveryRes", _sa_schedule_tree(_tuple())
+            msg, "DIN_SPEC_70121", "ChargeParameterDiscoveryRes", _sa_schedule_tree(_tuple())
         )
 
     # Untouched: the builder's scaffold list is left in place.
@@ -609,3 +665,63 @@ def test_apply_bare_mapping_for_list_field_does_not_crash(caplog):
         "is a list-nested field but the tree value is a" in rec.message
         for rec in caplog.records
     )
+
+
+# ---------------------------------------------------------------------------
+# Protocol-keyed tree (ADR-0006 protocol-keyed amendment)
+#
+# The tree is keyed by protocol first, then message name. An unknown protocol
+# key and an unknown message *within* a protocol are both hard errors at load,
+# and a message name shared by several protocols resolves against the model of
+# whichever protocol keys it.
+# ---------------------------------------------------------------------------
+
+
+def test_unknown_protocol_key_is_hard_error():
+    # A top-level key that is not a known protocol string is rejected at load.
+    with pytest.raises(ValidationError):
+        SECCPersonality.model_validate(
+            {"message_field_tree": {"NOT_A_PROTOCOL": {"SessionSetupRes": {}}}}
+        )
+
+
+def test_unknown_protocol_key_raises_typed_error():
+    # The raw helper raises the typed error naming the unknown protocol.
+    with pytest.raises(MessageFieldTreeError):
+        validate_message_field_tree({"NOT_A_PROTOCOL": {"SessionSetupRes": {}}})
+
+
+def test_unknown_message_within_protocol_is_hard_error():
+    # A message name that is valid nowhere under a *known* protocol is rejected.
+    with pytest.raises(ValidationError):
+        SECCPersonality.model_validate(
+            {"message_field_tree": {"DIN_SPEC_70121": {"NotAMessage": {}}}}
+        )
+
+
+def test_unknown_message_within_protocol_raises_typed_error():
+    with pytest.raises(MessageFieldTreeError):
+        validate_message_field_tree({"DIN_SPEC_70121": {"NotAMessage": {}}})
+
+
+def test_message_name_resolves_per_protocol_key():
+    # SessionSetupReq is defined by both DIN and ISO 15118-2 as *different*
+    # models; the protocol key is what disambiguates which model a message name
+    # binds to.
+    din_cls = _message_class("DIN_SPEC_70121", "SessionSetupReq")
+    iso2_cls = _message_class("ISO_15118_2", "SessionSetupReq")
+    assert din_cls is not None
+    assert iso2_cls is not None
+    assert din_cls is not iso2_cls
+
+
+def test_din_field_path_validates_under_din_protocol_key():
+    # A field path valid for the DIN SessionSetupReq loads cleanly when keyed by
+    # DIN_SPEC_70121 — path-strict resolution runs against DIN's model.
+    din_cls = _message_class("DIN_SPEC_70121", "SessionSetupReq")
+    # Pick any real field/alias of the DIN model to key the tree by.
+    field_name, field = next(iter(din_cls.model_fields.items()))
+    segment = field.alias or field_name
+    tree = {"DIN_SPEC_70121": {"SessionSetupReq": {segment: "x"}}}
+    # value-raw: the leaf value is not checked, only the path resolves.
+    assert validate_message_field_tree(tree) == tree

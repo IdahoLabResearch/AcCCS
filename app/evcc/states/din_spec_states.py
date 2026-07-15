@@ -107,7 +107,7 @@ def apply_personality_tree(
     tree = getattr(config, "message_field_tree", None)
     if tree:
         apply_message_field_tree(
-            req, type(req).__name__, tree, skip_fields=skip_fields
+            req, "DIN_SPEC_70121", type(req).__name__, tree, skip_fields=skip_fields
         )
 
 
