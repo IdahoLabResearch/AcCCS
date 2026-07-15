@@ -854,6 +854,9 @@ class ChargeParameterDiscovery(StateEVCC):
             else:
                 self.comm_session.ongoing_timer = time()
 
+            await self.pace_ongoing_poll()
+            # Build after the pacing sleep so the DC EV status / SOC is sampled
+            # at send time rather than a poll interval ago (issue #91).
             charge_params = await ev_controller.get_charge_params_v2(
                 Protocol.ISO_15118_2
             )
@@ -864,7 +867,6 @@ class ChargeParameterDiscovery(StateEVCC):
                 dc_ev_charge_parameter=charge_params.dc_parameters,
             )
 
-            await self.pace_ongoing_poll()
             self.create_next_message(
                 ChargeParameterDiscovery,
                 charge_parameter_discovery_req,
@@ -1317,10 +1319,12 @@ class CableCheck(StateEVCC):
             else:
                 self.comm_session.ongoing_timer = time()
 
+            await self.pace_ongoing_poll()
+            # Build after the pacing sleep so the DC EV status is sampled at
+            # send time rather than a poll interval ago (issue #91).
             cable_check_req = CableCheckReq(
                 dc_ev_status=await self.comm_session.ev_controller.get_dc_ev_status(),
             )
-            await self.pace_ongoing_poll()
             self.create_next_message(
                 CableCheck,
                 cable_check_req,

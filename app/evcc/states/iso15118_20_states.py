@@ -418,6 +418,20 @@ class Authorization(StateEVCC):
             else:
                 self.comm_session.ongoing_timer = int(time.time())
 
+            # In stall mode keep a sane positive per-message timeout: once
+            # elapsed exceeds the ongoing timeout, `V2G_EVCC_ONGOING_TIMEOUT -
+            # elapsed_time` would go negative and poison the min(). This uses
+            # the elapsed time sampled above the sleep, so it stays before it.
+            next_timeout = Timeouts.AUTHORIZATION_REQ
+            if not stall_mode:
+                next_timeout = min(
+                    Timeouts.AUTHORIZATION_REQ,
+                    TimeoutsShared.V2G_EVCC_ONGOING_TIMEOUT - elapsed_time,
+                )
+
+            await self.pace_ongoing_poll()
+            # Build after the pacing sleep so the header timestamp reflects send
+            # time rather than a poll interval ago (issue #91).
             auth_req = AuthorizationReq(
                 header=MessageHeader(
                     session_id=self.comm_session.session_id,
@@ -433,17 +447,6 @@ class Authorization(StateEVCC):
                 eim_params=self.comm_session.authorization_req_message.eim_params,
             )
 
-            # In stall mode keep a sane positive per-message timeout: once
-            # elapsed exceeds the ongoing timeout, `V2G_EVCC_ONGOING_TIMEOUT -
-            # elapsed_time` would go negative and poison the min().
-            next_timeout = Timeouts.AUTHORIZATION_REQ
-            if not stall_mode:
-                next_timeout = min(
-                    Timeouts.AUTHORIZATION_REQ,
-                    TimeoutsShared.V2G_EVCC_ONGOING_TIMEOUT - elapsed_time,
-                )
-
-            await self.pace_ongoing_poll()
             self.create_next_message(
                 Authorization,
                 auth_req,
@@ -1497,13 +1500,15 @@ class DCCableCheck(StateEVCC):
             else:
                 self.comm_session.ongoing_timer = int(time.time())
 
+            await self.pace_ongoing_poll()
+            # Build after the pacing sleep so the header timestamp reflects send
+            # time rather than a poll interval ago (issue #91).
             cable_check_req = DCCableCheckReq(
                 header=MessageHeader(
                     session_id=self.comm_session.session_id,
                     timestamp=int(time.time()),
                 )
             )
-            await self.pace_ongoing_poll()
             self.create_next_message(
                 None,
                 cable_check_req,

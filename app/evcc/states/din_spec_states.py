@@ -370,8 +370,7 @@ class ContractAuthentication(StateEVCC):
         # ie, EVSE returns EVSEProcessing.ONGOING response
         # 2. Move on to next state: ChargeParameterDiscoveryReq
         next_state = None
-        next_message: Any = ContractAuthenticationReq()
-        apply_personality_tree(self.comm_session, next_message)
+        next_message: Any
         timeout = Timeouts.CONTRACT_AUTHENTICATION_REQ
 
         if contract_authentication_res.evse_processing == EVSEProcessing.FINISHED:
@@ -382,7 +381,11 @@ class ContractAuthentication(StateEVCC):
             # The SECC is still waiting on external payment authorization (EIM
             # RFID / app / backend). Poll at a cadence instead of re-sending as
             # fast as it can answer (issue #88); FINISHED above never waits.
+            # Build the re-send after the pacing sleep so it is sampled at send
+            # time rather than a poll interval ago (issue #91).
             await self.pace_ongoing_poll()
+            next_message = ContractAuthenticationReq()
+            apply_personality_tree(self.comm_session, next_message)
 
         self.create_next_message(
             next_state,
@@ -484,11 +487,12 @@ class ChargeParameterDiscovery(StateEVCC):
             elif self.comm_session.ongoing_timer == -1:
                 self.comm_session.ongoing_timer = time()
 
+            await self.pace_ongoing_poll()
+            # Build after the pacing sleep so the DC EV status / SOC is sampled
+            # at send time rather than a poll interval ago (issue #91).
             charge_parameter_discovery_req: ChargeParameterDiscoveryReq = (
                 await self.build_charge_parameter_discovery_req()
             )
-
-            await self.pace_ongoing_poll()
             self.create_next_message(
                 None,
                 charge_parameter_discovery_req,
@@ -580,9 +584,12 @@ class CableCheck(StateEVCC):
             elif self.comm_session.ongoing_timer == -1:
                 self.comm_session.ongoing_timer = time()
 
-            cable_check_req = await self.build_cable_check_req()
-
             await self.pace_ongoing_poll()
+            # Build after the pacing sleep so the DC EV status is sampled at
+            # send time rather than a poll interval ago (issue #91). This
+            # reverses the #88 hoist, which was incidental — nothing between the
+            # build and the send reads the request.
+            cable_check_req = await self.build_cable_check_req()
             self.create_next_message(
                 None,
                 cable_check_req,

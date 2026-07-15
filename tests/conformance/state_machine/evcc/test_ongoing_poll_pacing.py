@@ -29,11 +29,15 @@ import pytest
 
 from app.evcc.controller.simulator import SimEVController
 from app.evcc.evcc_config import EVCCConfig
+from app.evcc.states import evcc_state as evcc_state_module
+from app.evcc.states import iso15118_20_states as iso20_states
 from app.evcc.states.din_spec_states import (
     ChargeParameterDiscovery,
     ContractAuthentication,
 )
 from app.evcc.states.iso15118_2_states import Authorization
+from app.evcc.states.iso15118_20_states import Authorization as Iso20Authorization
+from app.evcc.states.iso15118_20_states import DCCableCheck
 from app.shared.live_control import LiveControl
 from app.shared.messages.din_spec.body import Body as BodyDIN
 from app.shared.messages.din_spec.body import (
@@ -42,11 +46,26 @@ from app.shared.messages.din_spec.body import (
 )
 from app.shared.messages.din_spec.header import MessageHeader as MessageHeaderDIN
 from app.shared.messages.din_spec.msgdef import V2GMessage as V2GMessageDINSPEC
-from app.shared.messages.enums import EVSEProcessing, Protocol
+from app.shared.messages.enums import AuthEnum, EVSEProcessing, Protocol
 from app.shared.messages.iso15118_2.body import AuthorizationRes, Body
 from app.shared.messages.iso15118_2.body import ResponseCode as ResponseCodeV2
 from app.shared.messages.iso15118_2.header import MessageHeader
 from app.shared.messages.iso15118_2.msgdef import V2GMessage as V2GMessageV2
+from app.shared.messages.iso15118_20.common_messages import (
+    AuthorizationReq as AuthorizationReqV20,
+)
+from app.shared.messages.iso15118_20.common_messages import (
+    AuthorizationRes as AuthorizationResV20,
+)
+from app.shared.messages.iso15118_20.common_messages import EIMAuthReqParams
+from app.shared.messages.iso15118_20.common_types import (
+    MessageHeader as MessageHeaderV20,
+)
+from app.shared.messages.iso15118_20.common_types import Processing as ProcessingV20
+from app.shared.messages.iso15118_20.common_types import (
+    ResponseCode as ResponseCodeV20,
+)
+from app.shared.messages.iso15118_20.dc import DCCableCheckRes
 from app.shared.messages.timeouts import Timeouts as TimeoutsShared
 from app.shared.personality.loader import load_personality
 from app.shared.states import Terminate
@@ -219,3 +238,115 @@ async def test_iso2_ongoing_authorization_is_paced(exi_codec):
 
     assert result.next_state is Authorization  # still polling
     assert elapsed >= POLL_INTERVAL * 0.9
+
+
+# -- ISO 15118-20 header timestamp is sampled at send time (issue #91) -------
+#
+# The ISO-20 AuthorizationReq and DCCableCheckReq stamp `timestamp=int(time.
+# time())` into their MessageHeader. Before #91 they were built above the
+# pacing sleep, so every paced poll carried a header timestamp a full poll
+# interval (>= one seconds-resolution tick) in the past. These tests drive a
+# real paced re-send under a hand-cranked clock: the pacing sleep advances the
+# clock, so a build *after* the sleep must read the later second.
+
+# Fake-time seconds. Both are integral so `int()` at the header is exact, and
+# the interval is a comfortable multiple of the header's 1 s resolution.
+ISO20_CLOCK_START = 1_000_000.0
+ISO20_POLL_INTERVAL = 5.0
+
+
+class _FakeClock:
+    """A hand-cranked stand-in for the `time` module the ISO-20 states read.
+
+    The states only ever call `time.time()`; `_install_fake_clock` wires the
+    pacing sleep to advance `now`, so a header built after the sleep reads a
+    strictly later second than one built before it — the drift #91 removes.
+    """
+
+    def __init__(self, start: float) -> None:
+        self.now = start
+
+    def time(self) -> float:
+        return self.now
+
+
+def _install_fake_clock(monkeypatch, clock: _FakeClock) -> None:
+    # The ISO-20 states read `time.time()`; the base state's pacing sleep is the
+    # only `asyncio.sleep` reached on this path. Swapping both for fakes keeps
+    # the test deterministic and instant while exercising the real ordering.
+    monkeypatch.setattr(iso20_states, "time", clock)
+
+    async def _advancing_sleep(delay: float) -> None:
+        clock.now += delay
+
+    monkeypatch.setattr(
+        evcc_state_module,
+        "asyncio",
+        types.SimpleNamespace(sleep=_advancing_sleep),
+    )
+
+
+def _iso20_session() -> StubCommSession:
+    session = StubCommSession(
+        protocol=Protocol.ISO_15118_20_COMMON_MESSAGES, session_id=bytes(1).hex()
+    )
+    session.live_control = LiveControl()  # stall off; the timer never expires here
+    session.ongoing_timer = -1  # fresh — the first poll starts it, no abort
+    session.ongoing_poll_interval = ISO20_POLL_INTERVAL
+    session.writer = types.SimpleNamespace(get_extra_info=lambda _name: None)
+    return session
+
+
+@pytest.mark.asyncio
+async def test_iso20_authorization_poll_header_is_send_time(exi_codec, monkeypatch):
+    """A paced ISO-20 AuthorizationReq stamps its header at send time (issue #91).
+
+    With the build below the pacing sleep the header timestamp lands a full
+    poll interval later than the receive-time sample the old ordering produced.
+    """
+    clock = _FakeClock(ISO20_CLOCK_START)
+    _install_fake_clock(monkeypatch, clock)
+
+    session = _iso20_session()
+    session.authorization_req_message = AuthorizationReqV20(
+        header=MessageHeaderV20(session_id=session.session_id, timestamp=1),
+        selected_auth_service=AuthEnum.EIM,
+        eim_params=EIMAuthReqParams(),
+    )
+    peer = ScriptedPeer(session, start_state=Iso20Authorization)
+
+    result = await peer.feed(
+        AuthorizationResV20(
+            header=MessageHeaderV20(session_id=session.session_id, timestamp=1),
+            response_code=ResponseCodeV20.OK,
+            evse_processing=ProcessingV20.ONGOING,
+        )
+    )
+
+    assert result.next_state is Iso20Authorization  # still polling
+    timestamp = result.outbound_msg.header.timestamp
+    assert timestamp == int(ISO20_CLOCK_START + ISO20_POLL_INTERVAL)  # send time
+    assert timestamp != int(ISO20_CLOCK_START)  # not the receive-time sample
+
+
+@pytest.mark.asyncio
+async def test_iso20_cable_check_poll_header_is_send_time(exi_codec, monkeypatch):
+    """A paced ISO-20 DCCableCheckReq stamps its header at send time (issue #91)."""
+    clock = _FakeClock(ISO20_CLOCK_START)
+    _install_fake_clock(monkeypatch, clock)
+
+    session = _iso20_session()
+    peer = ScriptedPeer(session, start_state=DCCableCheck)
+
+    result = await peer.feed(
+        DCCableCheckRes(
+            header=MessageHeaderV20(session_id=session.session_id, timestamp=1),
+            response_code=ResponseCodeV20.OK,
+            evse_processing=ProcessingV20.ONGOING,
+        )
+    )
+
+    assert result.next_state is None  # stay in CableCheck and poll again
+    timestamp = result.outbound_msg.header.timestamp
+    assert timestamp == int(ISO20_CLOCK_START + ISO20_POLL_INTERVAL)  # send time
+    assert timestamp != int(ISO20_CLOCK_START)  # not the receive-time sample
