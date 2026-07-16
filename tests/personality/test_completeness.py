@@ -400,6 +400,75 @@ def test_iso20_header_envelope_is_excluded_from_completeness():
     )
 
 
+def test_shipped_iso20_dc_evcc_baseline_passes_completeness():
+    # ISO-20 DC is tree-backed for the EVCC as of #99: the shipped baseline must
+    # carry a complete ISO-20 DC subtree. Loading is the check. Every mandatory
+    # EVCC-emitted DC body leaf is runtime-produced (allowlisted) or Optional (the
+    # BPT requested envelope the baseline pins), so the baseline's single pinned
+    # message loads clean.
+    load_personality("iso20-dc-evcc-baseline", "evcc")
+
+
+def test_incomplete_iso20_dc_evcc_subtree_fails_now_that_iso20_dc_evcc_is_tree_backed():
+    # ISO-20 DC is tree-backed for the EVCC (#99). Unlike the SECC (whose
+    # config-owned EVSEID trips the gate), every mandatory *common* EVCC leaf is
+    # runtime-produced and allowlisted (EVCCID from the NIC MAC, the negotiated
+    # auth service, session-scoped IDs, ready flags), so the gate-tripping target
+    # is the PnC-only CertificateInstallationReq — its OEMProvisioningCertificate-
+    # Chain leaves are mandatory and *not* allowlisted (no PnC baseline sources
+    # them). A subtree that names that message but omits them trips the gate. (The
+    # shipped EIM baseline never carries this message, so per-message-present keeps
+    # it clean.)
+    with pytest.raises(
+        ValidationError,
+        match=(
+            "ISO_15118_20_DC -> CertificateInstallationReq -> "
+            "oem_prov_cert_chain -> id"
+        ),
+    ):
+        EVCCPersonality.model_validate(
+            {
+                "capabilities": {"supported_protocols": ["ISO_15118_20_DC"]},
+                "message_field_tree": {
+                    "ISO_15118_20_DC": {
+                        "CertificateInstallationReq": {
+                            "MaximumContractCertificateChains": 3
+                        }
+                    }
+                },
+            }
+        )
+
+
+def test_iso20_dc_evcc_header_envelope_is_excluded_from_completeness():
+    # The EVCC-side ISO-20 mirror of the SECC header-exclusion test: a DC EVCC
+    # subtree that pins the DC-BPT requested envelope but nothing under `header`
+    # must still load — the header leaves are never demanded of the tree.
+    EVCCPersonality.model_validate(
+        {
+            "capabilities": {"supported_protocols": ["ISO_15118_20_DC"]},
+            "message_field_tree": {
+                "ISO_15118_20_DC": {
+                    "DCChargeParameterDiscoveryReq": {
+                        "BPT_DC_CPDReqEnergyTransferMode": {
+                            "EVMaximumChargePower": {"Exponent": 0, "Value": 18000},
+                            "EVMinimumChargePower": {"Exponent": 0, "Value": 0},
+                            "EVMaximumChargeCurrent": {"Exponent": 0, "Value": 60},
+                            "EVMinimumChargeCurrent": {"Exponent": 0, "Value": 0},
+                            "EVMaximumVoltage": {"Exponent": 0, "Value": 800},
+                            "EVMinimumVoltage": {"Exponent": 0, "Value": 450},
+                            "EVMaximumDischargePower": {"Exponent": 0, "Value": -20000},
+                            "EVMinimumDischargePower": {"Exponent": 0, "Value": 0},
+                            "EVMaximumDischargeCurrent": {"Exponent": 0, "Value": -60},
+                            "EVMinimumDischargeCurrent": {"Exponent": 0, "Value": 0},
+                        }
+                    }
+                }
+            },
+        }
+    )
+
+
 def test_incomplete_iso2_evcc_subtree_fails_now_that_iso2_evcc_is_tree_backed():
     # ISO-2 is tree-backed for the EVCC (#97): a present-but-incomplete ISO-2
     # subtree (a CableCheckReq missing the required, config-only EVRESSSOC) trips

@@ -1,0 +1,12 @@
+# Conformance ISO 15118-20 DC EVCC personality, tree-backed via the shipped
+# baseline (ADR-0006 / #99). Extends the repo `iso20-dc-evcc-baseline` (resolved
+# through the personality search path) and only adds the veth interface, so the
+# E2E asserts the baseline wire values the EVCC actually emits (the tree-sourced
+# DC-BPT ChargeParameterDiscovery requested envelope). The baseline requests
+# DC_BPT, so it pairs with `iso20-dc-baseline-secc.yaml`, whose baseline advertises
+# [DC_BPT, DC]. TLS 1.3 stays on (inherited from the baseline; ISO-20 mandates it).
+extends: iso20-dc-evcc-baseline
+role: evcc
+residual:
+  network:
+    interface: acccs_evcc

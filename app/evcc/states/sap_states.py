@@ -22,6 +22,9 @@ from app.evcc.states.iso15118_2_states import (
     apply_personality_tree as apply_personality_tree_iso2,
 )
 from app.evcc.states.iso15118_20_states import SessionSetup as SessionSetupV20
+from app.evcc.states.iso15118_20_states import (
+    apply_personality_tree as apply_personality_tree_iso20,
+)
 from app.shared.exceptions import MessageProcessingError
 from app.shared.messages.app_protocol import (
     SupportedAppProtocolReq,
@@ -159,6 +162,11 @@ class SupportedAppProtocol(StateEVCC):
                             self.comm_session.protocol, self.comm_session.iface
                         ),
                     )
+                    # Route the ISO-20 SessionSetupReq through the message field
+                    # tree (ADR-0006 / #99), keyed by the just-negotiated ISO-20
+                    # protocol, so a personality can override its wire fields; the
+                    # baseline leaves EVCCID computed from the NIC MAC (allowlisted).
+                    apply_personality_tree_iso20(self.comm_session, next_msg)
                     next_ns = Namespace.ISO_V20_COMMON_MSG
                     next_state = SessionSetupV20
                     next_payload_type = ISOV20PayloadTypes.MAINSTREAM

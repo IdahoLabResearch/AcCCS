@@ -123,7 +123,12 @@ from app.shared.messages.iso15118_20.dc import (
     ScheduledDCChargeLoopReqParams,
 )
 from app.shared.network import get_nic_mac_address
-from app.shared.personality.model import EVACLimits, EVDCLimits
+from app.shared.personality.model import (
+    EVACLimits,
+    EVDCLimits,
+    EVDCLimitsV20,
+    ScheduleExchangeV20,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -380,12 +385,17 @@ class SimEVController(EVControllerInterface):
     ]:
         """Overrides EVControllerInterface.get_charge_params_v20().
 
-        Per issue #9 / Slice 4, every advertised value is sourced from
-        `personality.power.ev_{ac,dc}_v20` so a personality file can sweep
-        the AC, DC, AC-BPT, and DC-BPT envelopes independently.
+        DC retirement (ADR-0006 / #99): the ISO-20 DC / DC-BPT requested envelope
+        is now tree-sourced at the `DCChargeParameterDiscoveryReq` build site
+        (`{BPT_,}DC_CPDReqEnergyTransferMode → …`), so the DC branch here reads the
+        `EVDCLimitsV20` model-default *skeleton* rather than
+        `personality.power.ev_dc_v20`; the tree overrides it (the baseline pins
+        the DC-BPT envelope decoded from `iso20.pcap`). The AC branch is
+        unchanged — the ISO-20 AC slice has not landed, so it still sources
+        `personality.power.ev_ac_v20`.
         """
         ev_ac_v20 = self.config.ev_ac_v20
-        ev_dc_v20 = self.config.ev_dc_v20
+        ev_dc_v20 = EVDCLimitsV20()
         ac_cpd_params = ACChargeParameterDiscoveryReqParams(
             ev_max_charge_power=RationalNumber.get_rational_repr(
                 ev_ac_v20.max_charge_power_w if ev_ac_v20 else 11000
@@ -456,10 +466,15 @@ class SimEVController(EVControllerInterface):
     ) -> ScheduledScheduleExchangeReqParams:
         """Overrides EVControllerInterface.get_scheduled_se_params().
 
-        Per issue #9 / Slice 4 every ScheduleExchange announcement value is
-        sourced from `personality.power.schedule_exchange_v20`.
+        DC retirement (ADR-0006 / #99): the ScheduleExchangeReq is a common
+        ISO-20 message now tree-sourced at its build site, so this builder emits
+        the `ScheduleExchangeV20` model-default *skeleton* rather than reading
+        `personality.power.schedule_exchange_v20`; the tree overrides any
+        configured leaf. (The shipped DC baseline uses Dynamic control mode, so
+        it carries no ScheduleExchangeReq tree entry — the announcement stays
+        builder-computed, mirroring the ISO-20 DC SECC retirement in #98.)
         """
-        se = self.config.schedule_exchange_v20
+        se = ScheduleExchangeV20()
         ev_price_rule = EVPriceRule(
             energy_fee=RationalNumber.get_rational_repr(
                 se.price_energy_fee if se else 0
@@ -523,10 +538,12 @@ class SimEVController(EVControllerInterface):
     ) -> DynamicScheduleExchangeReqParams:
         """Overrides EVControllerInterface.get_dynamic_se_params().
 
-        Sources departure, SOC targets, and energy requests from
-        `personality.power.schedule_exchange_v20`.
+        DC retirement (ADR-0006 / #99): departure, SOC targets, and energy
+        requests come from the `ScheduleExchangeV20` model-default skeleton, not
+        `personality.power.schedule_exchange_v20` — the ScheduleExchangeReq wire
+        values are tree-sourced at the build site now (mirroring #98).
         """
-        se = self.config.schedule_exchange_v20
+        se = ScheduleExchangeV20()
         dynamic_params = DynamicScheduleExchangeReqParams(
             departure_time=se.departure_time_s if se else 7200,
             min_soc=se.dynamic_min_soc_percent if se else 30,
@@ -985,10 +1002,14 @@ class SimEVController(EVControllerInterface):
     ) -> ScheduledDCChargeLoopReqParams:
         """Overrides EVControllerInterface.get_scheduled_dc_charge_loop_params().
 
-        Sources `ev_target_current` / `ev_target_voltage` from
-        `personality.power.ev_dc_v20`, with the live override applied (issue #32).
+        DC retirement (ADR-0006 / #99): the `ev_target_current` /
+        `ev_target_voltage` ramping targets are allowlisted (runtime-produced),
+        so their `personality.power.ev_dc_v20` fallback retires to the
+        `EVDCLimitsV20` model-default skeleton; the operator's live override
+        (issue #32) still wins over that fallback via `_iso20_override_or`, and
+        these ramping leaves are never baseline-pinned (mirroring #98).
         """
-        ev_dc_v20 = self.config.ev_dc_v20
+        ev_dc_v20 = EVDCLimitsV20()
         return ScheduledDCChargeLoopReqParams(
             ev_target_current=RationalNumber.get_rational_repr(
                 self._iso20_override_or(
@@ -1007,13 +1028,15 @@ class SimEVController(EVControllerInterface):
     async def get_dynamic_dc_charge_loop_params(self) -> DynamicDCChargeLoopReqParams:
         """Overrides EVControllerInterface.get_dynamic_dc_charge_loop_params().
 
-        Sources every magnitude from `personality.power.ev_dc_v20` (`dynamic_*`
-        sub-set) — kept distinct from the CPD envelope because the simulator
-        emits much smaller stub values here. The live override (issue #32) lands
-        on the dynamic-mode current/voltage limits (`ev_max_charge_current` /
-        `ev_max_voltage`), the dynamic equivalents of the scheduled targets.
+        DC retirement (ADR-0006 / #99): every magnitude comes from the
+        `EVDCLimitsV20` model-default skeleton (`dynamic_*` sub-set), not
+        `personality.power.ev_dc_v20` — the DCChargeLoopReq is tree-sourced now.
+        The live override (issue #32) still lands on the dynamic-mode
+        current/voltage limits (`ev_max_charge_current` / `ev_max_voltage`) via
+        `_iso20_override_or`; those ramping leaves are allowlisted, never
+        baseline-pinned (mirroring #98).
         """
-        ev_dc_v20 = self.config.ev_dc_v20
+        ev_dc_v20 = EVDCLimitsV20()
         return DynamicDCChargeLoopReqParams(
             ev_target_energy_request=RationalNumber.get_rational_repr(
                 ev_dc_v20.dynamic_target_energy_request_wh if ev_dc_v20 else 200
@@ -1063,10 +1086,12 @@ class SimEVController(EVControllerInterface):
     ) -> BPTDynamicDCChargeLoopReqParams:
         """Overrides EVControllerInterface.get_bpt_dynamic_dc_charge_loop_params().
 
-        Sources BPT dynamic-mode discharge envelope from
-        `personality.power.ev_dc_v20` (`bpt_dynamic_*` sub-set).
+        DC retirement (ADR-0006 / #99): the BPT dynamic-mode discharge envelope
+        (`bpt_dynamic_*` sub-set) comes from the `EVDCLimitsV20` model-default
+        skeleton, not `personality.power.ev_dc_v20`; the DCChargeLoopReq is
+        tree-sourced now (mirroring #98).
         """
-        ev_dc_v20 = self.config.ev_dc_v20
+        ev_dc_v20 = EVDCLimitsV20()
         dc_dynamic_dc_charge_loop_params_v20 = (
             await self.get_dynamic_dc_charge_loop_params()
         ).model_dump()
@@ -1090,9 +1115,12 @@ class SimEVController(EVControllerInterface):
 
         This is the ISO-20 DC charge loop's `ev_present_voltage` read site
         (present on `DCChargeLoopReq` in both scheduled and dynamic modes), so
-        the voltage override (issue #32) rides here too.
+        the voltage override (issue #32) rides here too. DC retirement (ADR-0006
+        / #99): the override's fallback is the `EVDCLimitsV20` model-default
+        skeleton, not `personality.power.ev_dc_v20` — this ramping present
+        voltage is allowlisted, never baseline-pinned (mirroring #98).
         """
-        ev_dc_v20 = self.config.ev_dc_v20
+        ev_dc_v20 = EVDCLimitsV20()
         return RationalNumber.get_rational_repr(
             self._iso20_override_or(
                 "override_voltage_v",
@@ -1101,8 +1129,14 @@ class SimEVController(EVControllerInterface):
         )
 
     async def get_target_voltage(self) -> RationalNumber:
-        """Overrides EVControllerInterface.get_target_voltage()."""
-        ev_dc_v20 = self.config.ev_dc_v20
+        """Overrides EVControllerInterface.get_target_voltage().
+
+        DC retirement (ADR-0006 / #99): the DCPreChargeReq target voltage is
+        allowlisted (runtime-produced), so its fallback retires to the
+        `EVDCLimitsV20` model-default skeleton, not
+        `personality.power.ev_dc_v20`.
+        """
+        ev_dc_v20 = EVDCLimitsV20()
         return RationalNumber.get_rational_repr(
             ev_dc_v20.target_voltage_v if ev_dc_v20 else 20000
         )

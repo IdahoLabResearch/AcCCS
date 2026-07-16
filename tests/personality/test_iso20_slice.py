@@ -15,8 +15,16 @@ Note (#98): the ISO-20 *DC SECC* structured reads (`power.evse_dc_v20`,
 `power.evse_schedule_exchange_v20`) are retired — those wire values are now
 sourced from the `message_field_tree`, so the corresponding SECC builders
 return the model-default *skeleton* and the `*_retired_to_skeleton` tests below
-assert that. The AC SECC (`evse_ac_v20`) and every EVCC read are unchanged
-(their slices have not landed).
+assert that. The AC SECC (`evse_ac_v20`) read is unchanged (its slice has not
+landed).
+
+Note (#99): the ISO-20 *DC EVCC* structured reads (`power.ev_dc_v20` and the DC
+uses of `power.schedule_exchange_v20`) are likewise retired — the EVCC-emitted
+ISO-20 DC messages are tree-sourced now, so the corresponding EVCC DC builders
+return the model-default skeleton (`test_evcc_dc_*_retired_to_skeleton`), and the
+live override still wins over that skeleton fallback
+(`test_evcc_iso20_live_override_beats_skeleton`). The AC EVCC reads (`ev_ac_v20`
+and the AC uses of `schedule_exchange_v20`) are unchanged.
 """
 
 from __future__ import annotations
@@ -350,7 +358,14 @@ async def test_evcc_ac_bpt_v20_cpd_discharge_uses_personality():
 
 
 @pytest.mark.asyncio
-async def test_evcc_dc_v20_cpd_uses_personality():
+async def test_evcc_dc_v20_cpd_retired_to_skeleton():
+    # #99 retired the structured `power.ev_dc_v20` ISO-20 DC EVCC read: the DC
+    # requested envelope is now tree-sourced at the DCChargeParameterDiscoveryReq
+    # build site, so this builder returns the `EVDCLimitsV20` model-default
+    # *skeleton* regardless of the personality's ev_dc_v20 (which no longer
+    # reaches the ISO-20 wire through here).
+    from app.shared.personality.model import EVDCLimitsV20
+
     sim = _evcc_sim(
         {
             "power": {
@@ -368,15 +383,23 @@ async def test_evcc_dc_v20_cpd_uses_personality():
     params = await sim.get_charge_params_v20(
         SelectedEnergyService(service=ServiceV20.DC, is_free=True, parameter_set=None)
     )
-    assert params.ev_max_charge_power.get_decimal_value() == 320000.0
-    assert params.ev_min_charge_power.get_decimal_value() == 150.0
-    assert params.ev_max_charge_current.get_decimal_value() == 400.0
-    assert params.ev_max_voltage.get_decimal_value() == 920.0
-    assert params.ev_min_voltage.get_decimal_value() == 60.0
+    default = EVDCLimitsV20()
+    assert params.ev_max_charge_power.get_decimal_value() == default.max_charge_power_w
+    assert params.ev_min_charge_power.get_decimal_value() == default.min_charge_power_w
+    assert (
+        params.ev_max_charge_current.get_decimal_value() == default.max_charge_current_a
+    )
+    assert params.ev_max_voltage.get_decimal_value() == default.max_voltage_v
+    assert params.ev_min_voltage.get_decimal_value() == default.min_voltage_v
 
 
 @pytest.mark.asyncio
-async def test_evcc_dc_bpt_v20_cpd_discharge_uses_personality():
+async def test_evcc_dc_bpt_v20_cpd_discharge_retired_to_skeleton():
+    # #99: the DC-BPT requested discharge envelope is likewise tree-sourced now
+    # (the baseline pins it as BPT_DC_CPDReqEnergyTransferMode leaves), so the
+    # builder returns the model-default skeleton, not the personality's ev_dc_v20.
+    from app.shared.personality.model import EVDCLimitsV20
+
     sim = _evcc_sim(
         {
             "power": {
@@ -392,12 +415,25 @@ async def test_evcc_dc_bpt_v20_cpd_discharge_uses_personality():
             service=ServiceV20.DC_BPT, is_free=True, parameter_set=None
         )
     )
-    assert params.ev_max_discharge_power.get_decimal_value() == 22000.0
-    assert params.ev_max_discharge_current.get_decimal_value() == 22.0
+    default = EVDCLimitsV20()
+    assert (
+        params.ev_max_discharge_power.get_decimal_value()
+        == default.bpt_max_discharge_power_w
+    )
+    assert (
+        params.ev_max_discharge_current.get_decimal_value()
+        == default.bpt_max_discharge_current_a
+    )
 
 
 @pytest.mark.asyncio
-async def test_evcc_scheduled_se_params_use_personality():
+async def test_evcc_scheduled_se_params_retired_to_skeleton():
+    # #99 retired the structured `power.schedule_exchange_v20` ISO-20 DC EVCC
+    # read: ScheduleExchangeReq (a common message) is tree-sourced at the build
+    # site now, so this builder returns the `ScheduleExchangeV20` model-default
+    # skeleton regardless of the personality.
+    from app.shared.personality.model import ScheduleExchangeV20
+
     sim = _evcc_sim(
         {
             "power": {
@@ -417,22 +453,29 @@ async def test_evcc_scheduled_se_params_use_personality():
     params = await sim.get_scheduled_se_params(
         selected_energy_service=None,
     )
-    assert params.departure_time == 5400
-    assert params.ev_target_energy_request.get_decimal_value() == 15000.0
-    assert params.ev_max_energy_request.get_decimal_value() == 25000.0
-    assert params.ev_min_energy_request.get_decimal_value() == 0.5
+    default = ScheduleExchangeV20()
+    assert params.departure_time == default.departure_time_s
+    assert (
+        params.ev_target_energy_request.get_decimal_value()
+        == default.scheduled_target_energy_request_wh
+    )
+    assert (
+        params.ev_max_energy_request.get_decimal_value()
+        == default.scheduled_max_energy_request_wh
+    )
     offer = params.ev_energy_offer
     [entry] = offer.ev_power_schedule.ev_power_schedule_entries.entries
-    assert entry.duration == 2700
-    assert entry.power.get_decimal_value() == -8000.0
-    assert offer.ev_absolute_price_schedule.currency == "USD"
-    [stack] = offer.ev_absolute_price_schedule.ev_price_rule_stacks.ev_price_rule_stacks
-    [price_rule] = stack.ev_price_rules
-    assert price_rule.energy_fee.get_decimal_value() == pytest.approx(0.15)
+    assert entry.duration == default.power_schedule_duration_s
+    assert entry.power.get_decimal_value() == default.power_schedule_power_w
+    assert offer.ev_absolute_price_schedule.currency == default.price_currency
 
 
 @pytest.mark.asyncio
-async def test_evcc_dynamic_se_params_use_personality():
+async def test_evcc_dynamic_se_params_retired_to_skeleton():
+    # #99: the dynamic ScheduleExchangeReq params are likewise builder-skeleton
+    # now, not sourced from the personality's schedule_exchange_v20.
+    from app.shared.personality.model import ScheduleExchangeV20
+
     sim = _evcc_sim(
         {
             "power": {
@@ -450,17 +493,27 @@ async def test_evcc_dynamic_se_params_use_personality():
         }
     )
     params = await sim.get_dynamic_se_params(selected_energy_service=None)
-    assert params.departure_time == 6000
-    assert params.min_soc == 25
-    assert params.target_soc == 90
-    assert params.ev_target_energy_request.get_decimal_value() == 50000.0
-    assert params.ev_max_energy_request.get_decimal_value() == 75000.0
-    assert params.ev_min_energy_request.get_decimal_value() == -10000.0
-    assert params.ev_max_v2x_energy_request.get_decimal_value() == 4000.0
+    default = ScheduleExchangeV20()
+    assert params.departure_time == default.departure_time_s
+    assert params.min_soc == default.dynamic_min_soc_percent
+    assert params.target_soc == default.dynamic_target_soc_percent
+    assert (
+        params.ev_target_energy_request.get_decimal_value()
+        == default.dynamic_target_energy_request_wh
+    )
+    assert (
+        params.ev_max_energy_request.get_decimal_value()
+        == default.dynamic_max_energy_request_wh
+    )
 
 
 @pytest.mark.asyncio
-async def test_evcc_dc_scheduled_loop_uses_personality():
+async def test_evcc_dc_scheduled_loop_retired_to_skeleton():
+    # #99: the scheduled DC ChargeLoop targets are allowlisted (runtime-produced),
+    # so their ev_dc_v20 fallback retires to the model-default skeleton; the live
+    # override (not exercised here) still wins over that fallback.
+    from app.shared.personality.model import EVDCLimitsV20
+
     sim = _evcc_sim(
         {
             "power": {
@@ -472,12 +525,17 @@ async def test_evcc_dc_scheduled_loop_uses_personality():
         }
     )
     params = await sim.get_scheduled_dc_charge_loop_params()
-    assert params.ev_target_voltage.get_decimal_value() == 800.0
-    assert params.ev_target_current.get_decimal_value() == 250.0
+    default = EVDCLimitsV20()
+    assert params.ev_target_voltage.get_decimal_value() == default.target_voltage_v
+    assert params.ev_target_current.get_decimal_value() == default.target_current_a
 
 
 @pytest.mark.asyncio
-async def test_evcc_dc_dynamic_loop_uses_personality():
+async def test_evcc_dc_dynamic_loop_retired_to_skeleton():
+    # #99: the dynamic DC ChargeLoop magnitudes retire to the EVDCLimitsV20
+    # model-default skeleton (the DCChargeLoopReq is tree-sourced now).
+    from app.shared.personality.model import EVDCLimitsV20
+
     sim = _evcc_sim(
         {
             "power": {
@@ -492,15 +550,29 @@ async def test_evcc_dc_dynamic_loop_uses_personality():
         }
     )
     params = await sim.get_dynamic_dc_charge_loop_params()
-    assert params.ev_max_charge_power.get_decimal_value() == 5000.0
-    assert params.ev_min_charge_power.get_decimal_value() == 500.0
-    assert params.ev_max_charge_current.get_decimal_value() == 50.0
-    assert params.ev_max_voltage.get_decimal_value() == 500.0
-    assert params.ev_min_voltage.get_decimal_value() == 50.0
+    default = EVDCLimitsV20()
+    assert (
+        params.ev_max_charge_power.get_decimal_value()
+        == default.dynamic_max_charge_power_w
+    )
+    assert (
+        params.ev_min_charge_power.get_decimal_value()
+        == default.dynamic_min_charge_power_w
+    )
+    assert (
+        params.ev_max_charge_current.get_decimal_value()
+        == default.dynamic_max_charge_current_a
+    )
+    assert params.ev_max_voltage.get_decimal_value() == default.dynamic_max_voltage_v
+    assert params.ev_min_voltage.get_decimal_value() == default.dynamic_min_voltage_v
 
 
 @pytest.mark.asyncio
-async def test_evcc_dc_bpt_dynamic_loop_discharge_uses_personality():
+async def test_evcc_dc_bpt_dynamic_loop_discharge_retired_to_skeleton():
+    # #99: the BPT dynamic DC ChargeLoop discharge envelope retires to the
+    # EVDCLimitsV20 model-default skeleton.
+    from app.shared.personality.model import EVDCLimitsV20
+
     sim = _evcc_sim(
         {
             "power": {
@@ -513,20 +585,62 @@ async def test_evcc_dc_bpt_dynamic_loop_discharge_uses_personality():
         }
     )
     params = await sim.get_bpt_dynamic_dc_charge_loop_params()
-    assert params.ev_max_discharge_power.get_decimal_value() == 250000.0
-    assert params.ev_min_discharge_power.get_decimal_value() == 250000.0
-    assert params.ev_max_discharge_current.get_decimal_value() == 250000.0
+    default = EVDCLimitsV20()
+    assert (
+        params.ev_max_discharge_power.get_decimal_value()
+        == default.bpt_dynamic_max_discharge_power_w
+    )
+    assert (
+        params.ev_min_discharge_power.get_decimal_value()
+        == default.bpt_dynamic_min_discharge_power_w
+    )
+    assert (
+        params.ev_max_discharge_current.get_decimal_value()
+        == default.bpt_dynamic_max_discharge_current_a
+    )
 
 
 @pytest.mark.asyncio
-async def test_evcc_present_and_target_voltage_use_personality():
-    sim = _evcc_sim(
-        {"power": {"ev_dc_v20": {"target_voltage_v": 750.0}}}
-    )
+async def test_evcc_present_and_target_voltage_retired_to_skeleton():
+    # #99: the ramping present / target voltage are allowlisted; their ev_dc_v20
+    # fallback retires to the EVDCLimitsV20 model-default skeleton (the live
+    # override, not exercised here, still wins over that fallback).
+    from app.shared.personality.model import EVDCLimitsV20
+
+    sim = _evcc_sim({"power": {"ev_dc_v20": {"target_voltage_v": 750.0}}})
     present = await sim.get_present_voltage()
     target = await sim.get_target_voltage()
-    assert present.get_decimal_value() == 750.0
-    assert target.get_decimal_value() == 750.0
+    default = EVDCLimitsV20()
+    assert present.get_decimal_value() == default.target_voltage_v
+    assert target.get_decimal_value() == default.target_voltage_v
+
+
+@pytest.mark.asyncio
+async def test_evcc_iso20_live_override_beats_skeleton():
+    # ADR-0004 / issue #32 precedence survives the #99 retirement: the operator's
+    # live override still wins over the retired model-default skeleton fallback at
+    # the ISO-20 DC ramping read sites (present voltage, scheduled/dynamic loop
+    # targets), even though ev_dc_v20 no longer feeds them.
+    from app.shared.live_control import LiveControl
+    from app.shared.personality.model import EVDCLimitsV20
+
+    personality = EVCCPersonality.model_validate({})
+    live = LiveControl(override_voltage_v=654.0, override_current_a=321.0)
+    sim = SimEVController(EVCCConfig.from_personality(personality), live_control=live)
+
+    default = EVDCLimitsV20()
+    assert default.target_voltage_v != 654.0  # guard: override is distinguishable
+
+    present = await sim.get_present_voltage()
+    assert present.get_decimal_value() == 654.0
+
+    scheduled = await sim.get_scheduled_dc_charge_loop_params()
+    assert scheduled.ev_target_voltage.get_decimal_value() == 654.0
+    assert scheduled.ev_target_current.get_decimal_value() == 321.0
+
+    dynamic = await sim.get_dynamic_dc_charge_loop_params()
+    assert dynamic.ev_max_voltage.get_decimal_value() == 654.0
+    assert dynamic.ev_max_charge_current.get_decimal_value() == 321.0
 
 
 @pytest.mark.asyncio

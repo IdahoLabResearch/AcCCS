@@ -92,6 +92,10 @@ from app.shared.messages.iso15118_20.timeouts import Timeouts
 from app.shared.messages.timeouts import Timeouts as TimeoutsShared
 from app.shared.messages.xmldsig import X509IssuerSerial
 from app.shared.notifications import StopNotification
+from app.shared.personality.message_field_tree import (
+    apply_message_field_tree,
+    known_protocols,
+)
 from app.shared.security import (
     CertPath,
     KeyEncoding,
@@ -105,6 +109,52 @@ from app.shared.security import (
 from app.shared.states import Terminate
 
 logger = logging.getLogger(__name__)
+
+
+def apply_personality_tree(comm_session, req, skip_fields=None) -> None:
+    """Substitute the personality's ISO-15118-20 tree overrides onto a built Req.
+
+    Construction-time substitution per ADR-0006 (protocol-keyed amendment), the
+    vehicle-side mirror of the ISO-20 DC SECC helper wired in #98 (issue #99):
+    after an ISO-20 state builds an outbound ``*Req`` the EVCC pokes every leaf
+    the personality's ``message_field_tree`` sets for the *session's negotiated
+    ISO-20 protocol* -> ``message_name`` onto it, so a configured value replaces
+    what the builder computed (and flows into any internal logic that reads the
+    field). The message name is the model's class name, which is exactly the tree
+    key. A leaf set nowhere leaves the built value untouched — the fallback for
+    empty-/partial-tree personalities.
+
+    The protocol key is derived from ``comm_session.protocol.name`` rather than
+    hardcoded, because the ISO-20 *common* states (SessionSetup, Authorization,
+    ServiceDiscovery, …) are shared by both DC and AC sessions: a DC session's
+    common messages tree under ``ISO_15118_20_DC`` while an AC session's tree
+    under ``ISO_15118_20_AC`` (the same anchor a combined baseline declares once
+    and aliases under each key). ISO-20 DC is a *tree-backed* protocol for the
+    EVCC role as of #99; the shipped ``iso20-dc-evcc-baseline`` replicates the
+    DC-BPT / Dynamic / EIM vehicle in ``iso20.pcap``. The tree rides on
+    ``EVCCConfig`` (the EVCC is config-driven), so this is a no-op when the
+    session carries no config, the config carries no tree (bare-controller unit
+    tests), the negotiated protocol is not a known tree protocol, or the tree
+    sets nothing for this message.
+
+    Unlike the DIN / ISO-2 EVCC helpers there is no live-override *skip* seam
+    here: the ISO-20 ramping targets (present voltage, target voltage/current)
+    are allowlisted, never baseline-pinned, and the operator's live override is
+    applied in the controller (``_iso20_override_or``) at the sub-param build
+    site, mirroring the ISO-20 DC SECC slice (#98) which likewise applies the
+    tree without a skip. *skip_fields* is kept for parity with
+    :func:`apply_message_field_tree`'s contract.
+    """
+    config = getattr(comm_session, "config", None)
+    tree = getattr(config, "message_field_tree", None)
+    if not tree:
+        return
+    protocol = getattr(getattr(comm_session, "protocol", None), "name", None)
+    if protocol not in known_protocols():
+        return
+    apply_message_field_tree(
+        req, protocol, type(req).__name__, tree, skip_fields=skip_fields
+    )
 
 
 # ============================================================================
@@ -148,6 +198,8 @@ class SessionSetup(StateEVCC):
                 session_id=self.comm_session.session_id, timestamp=int(time.time())
             )
         )
+
+        apply_personality_tree(self.comm_session, auth_setup_req)
 
         self.create_next_message(
             AuthorizationSetup,
@@ -240,6 +292,12 @@ class AuthorizationSetup(StateEVCC):
                     prioritized_emaids=await self.comm_session.ev_controller.get_prioritised_emaids(),  # noqa: E501
                 )
 
+                # The signature above covers the OEMProvisioningCertificateChain
+                # EXI fragment, not the whole message, so a tree override of a
+                # non-signed field stays valid; PnC is out of the shipped EIM
+                # baseline, so this is a no-op there (#99).
+                apply_personality_tree(self.comm_session, cert_install_req)
+
                 self.create_next_message(
                     CertificateInstallation,
                     cert_install_req,
@@ -305,6 +363,11 @@ class AuthorizationSetup(StateEVCC):
             pnc_params=pnc_params,
             eim_params=eim_params,
         )
+
+        # Apply the tree before caching so the looped resends carry the same
+        # tree-sourced values; the signature (if any) covers the PnC params
+        # fragment, not a non-signed field a tree override might set (#99).
+        apply_personality_tree(self.comm_session, auth_req)
 
         # Caching this in case, we need to loop AuthorizationReq/Res
         # [V2G20-1582] If EVSEProcessing is set to Ongoing, EVCC shall send another
@@ -383,6 +446,8 @@ class Authorization(StateEVCC):
                 # To limit the list of requested VAS services, set supported_service_ids
             )
 
+            apply_personality_tree(self.comm_session, service_discovery_req)
+
             self.create_next_message(
                 ServiceDiscovery,
                 service_discovery_req,
@@ -446,6 +511,8 @@ class Authorization(StateEVCC):
                 pnc_params=self.comm_session.authorization_req_message.pnc_params,
                 eim_params=self.comm_session.authorization_req_message.eim_params,
             )
+
+            apply_personality_tree(self.comm_session, auth_req)
 
             self.create_next_message(
                 Authorization,
@@ -521,6 +588,8 @@ class ServiceDiscovery(StateEVCC):
                 ev_termination_explanation=termination_reason,
             )
 
+            apply_personality_tree(self.comm_session, session_stop_req)
+
             self.create_next_message(
                 SessionStop,
                 session_stop_req,
@@ -555,6 +624,8 @@ class ServiceDiscovery(StateEVCC):
             ),
             service_id=self.comm_session.service_details_to_request.pop(),
         )
+
+        apply_personality_tree(self.comm_session, service_detail_req)
 
         self.create_next_message(
             ServiceDetail,
@@ -605,6 +676,8 @@ class ServiceDetail(StateEVCC):
                 service_id=self.comm_session.service_details_to_request.pop(),
             )
 
+            apply_personality_tree(self.comm_session, service_detail_req)
+
             self.create_next_message(
                 ServiceDetail,
                 service_detail_req,
@@ -630,6 +703,8 @@ class ServiceDetail(StateEVCC):
                 ev_termination_explanation="Control mode parameter missing",
             )
 
+            apply_personality_tree(self.comm_session, session_stop_req)
+
             self.create_next_message(
                 SessionStop,
                 session_stop_req,
@@ -642,6 +717,8 @@ class ServiceDetail(StateEVCC):
         service_selection_req: ServiceSelectionReq = (
             await self.build_service_selection_req()
         )
+
+        apply_personality_tree(self.comm_session, service_selection_req)
 
         self.create_next_message(
             ServiceSelection,
@@ -798,6 +875,11 @@ class ServiceSelection(StateEVCC):
                 bpt_dc_params=bpt_dc_params,
             )
 
+            # The baseline pins the DC / DC-BPT requested envelope here (the
+            # retired `power.ev_dc_v20` values), tree-sourced onto the present
+            # sub-model; the absent one is left untouched (#99).
+            apply_personality_tree(self.comm_session, next_req)
+
             self.create_next_message(
                 DCChargeParameterDiscovery,
                 next_req,
@@ -899,6 +981,8 @@ class ScheduleExchange(StateEVCC):
                     bpt_channel_selection=bpt_channel_selection,
                 )
 
+                apply_personality_tree(self.comm_session, power_delivery_req)
+
                 self.create_next_message(
                     PowerDelivery,
                     power_delivery_req,
@@ -913,6 +997,7 @@ class ScheduleExchange(StateEVCC):
                         timestamp=int(time.time()),
                     )
                 )
+                apply_personality_tree(self.comm_session, cable_check_req)
                 self.create_next_message(
                     DCCableCheck,
                     cable_check_req,
@@ -968,6 +1053,7 @@ class PowerDelivery(StateEVCC):
                     ),
                     ev_processing=Processing.ONGOING,
                 )
+                apply_personality_tree(self.comm_session, welding_detection_req)
                 self.create_next_message(
                     DCWeldingDetection,
                     welding_detection_req,
@@ -983,6 +1069,7 @@ class PowerDelivery(StateEVCC):
                     ),
                     charging_session=self.comm_session.charging_session_stop_v20,
                 )
+                apply_personality_tree(self.comm_session, session_stop_req)
                 self.create_next_message(
                     SessionStop,
                     session_stop_req,
@@ -1082,6 +1169,8 @@ class PowerDelivery(StateEVCC):
                 meter_info_requested=False,
             )
 
+            apply_personality_tree(self.comm_session, dc_charge_loop_req)
+
             self.create_next_message(
                 DCChargeLoop,
                 dc_charge_loop_req,
@@ -1140,6 +1229,8 @@ class PowerDelivery(StateEVCC):
             ev_power_profile=ev_power_profile,
             bpt_channel_selection=bpt_channel_selection,
         )
+
+        apply_personality_tree(self.comm_session, power_delivery_req)
 
         self.create_next_message(
             PowerDelivery,
@@ -1257,7 +1348,7 @@ class ACChargeParameterDiscovery(StateEVCC):
                 )
             )
 
-        return ScheduleExchangeReq(
+        schedule_exchange_req = ScheduleExchangeReq(
             header=MessageHeader(
                 session_id=self.comm_session.session_id,
                 timestamp=int(time.time()),
@@ -1266,6 +1357,8 @@ class ACChargeParameterDiscovery(StateEVCC):
             scheduled_params=scheduled_params,
             dynamic_params=dynamic_params,
         )
+        apply_personality_tree(self.comm_session, schedule_exchange_req)
+        return schedule_exchange_req
 
 
 class ACChargeLoop(StateEVCC):
@@ -1442,7 +1535,7 @@ class DCChargeParameterDiscovery(StateEVCC):
                 )
             )
 
-        return ScheduleExchangeReq(
+        schedule_exchange_req = ScheduleExchangeReq(
             header=MessageHeader(
                 session_id=self.comm_session.session_id,
                 timestamp=int(time.time()),
@@ -1451,6 +1544,8 @@ class DCChargeParameterDiscovery(StateEVCC):
             scheduled_params=scheduled_params,
             dynamic_params=dynamic_params,
         )
+        apply_personality_tree(self.comm_session, schedule_exchange_req)
+        return schedule_exchange_req
 
 
 class DCCableCheck(StateEVCC):
@@ -1509,6 +1604,7 @@ class DCCableCheck(StateEVCC):
                     timestamp=int(time.time()),
                 )
             )
+            apply_personality_tree(self.comm_session, cable_check_req)
             self.create_next_message(
                 None,
                 cable_check_req,
@@ -1529,6 +1625,7 @@ class DCCableCheck(StateEVCC):
             ev_present_voltage=present_voltage,
             ev_target_voltage=await self.comm_session.ev_controller.get_target_voltage(),  # noqa
         )
+        apply_personality_tree(self.comm_session, dc_pre_charge_req)
         return dc_pre_charge_req
 
 
@@ -1632,6 +1729,7 @@ class DCPreCharge(StateEVCC):
             ev_power_profile=ev_power_profile,
             bpt_channel_selection=bpt_channel_selection,
         )
+        apply_personality_tree(self.comm_session, power_delivery_req)
         return power_delivery_req
 
     async def build_pre_charge_message(self, evse_voltage: RationalNumber):
@@ -1651,6 +1749,7 @@ class DCPreCharge(StateEVCC):
             ev_present_voltage=present_voltage,
             ev_target_voltage=await self.comm_session.ev_controller.get_target_voltage(),  # noqa
         )
+        apply_personality_tree(self.comm_session, dc_pre_charge_req)
         return dc_pre_charge_req
 
 
@@ -1757,6 +1856,7 @@ class DCChargeLoop(StateEVCC):
             bpt_dynamic_params=bpt_dynamic_params,
             meter_info_requested=False,
         )
+        apply_personality_tree(self.comm_session, dc_charge_loop_req)
         return dc_charge_loop_req
 
 
@@ -1821,6 +1921,8 @@ class DCWeldingDetection(StateEVCC):
             next_timeout = Timeouts.DC_WELDING_DETECTION_REQ
             namespace = Namespace.ISO_V20_DC
             next_payload_type = ISOV20PayloadTypes.DC_MAINSTREAM
+
+        apply_personality_tree(self.comm_session, next_request)
 
         self.create_next_message(
             next_state, next_request, next_timeout, namespace, next_payload_type

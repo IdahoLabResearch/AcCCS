@@ -1,0 +1,103 @@
+# ISO 15118-20 DC EVCC baseline personality (ADR-0006, issue #99).
+#
+# The per-role baseline supplies an ISO-20 DC vehicle's full default wire output;
+# device files `extends:` this and override only the leaves that differ. The
+# vehicle-side mirror of the ISO-20 DC SECC baseline (#98) and the direct
+# analogue of the ISO-2 EVCC baseline (#97): every EVCC-emitted ISO-20 DC message
+# routes its build through construction-time substitution (ADR-0006 protocol-keyed
+# amendment) sourcing its wire values from the `message_field_tree` below, and the
+# structured `power.ev_dc_v20` / DC uses of `power.schedule_exchange_v20` ISO-20
+# EVCC reads are retired (their fallback is now the model-default skeleton).
+#
+# PROVENANCE — capture-seeded, decoded field-for-field from `~/projects/pcaps/
+# iso20.pcap`, the same real charger session the SECC baseline (#98) replicates: a
+# **DC-BPT / Dynamic control mode / EIM** ISO-15118-20 DC session. `iso20.pcap`
+# decodes cleanly as ISO-20 DC with the project EXI codec (EVCC source port 58564;
+# payload types 0x8002 common / 0x8004 DC_MAINSTREAM) — plaintext on the wire,
+# unlike the TLS-encrypted `HAL+TLS*+ISO20_DC_BPT_Example.pcap` captures, so the
+# synthetic `EVDCLimitsV20` / `ScheduleExchangeV20` fallback the issue reserves for
+# an undecodable capture is not needed here. The one decodable EVCC-emitted message
+# that bears a config-owned wire leaf is reproduced exactly:
+#   * DCChargeParameterDiscoveryReq.BPT_DC_CPDReqEnergyTransferMode — the DC-BPT
+#     requested envelope (18000 W / 60 A / 800 V charge maxima, 450 V min; -20000 W
+#     / -60 A discharge maxima; TargetSOC 100 %), the retired `power.ev_dc_v20`
+#     values, now tree-sourced. The discharge maxima are negative per the capture
+#     (this vehicle signs the BPT discharge direction on the wire).
+#
+# Builder-computed / runtime fields are NOT in the tree and stay computed
+# (ADR-0006 #83 optional-field allowlist, extended to ISO-20 DC EVCC in #99):
+# EVCCID (from the NIC MAC — the capture's `CHAV0123456789ABCDE3` is a runtime
+# identity, not pinned); the negotiated SelectedAuthorizationService (EIM); the
+# echoed ServiceDetailReq ServiceID and the session-scoped ServiceSelectionReq
+# SelectedEnergyService (the capture selected ServiceID 6 / DC_BPT, ParameterSetID
+# 1); the ScheduleExchangeReq MaximumSupportingPoints (config-owned, the capture's
+# 12) and its Dynamic control-mode params; the PowerDeliveryReq EVProcessing /
+# ChargeProgress ready flags; the ramping DCPreChargeReq / DCChargeLoopReq present
+# and target voltage; the DCChargeLoopReq MeterInfoRequested; and the SessionStopReq
+# ChargingSession. The header/envelope (SessionID, timestamp, signature) stays
+# deferred/compute-only (the tree is message-body only). The advertised energy
+# services and auth mode are single-sourced from the `capabilities` block below
+# (the same ADR-0006 dividing rule the ISO-2 / ISO-20 SECC slices use):
+#   * supported_energy_services = [DC_BPT] <- the capture requested ServiceID 6
+#     (DC_BPT) then 2 (DC) but *selected* 6 (DC_BPT). The baseline advertises only
+#     DC_BPT so the negotiated service is DC_BPT and the requested BPT envelope
+#     below reaches the wire: the AcCCS SECC hard-codes its EnergyTransferService-
+#     List as [DC(2), DC_BPT(6)] and `select_energy_service_v20` picks the EVCC's
+#     first matched service, so an EVCC that *also* advertised plain DC would
+#     negotiate DC (whose non-BPT envelope this capture never carried and the tree
+#     does not pin). Advertising DC_BPT alone reproduces the selected service and
+#     its envelope; a device file can re-add DC.
+#   * supported_auth_modes = [EIM] <- SelectedAuthorizationService EIM.
+#
+# ISO-20 mandates TLS 1.3 regardless of auth mode, so this baseline keeps TLS on
+# even though the source capture is plaintext — the reproduced artifact is the
+# message *values*, not the transport. Devices extending this baseline inherit TLS
+# on.
+role: evcc
+capabilities:
+  supported_protocols:
+    - ISO_15118_20_DC
+  supported_auth_modes:
+    - EIM
+  # DC_BPT only: the capture requested ServiceID 6 (DC_BPT) then 2 (DC) but
+  # selected 6. Advertising DC_BPT alone makes the emulator negotiate DC_BPT (see
+  # the provenance header) so the requested BPT envelope reaches the wire.
+  supported_energy_services:
+    - DC_BPT
+  # Dual-purpose (emitted + consulted internally); single-sourced here as a
+  # pre-tree wire section (CLAUDE.md "Configuration"), not duplicated into the
+  # tree — its message-field-tree migration is a later slice.
+  energy_transfer_mode: DC_extended
+residual:
+  tls:
+    enable_tls_1_3: true
+    use_tls: true
+    enforce_tls: true
+message_field_tree:
+  ISO_15118_20_DC:
+    # The ISO-20 *common* messages (shared by AC and DC sessions) carry no
+    # config-owned EVCC leaf: every common EVCC-emitted mandatory leaf is
+    # runtime-produced (EVCCID from the NIC MAC, the negotiated auth service, the
+    # echoed / session-scoped ServiceIDs, the ready flags, ChargingSession) and so
+    # is allowlisted, not tree-pinned — the common block is empty. It is still
+    # declared via a YAML anchor so a future combined DC+AC EVCC baseline can alias
+    # `*iso20_common_evcc` under its `ISO_15118_20_AC` key (ADR-0006 protocol-keyed
+    # amendment), mirroring the SECC baseline's `&iso20_common_secc`.
+    <<: &iso20_common_evcc {}
+    # DC-specific messages. The DC-BPT requested envelope is the retired
+    # `power.ev_dc_v20` block, now tree-sourced. Values are RationalNumber
+    # (Exponent + Value) leaves; the discharge maxima are negative per the capture
+    # (this vehicle's BPT discharge direction). TargetSOC is a plain unsignedByte.
+    DCChargeParameterDiscoveryReq:
+      BPT_DC_CPDReqEnergyTransferMode:
+        EVMaximumChargePower: {Exponent: 0, Value: 18000}
+        EVMinimumChargePower: {Exponent: 0, Value: 0}
+        EVMaximumChargeCurrent: {Exponent: 0, Value: 60}
+        EVMinimumChargeCurrent: {Exponent: 0, Value: 0}
+        EVMaximumVoltage: {Exponent: 0, Value: 800}
+        EVMinimumVoltage: {Exponent: 0, Value: 450}
+        TargetSOC: 100
+        EVMaximumDischargePower: {Exponent: 0, Value: -20000}
+        EVMinimumDischargePower: {Exponent: 0, Value: 0}
+        EVMaximumDischargeCurrent: {Exponent: 0, Value: -60}
+        EVMinimumDischargeCurrent: {Exponent: 0, Value: 0}

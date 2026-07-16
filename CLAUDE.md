@@ -32,8 +32,9 @@ and [ADR-0006](docs/adr/0006-message-field-tree-personality.md):
   per-field values the device emits on the wire (keyed by **protocol**, then
   message name, then field path; a protocol top-level key is one of the
   advertised `supported_protocols` and disambiguates a message name defined by
-  several protocols. DIN (both roles) and ISO-2 (both roles) are tree-backed
-  with shipped baselines; ISO-20 has a registry but no baseline yet) —
+  several protocols. DIN (both roles), ISO-2 (both roles), and ISO-20 DC (both
+  roles) are tree-backed with shipped baselines; ISO-20 AC has a registry but no
+  baseline yet) —
   and a **`residual`** section for
   everything with *no* wire representation (`tls`, `slac`, `certificates`,
   `network`, `charge_profile`, and behavioral flags under `behavior`). The
