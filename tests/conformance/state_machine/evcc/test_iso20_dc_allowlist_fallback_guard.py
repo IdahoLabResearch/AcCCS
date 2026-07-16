@@ -254,11 +254,10 @@ async def test_power_delivery_req_allowlist_populates(exi_codec, monkeypatch):
         go_to_pause=False,
     )
 
-    # `process_dynamic_se_params` gates readiness on `random`; its ready branch has
-    # a pre-existing, out-of-#99-scope type bug (builds `EVPowerProfile.entry_list`
-    # from an `EVPowerScheduleEntryList` — see the implementation summary caveat),
-    # so pin the not-ready branch to make this guard deterministic. Both branches
-    # set `ev_processing` + `charge_progress`, which is all this guard asserts.
+    # `process_dynamic_se_params` gates readiness on `random`, so pin the not-ready
+    # branch to make this guard deterministic (the ready branch's #104 type bug is
+    # fixed; the pin now only removes the randomness). Both branches set
+    # `ev_processing` + `charge_progress`, which is all this guard asserts.
     async def _not_ready(dynamic_params, pause):
         return None, ChargeProgress.START
 

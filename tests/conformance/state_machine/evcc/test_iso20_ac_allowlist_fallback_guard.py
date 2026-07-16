@@ -192,10 +192,9 @@ async def test_power_delivery_req_allowlist_populates(exi_codec, monkeypatch):
     # PowerDeliveryReq's EVProcessing / ChargeProgress come from the shared
     # `create_new_power_delivery_req` builder (reached via PowerDelivery with
     # ev_processing ONGOING). `process_dynamic_se_params` gates readiness on
-    # `random`; its ready branch has a pre-existing, out-of-#101-scope type bug
-    # (builds `EVPowerProfile.entry_list` from an `EVPowerScheduleEntryList` — same
-    # caveat as the DC guard), so pin the not-ready branch to make this guard
-    # deterministic. Both branches set `ev_processing` + `charge_progress`.
+    # `random`, so pin the not-ready branch to make this guard deterministic (the
+    # ready branch's #104 type bug is fixed; the pin now only removes the
+    # randomness). Both branches set `ev_processing` + `charge_progress`.
     session = _evcc_session()
     session.selected_energy_service = _ac_service()
     session.ev_processing = Processing.ONGOING

@@ -104,6 +104,7 @@ from app.shared.messages.iso15118_20.common_messages import (
     EVPriceRuleStack,
     EVPriceRuleStackList,
     MatchedService,
+    PowerScheduleEntry,
     PowerToleranceAcceptance,
     ScheduledEVPowerProfile,
     ScheduledScheduleExchangeReqParams,
@@ -716,12 +717,12 @@ class SimEVController(EVControllerInterface):
         if pause:
             charge_progress = ChargeProgressV20.STOP
 
-        ev_power_schedule_entry = EVPowerScheduleEntry(
+        ev_power_profile_entry = PowerScheduleEntry(
             duration=3600, power=RationalNumber(exponent=0, value=11000)
         )
 
-        ev_power_profile_entry_list = EVPowerScheduleEntryList(
-            entries=[ev_power_schedule_entry]
+        ev_power_profile_entry_list = EVPowerProfileEntryList(
+            entries=[ev_power_profile_entry]
         )
 
         ev_power_profile = EVPowerProfile(
