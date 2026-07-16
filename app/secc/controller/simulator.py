@@ -161,7 +161,7 @@ from app.shared.security import (
     load_priv_key,
 )
 from app.shared.personality.message_field_tree import UNSET, resolve_tree_leaf
-from app.shared.personality.model import EVSEDCLimits
+from app.shared.personality.model import EVSEACLimits, EVSEDCLimits
 from app.shared.states import State
 
 logger = logging.getLogger(__name__)
@@ -377,8 +377,41 @@ class SimEVSEController(EVSEControllerInterface):
                 return [configured]
             return [EnergyTransferModeEnum.DC_EXTENDED]
 
+        if protocol == Protocol.ISO_15118_2:
+            # Single-source the ISO-2 SupportedEnergyTransferMode list from the
+            # message field tree (ADR-0006 / #96), mirroring the DIN branch: the
+            # advertised list in ServiceDiscoveryRes -> ChargeService ->
+            # SupportedEnergyTransferMode -> EnergyTransferMode is the *same* list
+            # the ChargeParameterDiscovery WrongEnergyTransferMode reject-gate
+            # compares against, so advertised == accepted by construction. Both
+            # the ServiceDiscoveryRes builder and the reject-gate call this
+            # method, so routing the read through here is all it takes.
+            tree_leaf = resolve_tree_leaf(
+                self.personality.message_field_tree,
+                "ISO_15118_2",
+                "ServiceDiscoveryRes",
+                ("charge_service", "supported_energy_transfer_mode", "energy_modes"),
+            )
+            if tree_leaf is not UNSET:
+                # EnergyTransferMode encodes as a restricted EXI enumeration, so
+                # every codec-serializable member coerces here; a value that
+                # cannot coerce could never reach the wire, so the raise is
+                # defense-in-depth against a hand-built personality. The tree may
+                # spell a single mode as a scalar or the usual list.
+                modes = tree_leaf if isinstance(tree_leaf, (list, tuple)) else [tree_leaf]
+                try:
+                    return [EnergyTransferModeEnum(m) for m in modes]
+                except (ValueError, TypeError) as exc:
+                    raise ValueError(
+                        f"ISO-2 SupportedEnergyTransferMode {tree_leaf!r} contains "
+                        f"a value that is not a valid energy transfer mode; it "
+                        f"cannot be advertised on the wire"
+                    ) from exc
+
         # It's not valid to have mixed energy transfer modes associated with
-        # a single EVSE. Providing this here only for simulation purposes.
+        # a single EVSE. Providing this here only for simulation purposes. The
+        # pre-tree fallback for an ISO-2 / ISO-20 personality that carries no
+        # ServiceDiscoveryRes energy-mode leaf.
         # ac_single_phase = EnergyTransferModeEnum.AC_SINGLE_PHASE_CORE
         ac_three_phase = EnergyTransferModeEnum.AC_THREE_PHASE_CORE
         dc_extended = EnergyTransferModeEnum.DC_EXTENDED
@@ -704,11 +737,16 @@ class SimEVSEController(EVSEControllerInterface):
             # time intervals shall be greater than or equal to 24 hours.
             departure_time = 86400
 
-        # PMaxSchedule entries. Per issue #8, the PMax value is sourced from
-        # `personality.power.evse_dc.iso2_sa_schedule_pmax_w` (a personality is
-        # mandatory to run, ADR-0006 #83, so this is always available).
-        evse_dc_pers = self.personality.power.evse_dc
-        configured_pmax_w = evse_dc_pers.iso2_sa_schedule_pmax_w
+        # PMaxSchedule entries. The structured `evse_dc.iso2_sa_schedule_pmax_w`
+        # / `iso2_sales_tariff_id` reads are retired (ADR-0006 / #96): the ISO-2
+        # ChargeParameterDiscoveryRes -> SAScheduleList wire value is sourced from
+        # the message field tree at the build site (a personality that carries an
+        # SAScheduleList tree overrides this wholesale in apply_personality_tree).
+        # This builds the skeleton from the DC-limit model defaults so it stays a
+        # valid, stable schedule for the tree to override and for empty-/partial-
+        # tree personalities to fall back on.
+        skeleton_dc = EVSEDCLimits()
+        configured_pmax_w = skeleton_dc.iso2_sa_schedule_pmax_w
         schedule_entries = []
         # SalesTariff
         sales_tariff_entries: List[SalesTariffEntry] = []
@@ -755,7 +793,7 @@ class SimEVSEController(EVSEControllerInterface):
 
         sales_tariff = SalesTariff(
             id="id1",
-            sales_tariff_id=evse_dc_pers.iso2_sales_tariff_id,
+            sales_tariff_id=skeleton_dc.iso2_sales_tariff_id,
             sales_tariff_entry=sales_tariff_entries,
             num_e_price_levels=len(sales_tariff_entries),
         )
@@ -878,10 +916,14 @@ class SimEVSEController(EVSEControllerInterface):
     async def get_ac_charge_params_v2(self) -> ACEVSEChargeParameter:
         """Overrides EVSEControllerInterface.get_ac_evse_charge_parameter().
 
-        Per issue #8: sources the AC envelope from `personality.power.evse_ac`
-        (a personality is mandatory to run, ADR-0006 #83).
+        The structured `personality.power.evse_ac` read is retired (ADR-0006 /
+        #96): the ISO-2 ChargeParameterDiscoveryRes.ac_charge_parameter wire value
+        is sourced from the message field tree at the build site. This builds the
+        skeleton from the AC-limit model defaults so it stays a valid envelope for
+        the tree to override and for empty-/partial-tree personalities to fall
+        back on.
         """
-        evse_ac = self.personality.power.evse_ac
+        evse_ac = EVSEACLimits()
         v_mult, v_val = PhysicalValue.get_exponent_value_repr(evse_ac.nominal_voltage_v)
         c_mult, c_val = PhysicalValue.get_exponent_value_repr(evse_ac.max_current_a)
         evse_nominal_voltage = PVEVSENominalVoltage(
@@ -986,21 +1028,17 @@ class SimEVSEController(EVSEControllerInterface):
     async def get_dc_charge_parameters(self) -> DCEVSEChargeParameter:
         """Overrides EVSEControllerInterface.get_dc_evse_charge_parameter().
 
-        For ISO 15118-2 the per-session DC envelope is sourced from
-        `personality.power.evse_dc` (a personality is mandatory to run,
-        ADR-0006 #83).
-
-        For DIN 70121 the structured `evse_dc` read is **retired** (ADR-0006 /
-        #73): the DIN wire DC envelope is sourced from the message field tree
-        at the ChargeParameterDiscoveryRes build site. This method builds the
+        For DIN 70121 (#73) *and* ISO 15118-2 (#96) the structured `evse_dc` read
+        is **retired**: the wire DC envelope is sourced from the message field
+        tree at the ChargeParameterDiscoveryRes build site. This method builds the
         skeleton from the DC-limit model defaults so it stays a valid, stable
-        envelope for the tree to override.
+        envelope for the tree to override (and the fallback for empty-/partial-
+        tree personalities). Both callers — `get_dc_charge_parameters_dinspec`
+        and `get_dc_charge_parameters_v2` — are now tree-backed, so the read is
+        the model default for either.
         """
         protocol = self.get_selected_protocol()
-        if protocol == Protocol.DIN_SPEC_70121:
-            evse_dc = EVSEDCLimits()
-        else:
-            evse_dc = self.personality.power.evse_dc
+        evse_dc = EVSEDCLimits()
 
         max_p_mult, max_p_val = PhysicalValue.get_exponent_value_repr(
             evse_dc.max_power_w
@@ -1116,13 +1154,11 @@ class SimEVSEController(EVSEControllerInterface):
     #     return PVEVSEMaxCurrentLimit(multiplier=0, value=300, unit="A")
 
     async def get_evse_max_power_limit(self, protocol: Protocol) -> PVEVSEMaxPowerLimit:
-        if protocol == Protocol.DIN_SPEC_70121:
-            # DIN: the structured evse_dc read is retired (ADR-0006 / #73);
-            # CurrentDemandRes.EVSEMaximumPowerLimit is tree-sourced at the
-            # build site. Skeleton value = DC-limit model default.
-            max_power_w = EVSEDCLimits().max_power_w
-        else:
-            max_power_w = self.personality.power.evse_dc.max_power_w
+        # DIN (#73) and ISO-2 (#96): the structured evse_dc read is retired;
+        # CurrentDemandRes.EVSEMaximumPowerLimit is tree-sourced at the build
+        # site. Skeleton value = DC-limit model default. ISO-20 keeps its own
+        # v20 getter and does not reach here.
+        max_power_w = EVSEDCLimits().max_power_w
         mult, val = PhysicalValue.get_exponent_value_repr(max_power_w)
         if protocol == Protocol.DIN_SPEC_70121:
             return PVEVSEMaxPowerLimitDin(multiplier=mult, value=val, unit="W")
@@ -1151,8 +1187,11 @@ class SimEVSEController(EVSEControllerInterface):
             return PVEVSEMaxCurrentLimitDin(multiplier=mult, value=val, unit="A")
         if self.evse_data_context.current_type != CurrentType.DC:
             return await super().get_evse_max_current_limit(protocol)
+        # ISO-2 DC: retired evse_dc read (ADR-0006 / #96); the CurrentDemandRes
+        # EVSEMaximumCurrentLimit is tree-sourced at the build site. Skeleton
+        # value = DC-limit model default.
         mult, val = PhysicalValue.get_exponent_value_repr(
-            self.personality.power.evse_dc.max_current_a
+            EVSEDCLimits().max_current_a
         )
         return PVEVSEMaxCurrentLimit(multiplier=mult, value=val, unit="A")
 
@@ -1169,8 +1208,11 @@ class SimEVSEController(EVSEControllerInterface):
             return PVEVSEMaxVoltageLimitDin(multiplier=mult, value=val, unit="V")
         if self.evse_data_context.current_type != CurrentType.DC:
             return await super().get_evse_max_voltage_limit(protocol)
+        # ISO-2 DC: retired evse_dc read (ADR-0006 / #96); the CurrentDemandRes
+        # EVSEMaximumVoltageLimit is tree-sourced at the build site. Skeleton
+        # value = DC-limit model default.
         mult, val = PhysicalValue.get_exponent_value_repr(
-            self.personality.power.evse_dc.max_voltage_v
+            EVSEDCLimits().max_voltage_v
         )
         return PVEVSEMaxVoltageLimit(multiplier=mult, value=val, unit="V")
 

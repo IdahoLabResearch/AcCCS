@@ -1,0 +1,20 @@
+# Example ISO 15118-2 EIM SECC device personality (ADR-0006 / #96).
+#
+# The SECC half of the retired symmetric `iso2_eim_dc.yaml`. A thin device
+# override that `extends: iso2-secc-baseline` (the HAL-reference tree) and pins
+# only the leaves that make this device distinguishable on the wire — here its
+# EVSEID — demonstrating the layered baseline + sparse override pattern. Every
+# other SECC wire value (the DC envelope, the isolation progression, the service
+# advertisement) is inherited from the tree-backed baseline.
+#
+# Run an ISO-2 EIM session (TLS is off for EIM, so no PKI needed):
+#   python run_secc.py --config iso2_eim_dc-secc --virtual
+#   python run_evcc.py --config iso2_eim_dc-evcc --virtual
+extends: iso2-secc-baseline
+role: secc
+message_field_tree:
+  ISO_15118_2:
+    SessionSetupRes:
+      EVSEID: USFRDE9001
+    CurrentDemandRes:
+      EVSEID: USFRDE9001

@@ -7,8 +7,13 @@ Tests the contract that every personality-shaped field used during an ISO
 Mirrors the structure of `test_din_slice.py`: model-level tests assert
 the new sections exist with strict validation, and controller-level
 tests assert the simulators honour personality values when building
-ISO-2 wire messages (AC charge params, ISO-2 SA schedule, meter info,
-and EV-side AC + ISO-2 DC announcements).
+ISO-2 wire messages.
+
+Note (#96): the ISO-2 *SECC* structured reads (AC charge params, ISO-2 SA
+schedule) are retired — those wire values are now sourced from the
+`message_field_tree`, so the corresponding SECC builders return the
+model-default skeleton and the tests below assert that retirement. The EV-side
+AC + ISO-2 DC announcements are unchanged (ISO-2 EVCC is still pre-tree).
 """
 
 from __future__ import annotations
@@ -109,19 +114,32 @@ def test_power_ac_overrides_apply():
 
 
 @pytest.mark.asyncio
-async def test_secc_ac_charge_params_use_personality():
+async def test_secc_ac_charge_params_retired_to_skeleton():
+    # #96 retired the structured `power.evse_ac` ISO-2 SECC read: the AC envelope
+    # is now tree-sourced at the ChargeParameterDiscoveryRes build site, so this
+    # builder returns the AC-limit model-default *skeleton* regardless of the
+    # personality's evse_ac (which no longer reaches the ISO-2 wire through here).
+    from app.shared.personality.model import EVSEACLimits
+
     personality = SECCPersonality.model_validate(
         {"power": {"evse_ac": {"nominal_voltage_v": 230.0, "max_current_a": 16.0}}}
     )
     ctrl = SimEVSEController(personality=personality)
     params = await ctrl.get_ac_charge_params_v2()
 
-    assert params.evse_nominal_voltage.get_decimal_value() == 230.0
-    assert params.evse_max_current.get_decimal_value() == 16.0
+    default = EVSEACLimits()
+    assert params.evse_nominal_voltage.get_decimal_value() == default.nominal_voltage_v
+    assert params.evse_max_current.get_decimal_value() == default.max_current_a
 
 
 @pytest.mark.asyncio
-async def test_secc_sa_schedule_iso2_uses_personality_pmax():
+async def test_secc_sa_schedule_iso2_retired_to_skeleton():
+    # #96 retired the structured `iso2_sa_schedule_pmax_w` / `iso2_sales_tariff_id`
+    # ISO-2 SECC reads: the SAScheduleList is a tree wire value overridden at the
+    # build site (or falls back to the builder skeleton). This builder now uses
+    # the DC-limit model defaults regardless of the personality's values.
+    from app.shared.personality.model import EVSEDCLimits
+
     personality = SECCPersonality.model_validate(
         {
             "power": {
@@ -141,11 +159,12 @@ async def test_secc_sa_schedule_iso2_uses_personality_pmax():
     )
     assert schedules is not None
     [entry] = schedules
+    default = EVSEDCLimits()
     pmax_values = [
         e.p_max.get_decimal_value() for e in entry.p_max_schedule.schedule_entries
     ]
-    assert all(v == 50000.0 for v in pmax_values)
-    assert entry.sales_tariff.sales_tariff_id == 42
+    assert all(v == float(default.iso2_sa_schedule_pmax_w) for v in pmax_values)
+    assert entry.sales_tariff.sales_tariff_id == default.iso2_sales_tariff_id
 
 
 @pytest.mark.asyncio

@@ -123,6 +123,7 @@ from app.shared.messages.iso15118_20.common_types import (
 )
 from app.shared.messages.timeouts import Timeouts
 from app.shared.messages.xmldsig import Signature
+from app.shared.live_control import override_skip_fields
 from app.shared.notifications import StopNotification
 from app.shared.personality.message_field_tree import apply_message_field_tree
 from app.shared.security import (
@@ -147,7 +148,7 @@ from app.shared.states import Base64, Pause, State, Terminate
 logger = logging.getLogger(__name__)
 
 
-def apply_personality_tree(comm_session, res, message_name: str) -> None:
+def apply_personality_tree(comm_session, res, message_name: str, skip_fields=None) -> None:
     """Substitute the personality's ISO-15118-2 tree overrides onto a built Res.
 
     Construction-time substitution per ADR-0006 (protocol-keyed amendment), the
@@ -156,20 +157,30 @@ def apply_personality_tree(comm_session, res, message_name: str) -> None:
     ``message_field_tree`` sets for ``ISO_15118_2 -> message_name`` onto it, so a
     configured value replaces the builder's computed one (and flows into any
     internal logic that reads the field). A leaf set nowhere leaves the built
-    value untouched.
+    value untouched — the fallback for empty-/partial-tree personalities.
 
-    ISO-2 is not yet a *tree-backed* protocol — its wire values still come from
-    the builders' pre-tree path and there is no shipped ISO-2 baseline — so this
-    is the single **tracer** seam proving the protocol-keyed path end-to-end: a
-    personality that sets one ISO-2 leaf (e.g. ``ChargeParameterDiscoveryRes ->
-    DC_EVSEChargeParameter -> DC_EVSEStatus -> EVSEIsolationStatus``) sees it on
-    the wire. No-op when no personality is attached or the tree carries nothing
-    for ``ISO_15118_2 -> message_name``.
+    ISO-2 is a *tree-backed* protocol as of #96: every SECC-emitted ISO-2 message
+    routes its build through here, sourcing its wire values (the DC/AC envelope,
+    the ``DC_EVSEStatus`` isolation progression, the service advertisement, the
+    EVSEID, ...) from the tree rather than the retired structured
+    ``power.evse_dc`` / ``power.evse_ac`` reads. The shipped ``iso2-secc-baseline``
+    replicates ``HAL+TCP_ISO_2_DC_Example.pcap`` field-for-field. No-op when no
+    personality is attached (the conformance harness may instantiate a bare
+    controller) or the tree carries nothing for ``ISO_15118_2 -> message_name``.
+
+    *skip_fields* forwards to :func:`apply_message_field_tree` to leave named
+    top-level fields at the builder's computed value while still applying the
+    rest of the tree — used by CableCheck's completing (FINISHED) response, whose
+    ``DC_EVSEStatus`` flips to Valid/EVSE_Ready (a transition the per-message tree
+    cannot script), and by CurrentDemand to preserve an active operator present
+    voltage/current live-override.
     """
     personality = getattr(comm_session.evse_controller, "personality", None)
     tree = getattr(personality, "message_field_tree", None)
     if tree:
-        apply_message_field_tree(res, "ISO_15118_2", message_name, tree)
+        apply_message_field_tree(
+            res, "ISO_15118_2", message_name, tree, skip_fields=skip_fields
+        )
 
 
 # ============================================================================
@@ -244,6 +255,8 @@ class SessionSetup(StateSECC):
         )
         self.comm_session.session_id = session_id
 
+        apply_personality_tree(self.comm_session, session_setup_res, "SessionSetupRes")
+
         self.create_next_message(
             ServiceDiscovery,
             session_setup_res,
@@ -316,6 +329,10 @@ class ServiceDiscovery(StateSECC):
         service_discovery_req: ServiceDiscoveryReq = msg.body.service_discovery_req
         service_discovery_res = await self.get_services(
             service_discovery_req.service_category
+        )
+
+        apply_personality_tree(
+            self.comm_session, service_discovery_res, "ServiceDiscoveryRes"
         )
 
         self.create_next_message(
@@ -527,6 +544,8 @@ class ServiceDetail(StateSECC):
             service_parameter_list=ServiceParameterList(parameter_set=parameter_set),
         )
 
+        apply_personality_tree(self.comm_session, service_detail_res, "ServiceDetailRes")
+
         self.create_next_message(
             None,
             service_detail_res,
@@ -668,6 +687,10 @@ class PaymentServiceSelection(StateSECC):
             response_code=ResponseCode.OK
         )
 
+        apply_personality_tree(
+            self.comm_session, service_selection_res, "PaymentServiceSelectionRes"
+        )
+
         self.create_next_message(
             None,
             service_selection_res,
@@ -760,6 +783,16 @@ class CertificateInstallation(StateSECC):
                 ResponseCode.FAILED_NO_CERTIFICATE_AVAILABLE,
             )
             return
+
+        # Only the locally-generated CertificateInstallationRes is a real model the
+        # tree can substitute onto; the EVerest path returns an opaque, pre-encoded
+        # Base64 EXI blob with no field structure to poke, so it is left untouched.
+        if isinstance(certificate_installation_res, CertificateInstallationRes):
+            apply_personality_tree(
+                self.comm_session,
+                certificate_installation_res,
+                "CertificateInstallationRes",
+            )
 
         self.create_next_message(
             PaymentDetails,
@@ -1071,6 +1104,10 @@ class PaymentDetails(StateSECC):
                     evse_timestamp=int(time.time()),
                 )
 
+                apply_personality_tree(
+                    self.comm_session, payment_details_res, "PaymentDetailsRes"
+                )
+
                 self.create_next_message(
                     Authorization,
                     payment_details_res,
@@ -1322,6 +1359,8 @@ class Authorization(StateSECC):
         authorization_res = AuthorizationRes(
             response_code=response_code, evse_processing=auth_status
         )
+
+        apply_personality_tree(self.comm_session, authorization_res, "AuthorizationRes")
 
         self.create_next_message(
             next_state,
@@ -1827,6 +1866,8 @@ class PowerDelivery(StateSECC):
             dc_evse_status=dc_evse_status,
         )
 
+        apply_personality_tree(self.comm_session, power_delivery_res, "PowerDeliveryRes")
+
         self.create_next_message(
             next_state,
             power_delivery_res,
@@ -2070,6 +2111,10 @@ class MeteringReceipt(StateSECC):
                 dc_evse_status=await evse_controller.get_dc_evse_status(),
             )
 
+        apply_personality_tree(
+            self.comm_session, metering_receipt_res, "MeteringReceiptRes"
+        )
+
         self.create_next_message(
             None,
             metering_receipt_res,
@@ -2120,9 +2165,11 @@ class SessionStop(StateSECC):
             self.comm_session.writer.get_extra_info("peername"),
             session_stop_state,
         )
+        session_stop_res = SessionStopRes(response_code=ResponseCode.OK)
+        apply_personality_tree(self.comm_session, session_stop_res, "SessionStopRes")
         self.create_next_message(
             next_state,
-            SessionStopRes(response_code=ResponseCode.OK),
+            session_stop_res,
             Timeouts.V2G_SECC_SEQUENCE_TIMEOUT,
             Namespace.ISO_V2_MSG_DEF,
         )
@@ -2226,6 +2273,10 @@ class ChargingStatus(StateSECC):
             # But if we set receipt_required to True, we expect a
             # MeteringReceiptReq
             next_state = MeteringReceipt
+
+        apply_personality_tree(
+            self.comm_session, charging_status_res, "ChargingStatusRes"
+        )
 
         self.create_next_message(
             next_state,
@@ -2344,6 +2395,19 @@ class CableCheck(StateSECC):
             evse_processing=evse_processing,
         )
 
+        # While isolation monitoring is ONGOING the baseline pins DC_EVSEStatus to
+        # Invalid / IsolationMonitoringActive (from the tree); on the completing
+        # FINISHED frame the real HAL charger flips to Valid / EVSE_Ready — a
+        # transition the per-message tree cannot script — so the dc_evse_status
+        # sub-tree is skipped there while every other CableCheckRes leaf still
+        # applies (mirrors the DIN CableCheck seam, #82).
+        skip_fields = (
+            {"dc_evse_status"} if evse_processing == EVSEProcessing.FINISHED else None
+        )
+        apply_personality_tree(
+            self.comm_session, cable_check_res, "CableCheckRes", skip_fields=skip_fields
+        )
+
         self.create_next_message(
             next_state,
             cable_check_res,
@@ -2459,6 +2523,8 @@ class PreCharge(StateSECC):
             evse_present_voltage=evse_present_voltage,
         )
 
+        apply_personality_tree(self.comm_session, precharge_res, "PreChargeRes")
+
         next_state = None
         self.create_next_message(
             next_state,
@@ -2565,6 +2631,21 @@ class CurrentDemand(StateSECC):
             #     self.comm_session.protocol),
             receipt_required=False,
         )
+        # The HAL baseline echoes the DC max V/A/W envelope and Valid / EVSE_Ready
+        # here; both come from the tree now, not the retired evse_dc reads. Present
+        # V/I stay runtime (allowlisted). Live-override precedence (ADR-0006 #75):
+        # get_evse_present_* already applied any operator override onto the built
+        # present V/I, so skip those leaves — the tree is the pre-override start
+        # value and must not clobber the override back. A cleared override skips
+        # nothing.
+        skip = override_skip_fields(
+            getattr(self.comm_session.evse_controller, "live_control", None),
+            voltage_field="evse_present_voltage",
+            current_field="evse_present_current",
+        )
+        apply_personality_tree(
+            self.comm_session, current_demand_res, "CurrentDemandRes", skip_fields=skip
+        )
         logger.info(f"EVSE Present Voltage: {voltage.value * (10 ** voltage.multiplier)} {voltage.unit.value}")
         logger.info(f"EVSE Present Current: {current.value * (10 ** current.multiplier)} {current.unit.value}")
         logger.info(f"EVSE Max Power Limit: {max_power.value * (10 ** max_power.multiplier)} {max_power.unit.value}")
@@ -2640,6 +2721,10 @@ class WeldingDetection(StateSECC):
                     Protocol.ISO_15118_2
                 )
             ),
+        )
+
+        apply_personality_tree(
+            self.comm_session, welding_detection_res, "WeldingDetectionRes"
         )
 
         next_state = None

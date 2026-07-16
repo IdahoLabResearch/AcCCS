@@ -64,8 +64,8 @@ Per ADR-0003:
 | Capture            | Protocol     | Energy mode | Personality                       | Records |
 |--------------------|--------------|-------------|-----------------------------------|---------|
 | `din-dc`           | din70121     | dc          | `din_reference`                   | 116     |
-| `iso2-eim-dc`      | iso15118-2   | dc          | `iso2_eim_dc`                     | 122     |
-| `iso2-pnc-dc`      | iso15118-2   | dc          | `iso2_pnc_dc`                     | 130     |
+| `iso2-eim-dc`      | iso15118-2   | dc          | `iso2_eim_dc-{secc,evcc}`         | 122     |
+| `iso2-pnc-dc`      | iso15118-2   | dc          | `iso2_pnc_dc-{secc,evcc}`         | 130     |
 | `iso20-ac`         | iso15118-20  | ac          | `example_iso20_ac_variant`        | 92      |
 | `iso20-dc`         | iso15118-20  | dc          | `iso20_dc`                        | 144     |
 

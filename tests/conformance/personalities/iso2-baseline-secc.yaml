@@ -1,0 +1,9 @@
+# Conformance ISO 15118-2 SECC personality, tree-backed via the shipped HAL
+# baseline (ADR-0006 / #96). Extends the repo `iso2-secc-baseline` (resolved
+# through the personality search path) and only adds the veth interface, so the
+# E2E asserts the baseline wire values the SECC actually emits.
+extends: iso2-secc-baseline
+role: secc
+residual:
+  network:
+    interface: acccs_secc

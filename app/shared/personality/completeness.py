@@ -69,16 +69,19 @@ class MessageFieldTreeIncompleteError(ValueError):
     """
 
 
-# The DIN protocol string — the one protocol whose slice has landed, so it is
-# the only *tree-backed* protocol this slice. ISO-2 / ISO-20 join this set as
-# their slices migrate their wire values into the tree.
+# The tree-backed protocol strings. DIN's slice (#73) landed first; the ISO-2
+# SECC slice (#96) makes ISO-2 tree-backed too, so a personality that advertises
+# ISO_15118_2 must carry a complete ISO-2 subtree (when it carries one at all —
+# the per-message-present rule keeps the empty-subtree multi-protocol defaults a
+# no-op). ISO-20 joins this set when its slice migrates its wire values.
 _DIN_PROTOCOL = "DIN_SPEC_70121"
+_ISO2_PROTOCOL = "ISO_15118_2"
 
 # The protocols whose emitted wire values actually come from the tree today. A
 # supported protocol in this set must carry a complete subtree; a supported
 # protocol outside it is still driven by the builders' pre-tree path and needs
 # nothing in the tree (ADR-0006 protocol-keyed amendment).
-_TREE_BACKED_PROTOCOLS: frozenset = frozenset({_DIN_PROTOCOL})
+_TREE_BACKED_PROTOCOLS: frozenset = frozenset({_DIN_PROTOCOL, _ISO2_PROTOCOL})
 
 
 def is_tree_backed(protocol: str) -> bool:
@@ -125,6 +128,28 @@ EVCC_MESSAGES: Tuple[str, ...] = (
     "CurrentDemandReq",
     "WeldingDetectionReq",
     "SessionStopReq",
+)
+
+# The ISO-15118-2 SECC-emitted message set (issue #96). Covers the AC and DC
+# subset the state machine actually emits; the per-message-present rule means a
+# DC-EIM baseline that carries no AC / PnC message entries simply skips them.
+ISO2_SECC_MESSAGES: Tuple[str, ...] = (
+    "SessionSetupRes",
+    "ServiceDiscoveryRes",
+    "ServiceDetailRes",
+    "PaymentServiceSelectionRes",
+    "CertificateInstallationRes",
+    "PaymentDetailsRes",
+    "AuthorizationRes",
+    "ChargeParameterDiscoveryRes",
+    "CableCheckRes",
+    "PreChargeRes",
+    "PowerDeliveryRes",
+    "CurrentDemandRes",
+    "ChargingStatusRes",
+    "MeteringReceiptRes",
+    "WeldingDetectionRes",
+    "SessionStopRes",
 )
 
 
@@ -222,23 +247,88 @@ _EVCC_MESSAGE_ALLOWLIST: Dict[str, Set[LeafPath]] = {
 }
 
 
-def allowlist_for(role: str) -> Dict[str, Set[LeafPath]]:
-    """Return ``{message_name: {allowlisted leaf paths}}`` for *role* (DIN).
+# The ISO-15118-2 SECC allowlist (issue #96). The runtime-produced required
+# leaves, decoded field-for-field from `HAL+TCP_ISO_2_DC_Example.pcap`: the
+# EVSEProcessing ONGOING->FINISHED progression, the ramping present voltage /
+# current (value/multiplier/unit — ISO-2 makes the unit a required leaf, and the
+# builder always emits the constant V/A), the CurrentDemandRes limit-achieved
+# flags, and the runtime-echoed EVSEID (`get_evse_id`) and selected
+# SAScheduleTupleID (`comm_session.selected_schedule`). As on the DIN side the
+# isolation-bearing `DC_EVSEStatus` is deliberately *not* allowlisted — it is the
+# config-in-tree red-team surface the baseline pins (Invalid/IsolationMonitoring
+# ->Valid/Ready), with the completing FINISHED frame handled by the CableCheck
+# `skip_fields` seam rather than the allowlist.
+_ISO2_SECC_MESSAGE_ALLOWLIST: Dict[str, Set[LeafPath]] = {
+    "AuthorizationRes": {("evse_processing",)},
+    "ChargeParameterDiscoveryRes": {("evse_processing",)},
+    "CableCheckRes": {("evse_processing",)},
+    "PreChargeRes": {
+        ("evse_present_voltage", "value"),
+        ("evse_present_voltage", "multiplier"),
+        ("evse_present_voltage", "unit"),
+    },
+    "CurrentDemandRes": {
+        ("evse_present_voltage", "value"),
+        ("evse_present_voltage", "multiplier"),
+        ("evse_present_voltage", "unit"),
+        ("evse_present_current", "value"),
+        ("evse_present_current", "multiplier"),
+        ("evse_present_current", "unit"),
+        ("evse_current_limit_achieved",),
+        ("evse_voltage_limit_achieved",),
+        ("evse_power_limit_achieved",),
+        ("evse_id",),
+        ("sa_schedule_tuple_id",),
+    },
+    "ChargingStatusRes": {
+        ("evse_id",),
+        ("sa_schedule_tuple_id",),
+    },
+    "WeldingDetectionRes": {
+        ("evse_present_voltage", "value"),
+        ("evse_present_voltage", "multiplier"),
+        ("evse_present_voltage", "unit"),
+    },
+}
+
+
+# Per-protocol, per-role allowlist tables: (emitted message set, per-message
+# allowlist). The SECC base set (ResponseCode) folds into every SECC message of
+# every protocol. ISO-2 has no EVCC entry this slice (its EVCC path is still
+# pre-tree). Keyed protocol -> the table `allowlist_for` folds.
+_SECC_ALLOWLIST_TABLES: Dict[str, Tuple[Tuple[str, ...], Dict[str, Set[LeafPath]]]] = {
+    _DIN_PROTOCOL: (SECC_MESSAGES, _SECC_MESSAGE_ALLOWLIST),
+    _ISO2_PROTOCOL: (ISO2_SECC_MESSAGES, _ISO2_SECC_MESSAGE_ALLOWLIST),
+}
+_EVCC_ALLOWLIST_TABLES: Dict[str, Tuple[Tuple[str, ...], Dict[str, Set[LeafPath]]]] = {
+    _DIN_PROTOCOL: (EVCC_MESSAGES, _EVCC_MESSAGE_ALLOWLIST),
+}
+
+
+def allowlist_for(
+    role: str, protocol: str = _DIN_PROTOCOL
+) -> Dict[str, Set[LeafPath]]:
+    """Return ``{message_name: {allowlisted leaf paths}}`` for *role*/*protocol*.
 
     Folds the per-role base set (SECC ``ResponseCode``) into every emitted
     message so callers see one flat per-message view. Also the single source the
-    guard test iterates to assert each entry has a real builder fallback.
+    guard tests iterate to assert each entry has a real builder fallback.
+    ``protocol`` defaults to DIN so existing single-arg callers keep their DIN
+    view; the completeness check passes the protocol it is walking. Returns an
+    empty mapping for a protocol/role with no allowlist table (e.g. ISO-2 EVCC,
+    still pre-tree this slice).
     """
     if role == "secc":
-        return {
-            msg: set(_SECC_BASE_ALLOWLIST) | _SECC_MESSAGE_ALLOWLIST.get(msg, set())
-            for msg in SECC_MESSAGES
-        }
-    if role == "evcc":
-        return {
-            msg: set(_EVCC_MESSAGE_ALLOWLIST.get(msg, set())) for msg in EVCC_MESSAGES
-        }
-    raise ValueError(f"unknown role {role!r}; expected 'evcc' or 'secc'")
+        table, base = _SECC_ALLOWLIST_TABLES, _SECC_BASE_ALLOWLIST
+    elif role == "evcc":
+        table, base = _EVCC_ALLOWLIST_TABLES, set()
+    else:
+        raise ValueError(f"unknown role {role!r}; expected 'evcc' or 'secc'")
+    entry = table.get(protocol)
+    if entry is None:
+        return {}
+    messages, per_message = entry
+    return {msg: set(base) | per_message.get(msg, set()) for msg in messages}
 
 
 # ---------------------------------------------------------------------------
@@ -291,6 +381,9 @@ def _required_leaf_paths(
 # tree-backed set in :data:`_TREE_BACKED_PROTOCOLS`.
 _PROTOCOL_ROLE_MESSAGES: Dict[str, Dict[str, Tuple[str, ...]]] = {
     _DIN_PROTOCOL: {"secc": SECC_MESSAGES, "evcc": EVCC_MESSAGES},
+    # ISO-2 is SECC-only this slice; its EVCC path is still pre-tree, so there is
+    # no ISO-2 EVCC message set (the walk skips ISO-2 for an EVCC personality).
+    _ISO2_PROTOCOL: {"secc": ISO2_SECC_MESSAGES},
 }
 
 
@@ -325,7 +418,7 @@ def check_message_field_tree_completeness(
         messages = _PROTOCOL_ROLE_MESSAGES.get(protocol, {}).get(role)
         if messages is None:  # pragma: no cover - defensive; tree-backed => known
             continue
-        allowlist = allowlist_for(role)
+        allowlist = allowlist_for(role, protocol)
         for message_name in messages:
             if message_name not in subtree:
                 continue

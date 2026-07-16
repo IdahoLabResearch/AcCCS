@@ -1,0 +1,143 @@
+# ISO 15118-2 SECC baseline personality (ADR-0006, issue #96).
+#
+# The per-role baseline supplies an ISO-2 SECC's full default wire output; device
+# files (e.g. iso2_eim_dc-secc.yaml) `extends:` this and override only the leaves
+# that differ. Mirrors the DIN SECC baseline (#73) across the ISO-2 SECC path:
+# every SECC-emitted ISO-2 message sources its wire values from the
+# `message_field_tree` below via construction-time substitution (ADR-0006); the
+# structured `power.evse_dc` / `power.evse_ac` ISO-2 SECC reads are retired.
+#
+# PROVENANCE — decoded field-for-field from `~/projects/pcaps/
+# HAL+TCP_ISO_2_DC_Example.pcap` (a real HAL charger, plaintext TCP/EIM, SECC
+# source port 51111) via tshark + the project EXI codec. The decodable
+# SECC-emitted messages are reproduced exactly:
+#   * SessionSetupRes.EVSEID = DE*AB7*E8406487
+#   * ServiceDiscoveryRes: ExternalPayment; ChargeService ServiceID 1 /
+#     EVCharging / not free / DC_extended.
+#   * ChargeParameterDiscoveryRes.DC_EVSEChargeParameter: the DC envelope
+#     (1000 V / 400 A / 200000 W max, 0 V / 0 A min, 1 A peak ripple) and the
+#     Invalid / IsolationMonitoringActive isolation status observed while
+#     EVSEProcessing=Ongoing.
+#   * The isolation progression across CableCheckRes (Invalid/Ongoing ->
+#     Valid/Finished), PreCharge / PowerDelivery / CurrentDemand / Welding
+#     (Valid / EVSE_Ready), with the NotificationMaxDelay each message reports.
+#   * CurrentDemandRes echoes the max V/A/W envelope and the DE*AB7*E8406487
+#     EVSEID.
+#
+# Synthetic-fallback fields (the capture cannot supply them, ADR-0006 option B):
+#   * ChargeParameterDiscoveryRes.SAScheduleList — the HAL Finished CPDRes frame
+#     is undecodable by the project EXI codec (libcbv2g rc=-110), so the schedule
+#     falls back to the SECC state's builder default (one tuple, PMax from the DC
+#     envelope, TupleID 1 — consistent with the CurrentDemandRes SAScheduleTupleID
+#     the capture does show). Left out of the tree, builder-computed.
+#   * ChargeParameterDiscoveryRes.EVSEEnergyToBeDelivered — HAL emits it with a
+#     nonconformant Unit=W (the model requires Wh); it is Optional, so it is
+#     omitted rather than reproduced.
+#   * ChargeParameterDiscoveryRes.EVSECurrentRegulationTolerance (HAL: 2 A) — an
+#     Optional sub-model the pre-tree builder never constructs; the tree can
+#     override a present sub-model but cannot materialise an absent one, so it is
+#     left unset.
+#   * MeterInfo (CurrentDemandRes / ChargingStatusRes) — the HAL CurrentDemandRes
+#     carries a populated MeterInfo, but the ISO-2 SECC path ships meter_info=None
+#     today (the get_meter_info_v2 call is disabled) and this slice does not
+#     activate it, so it is not reproduced.
+#   * Optional ServiceList (the HAL InternetAccess VAS) — omitted; the pre-tree
+#     builder emits no VAS for EIM/no-TLS and advertising one would pull in a
+#     ServiceDetail exchange out of scope here. The mandatory ChargeService is
+#     reproduced.
+#
+# Runtime/computed fields are NOT in the tree and stay computed (ADR-0006 #83
+# optional-field allowlist): ResponseCode, the EVSEProcessing ONGOING->FINISHED
+# progression, present voltage/current, the CurrentDemandRes limit-achieved
+# flags, and the runtime-echoed EVSEID / SAScheduleTupleID. The advertised DC
+# energy transfer mode is single-sourced from the tree — the same
+# ServiceDiscoveryRes -> ChargeService -> SupportedEnergyTransferMode value the
+# ChargeParameterDiscovery WrongEnergyTransferMode reject-gate compares against
+# (advertised == accepted, by construction).
+role: secc
+capabilities:
+  supported_protocols:
+    - ISO_15118_2
+  supported_auth_modes:
+    - EIM
+  supported_energy_services:
+    - DC
+residual:
+  tls:
+    # ISO-2 EIM does not require TLS (matches the plaintext HAL capture).
+    enable_tls_1_3: false
+    use_tls: false
+    enforce_tls: false
+message_field_tree:
+  ISO_15118_2:
+    SessionSetupRes:
+      EVSEID: DE*AB7*E8406487
+    ServiceDiscoveryRes:
+      PaymentOptionList:
+        PaymentOption:
+          - ExternalPayment
+      ChargeService:
+        ServiceID: 1
+        ServiceCategory: EVCharging
+        FreeService: false
+        SupportedEnergyTransferMode:
+          EnergyTransferMode:
+            - DC_extended
+    ChargeParameterDiscoveryRes:
+      DC_EVSEChargeParameter:
+        # Isolation monitoring is active while the EVSE runs the cable check, so
+        # this response reports Invalid / IsolationMonitoringActive (the original
+        # motivation for the message field tree, ADR-0006).
+        DC_EVSEStatus:
+          NotificationMaxDelay: 0
+          EVSENotification: None
+          EVSEIsolationStatus: Invalid
+          EVSEStatusCode: EVSE_IsolationMonitoringActive
+        EVSEMaximumCurrentLimit: {Value: 400, Multiplier: 0, Unit: A}
+        EVSEMaximumPowerLimit: {Value: 20000, Multiplier: 1, Unit: W}
+        EVSEMaximumVoltageLimit: {Value: 1000, Multiplier: 0, Unit: V}
+        EVSEMinimumCurrentLimit: {Value: 0, Multiplier: 0, Unit: A}
+        EVSEMinimumVoltageLimit: {Value: 0, Multiplier: 0, Unit: V}
+        EVSEPeakCurrentRipple: {Value: 1, Multiplier: 0, Unit: A}
+    # Still monitoring isolation: CableCheckRes stays Invalid /
+    # IsolationMonitoringActive while ONGOING. The completing FINISHED frame
+    # flips DC_EVSEStatus to Valid / EVSE_Ready — a runtime transition the
+    # per-message tree cannot script, applied by the CableCheck skip_fields seam
+    # (the tree value here is the ONGOING value).
+    CableCheckRes:
+      DC_EVSEStatus:
+        NotificationMaxDelay: 5
+        EVSENotification: None
+        EVSEIsolationStatus: Invalid
+        EVSEStatusCode: EVSE_IsolationMonitoringActive
+    # Isolation valid from PreCharge onward: Valid / EVSE_Ready.
+    PreChargeRes:
+      DC_EVSEStatus:
+        NotificationMaxDelay: 3000
+        EVSENotification: None
+        EVSEIsolationStatus: Valid
+        EVSEStatusCode: EVSE_Ready
+    PowerDeliveryRes:
+      DC_EVSEStatus:
+        NotificationMaxDelay: 0
+        EVSENotification: None
+        EVSEIsolationStatus: Valid
+        EVSEStatusCode: EVSE_Ready
+    CurrentDemandRes:
+      DC_EVSEStatus:
+        NotificationMaxDelay: 0
+        EVSENotification: None
+        EVSEIsolationStatus: Valid
+        EVSEStatusCode: EVSE_Ready
+      # The HAL charger echoes its max V/A/W envelope and its EVSEID in every
+      # CurrentDemandRes.
+      EVSEMaximumVoltageLimit: {Value: 1000, Multiplier: 0, Unit: V}
+      EVSEMaximumCurrentLimit: {Value: 400, Multiplier: 0, Unit: A}
+      EVSEMaximumPowerLimit: {Value: 20000, Multiplier: 1, Unit: W}
+      EVSEID: DE*AB7*E8406487
+    WeldingDetectionRes:
+      DC_EVSEStatus:
+        NotificationMaxDelay: 3000
+        EVSENotification: None
+        EVSEIsolationStatus: Valid
+        EVSEStatusCode: EVSE_Ready

@@ -194,8 +194,9 @@ The repository ships a starter library under `personalities/`:
 | `din_dc_extended-evcc.yaml` / `din_dc_extended-secc.yaml` | DIN 70121 | **Default `--config`** (per role). DIN-only, TLS off, `DC_extended` — the mode production vehicles request. Each `extends:` its per-role baseline. |
 | `din-evcc-baseline.yaml` / `din-secc-baseline.yaml` | DIN 70121 | Per-role DIN baselines (ADR-0006). The advertised DC energy transfer mode is single-sourced from the SECC baseline's `message_field_tree`. The full ABB/Cadillac trees land here in #73/#74. |
 | `din_reference.yaml` | DIN 70121 | DIN-only emulator, TLS off, alternate `energy_transfer_mode` (DC_core, for the personality-swap demo) and a ~3x stock power envelope. |
-| `iso2_eim_dc.yaml` | ISO 15118-2 DC | EIM (External Identification Means) auth — no contract certs, no PnC. |
-| `iso2_pnc_dc.yaml` | ISO 15118-2 DC | PnC (Plug-and-Charge) auth — TLS mandatory, contract cert chain required. |
+| `iso2-secc-baseline.yaml` | ISO 15118-2 DC | Per-role ISO-2 **SECC** baseline (ADR-0006 / #96), seeded field-for-field from `HAL+TCP_ISO_2_DC_Example.pcap`. Every SECC-emitted ISO-2 message is tree-sourced; device files `extends:` this. |
+| `iso2_eim_dc-secc.yaml` / `iso2_eim_dc-evcc.yaml` | ISO 15118-2 DC | EIM (External Identification Means) auth — no contract certs, no PnC. Per-role split (#96): the SECC side `extends: iso2-secc-baseline` and pins its EVSEID; the EVCC side is still structured (ISO-2 EVCC is pre-tree). |
+| `iso2_pnc_dc-secc.yaml` / `iso2_pnc_dc-evcc.yaml` | ISO 15118-2 DC | PnC (Plug-and-Charge) auth — TLS mandatory, contract cert chain required. Per-role split (#96): the SECC side `extends: iso2-secc-baseline`, advertising the Contract payment option with TLS on. |
 | `iso20_dc.yaml` | ISO 15118-20 DC | DC energy service over ISO 15118-20 (TLS 1.3 mandatory). |
 | `example_iso20_ac_variant.yaml` | ISO 15118-20 AC | AC energy service. |
 | `example_iso20_ac_bpt_variant.yaml` | ISO 15118-20 AC-BPT | Bidirectional AC. |

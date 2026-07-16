@@ -2,8 +2,12 @@ source: veth
 protocol: iso15118-2
 energy_mode: dc
 captured_at: 2026-05-27
-secc_personality: iso2_pnc_dc
-evcc_personality: iso2_pnc_dc
+secc_personality: iso2_pnc_dc-secc
+evcc_personality: iso2_pnc_dc-evcc
 messages: 130
 notes: |
-  ISO 15118-2 DC, PnC auth (iso2_pnc_dc personality, both roles).
+  ISO 15118-2 DC, PnC auth. Recorded against the (now-retired) symmetric
+  iso2_pnc_dc personality; the ADR-0006 / #96 per-role split replaced it with
+  iso2_pnc_dc-{secc,evcc} (SECC side tree-backed via iso2-secc-baseline). A
+  re-capture would differ where the SECC now emits the HAL baseline envelope
+  rather than the old structured evse_dc values.

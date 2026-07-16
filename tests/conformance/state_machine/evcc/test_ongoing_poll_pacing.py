@@ -415,10 +415,10 @@ def _iso2_dc_session(poll_interval: float) -> StubCommSession:
 
     ISO-2 ChargeParameterDiscovery and CableCheck build their re-send from the
     EV controller after the pacing sleep, so unlike the bare Authorization
-    session they need one. Sourced from the shipped `iso2_eim_dc` personality.
+    session they need one. Sourced from the shipped `iso2_eim_dc-evcc` personality.
     """
     personality = load_personality(
-        str(PERSONALITIES_DIR / "iso2_eim_dc.yaml"), "evcc"
+        str(PERSONALITIES_DIR / "iso2_eim_dc-evcc.yaml"), "evcc"
     )
     config = EVCCConfig.from_personality(personality)
     session = StubCommSession(protocol=Protocol.ISO_15118_2, session_id=bytes(1).hex())

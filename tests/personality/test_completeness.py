@@ -68,12 +68,25 @@ def test_empty_tree_personalities_load():
         ("default-secc", "secc"),
         ("default-evcc", "evcc"),
         ("default-no-tls-secc", "secc"),
-        ("iso2_eim_dc", "secc"),
+        # ISO-2 EVCC is still pre-tree, so its shipped personality carries no
+        # tree and loads as the empty-tree case does.
+        ("iso2_eim_dc-evcc", "evcc"),
         ("iso20_dc", "secc"),
     ],
 )
 def test_non_din_shipped_personalities_load(name, role):
     load_personality(name, role)
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["iso2-secc-baseline", "iso2_eim_dc-secc", "iso2_pnc_dc-secc"],
+)
+def test_shipped_iso2_secc_personalities_pass_completeness(name):
+    # ISO-2 is tree-backed as of #96: the shipped SECC baseline and the device
+    # files that `extends` it must carry a complete ISO-2 subtree. Loading is the
+    # check — it raises on an incomplete tree.
+    load_personality(name, "secc")
 
 
 # ---------------------------------------------------------------------------
@@ -260,8 +273,10 @@ def test_unknown_role_rejected():
 
 def test_is_tree_backed_gate():
     assert is_tree_backed("DIN_SPEC_70121") is True
-    assert is_tree_backed("ISO_15118_2") is False
+    # ISO-2 became tree-backed in #96; ISO-20 is still on the pre-tree path.
+    assert is_tree_backed("ISO_15118_2") is True
     assert is_tree_backed("ISO_15118_20_DC") is False
+    assert is_tree_backed("ISO_15118_20_AC") is False
 
 
 def test_incomplete_din_subtree_fails_whenever_din_is_supported():
@@ -311,12 +326,27 @@ def test_multi_protocol_personality_with_absent_din_subtree_loads():
 
 
 def test_supported_but_not_tree_backed_protocol_subtree_is_exempt():
-    # ISO_15118_2 is supported and even carries a (deliberately bare) subtree,
-    # but it is not yet tree-backed, so it is never walked — an incomplete ISO-2
-    # subtree cannot trip the completeness gate, and the absent DIN subtree is a
-    # no-op.
+    # ISO_15118_20_DC is supported and even carries a (deliberately bare)
+    # subtree, but it is not yet tree-backed, so it is never walked — an
+    # incomplete ISO-20 subtree cannot trip the completeness gate, and the absent
+    # DIN subtree is a no-op.
     check_message_field_tree_completeness(
-        {"ISO_15118_2": {"SessionSetupRes": {}}},
+        {"ISO_15118_20_DC": {"SessionSetupRes": {}}},
         "secc",
-        ["DIN_SPEC_70121", "ISO_15118_2"],
+        ["DIN_SPEC_70121", "ISO_15118_20_DC"],
     )
+
+
+def test_incomplete_iso2_subtree_fails_now_that_iso2_is_tree_backed():
+    # ISO-2 is tree-backed (#96): a present-but-incomplete ISO-2 subtree (a
+    # SessionSetupRes missing the required EVSEID) trips the completeness gate.
+    with pytest.raises(
+        ValidationError,
+        match="ISO_15118_2 -> SessionSetupRes -> evse_id",
+    ):
+        SECCPersonality.model_validate(
+            {
+                "capabilities": {"supported_protocols": ["ISO_15118_2"]},
+                "message_field_tree": {"ISO_15118_2": {"SessionSetupRes": {}}},
+            }
+        )

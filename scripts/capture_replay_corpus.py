@@ -68,19 +68,21 @@ COMBOS: list[Combo] = [
     ),
     Combo(
         name="iso2-eim-dc",
-        secc_config="iso2_eim_dc",
-        evcc_config="iso2_eim_dc",
+        secc_config="iso2_eim_dc-secc",
+        evcc_config="iso2_eim_dc-evcc",
         protocol="iso15118-2",
         energy_mode="dc",
-        notes="ISO 15118-2 DC, EIM auth (iso2_eim_dc personality, both roles).",
+        notes="ISO 15118-2 DC, EIM auth (per-role iso2_eim_dc-{secc,evcc}; the "
+        "SECC side is tree-backed via iso2-secc-baseline, #96).",
     ),
     Combo(
         name="iso2-pnc-dc",
-        secc_config="iso2_pnc_dc",
-        evcc_config="iso2_pnc_dc",
+        secc_config="iso2_pnc_dc-secc",
+        evcc_config="iso2_pnc_dc-evcc",
         protocol="iso15118-2",
         energy_mode="dc",
-        notes="ISO 15118-2 DC, PnC auth (iso2_pnc_dc personality, both roles).",
+        notes="ISO 15118-2 DC, PnC auth (per-role iso2_pnc_dc-{secc,evcc}; the "
+        "SECC side is tree-backed via iso2-secc-baseline, #96).",
     ),
     Combo(
         name="iso20-ac",

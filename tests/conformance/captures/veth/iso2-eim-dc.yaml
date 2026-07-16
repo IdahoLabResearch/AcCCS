@@ -2,8 +2,12 @@ source: veth
 protocol: iso15118-2
 energy_mode: dc
 captured_at: 2026-05-27
-secc_personality: iso2_eim_dc
-evcc_personality: iso2_eim_dc
+secc_personality: iso2_eim_dc-secc
+evcc_personality: iso2_eim_dc-evcc
 messages: 122
 notes: |
-  ISO 15118-2 DC, EIM auth (iso2_eim_dc personality, both roles).
+  ISO 15118-2 DC, EIM auth. Recorded against the (now-retired) symmetric
+  iso2_eim_dc personality; the ADR-0006 / #96 per-role split replaced it with
+  iso2_eim_dc-{secc,evcc} (SECC side tree-backed via iso2-secc-baseline). A
+  re-capture would differ where the SECC now emits the HAL baseline envelope
+  rather than the old structured evse_dc values.
