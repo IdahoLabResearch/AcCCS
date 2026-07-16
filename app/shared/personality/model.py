@@ -10,12 +10,15 @@ emitted on the wire, keyed by protocol + message + field path) and a `residual`
 section (everything with no wire representation — TLS/SLAC/certificates/network/
 charge-pacing/charge-ramp seeds/behavior). The dividing rule is mechanical: on
 the wire -> tree; not on the wire -> residual; never duplicated. The pre-tree
-concern-first wire sections (`identity` and `power`) are retired now that every
-protocol is tree-backed (#102) — their genuinely residual seeds (the EV DC
-target/remaining-time ramp values) moved into `residual.charge_ramp`. Two
-top-level sections remain: `capabilities` (the cross-cutting negotiation inputs,
-plus the still-pre-tree `energy_transfer_mode`) and `meter` (awaiting its own
-MeterInfo tree migration).
+concern-first wire sections (`identity`, `power`, `meter`, and the wire-bits of
+`capabilities`) are retired now that every protocol is tree-backed (#102, #105) —
+their genuinely residual seeds (the EV DC target/remaining-time ramp values, the
+SECC meter-reading start seed) moved into `residual.charge_ramp` /
+`residual.metering`. One top-level wire-adjacent section remains: `capabilities`,
+which holds only the cross-cutting negotiation inputs (`supported_protocols`,
+`supported_auth_modes`, `supported_energy_services`) — its wire-bearing
+`energy_transfer_mode` was tree-migrated into each protocol's
+`ChargeParameterDiscoveryReq` subtree (#105).
 
 Strict validation: unknown keys at any level are a hard error. That is what
 makes a personality a contract rather than a suggestion.
@@ -112,7 +115,6 @@ class Capabilities(_StrictBase):
     )
     supported_auth_modes: List[str] = Field(default_factory=lambda: ["PNC", "EIM"])
     supported_energy_services: List[str] = Field(default_factory=lambda: ["DC"])
-    energy_transfer_mode: str = "DC_extended"
 
     free_charging_service: bool = False
     free_cert_install_service: bool = True
@@ -135,9 +137,6 @@ class Capabilities(_StrictBase):
         from app.shared.utils import load_requested_energy_services
 
         return load_requested_energy_services(self.supported_energy_services)
-
-    def resolved_energy_transfer_mode(self) -> EnergyTransferModeEnum:
-        return EnergyTransferModeEnum(self.energy_transfer_mode)
 
 
 class ChargeRamp(_StrictBase):
@@ -180,17 +179,24 @@ class Certificates(_StrictBase):
     max_contract_certs: int = 3
 
 
-class Meter(_StrictBase):
-    """Meter identity advertised by the SECC.
+class Metering(_StrictBase):
+    """SECC meter-reading start seed (residual section, ADR-0006).
 
-    `meter_id` rides every MeterInfo block emitted by the SECC (ISO 15118-2
-    MeteringReceipt, ChargingStatus, CurrentDemand, etc.). `starting_reading_wh`
-    is the seed value the simulator advertises before runtime accumulation —
-    the per-message reading itself is runtime-derived and not a personality
-    field.
+    `starting_reading_wh` seeds the meter reading the SECC reports in an ISO-20
+    `MeterInfo` before runtime accumulation takes over; the per-message reading
+    itself is runtime-derived and not a personality field. It has **no static
+    wire representation** (the emitted reading accumulates), so per the mechanical
+    dividing rule (not on the wire -> residual) it belongs here, not in the
+    [[message field tree]].
+
+    Formerly `meter.starting_reading_wh` on the retired concern-first `Meter`
+    model; relocated to the residual section when the meter block's only
+    wire-bearing field (`meter_id`) was tree-migrated (#105), following how #102
+    relocated the `ChargeRamp`-style residual seeds. The wire-bearing `meter_id`
+    is now a [[message field tree]] leaf (ISO-20 `{DC,AC}ChargeLoopRes ->
+    MeterInfo -> MeterID`), single-sourced there per the dividing rule.
     """
 
-    meter_id: str = "Switch-Meter-123"
     starting_reading_wh: int = 12345
 
 
@@ -219,14 +225,14 @@ class Residual(_StrictBase):
     wire -> [[message field tree]]; not on the wire -> here. A value is
     therefore never duplicated across the two.
 
-    The pre-tree structured wire sections (`identity`, `power`, and the
-    wire-bits of `meter`) that once lived at the personality top level are
-    retired (#102): every emitted field is tree-sourced, and the genuinely
-    residual runtime seeds they carried (the EV DC target/remaining-time
-    values) moved here as `charge_ramp`. `capabilities` and `meter` stay at the
-    top level — the former holds the cross-cutting negotiation inputs (plus the
-    still-pre-tree `energy_transfer_mode`), the latter awaits its own
-    MeterInfo tree migration.
+    The pre-tree structured wire sections (`identity`, `power`, `meter`, and the
+    wire-bits of `capabilities`) that once lived at the personality top level are
+    retired (#102, #105): every emitted field is tree-sourced, and the genuinely
+    residual runtime seeds they carried (the EV DC target/remaining-time values,
+    the SECC meter-reading start seed) moved here as `charge_ramp` / `metering`.
+    Only `capabilities` stays at the top level, holding the cross-cutting
+    negotiation inputs; its wire-bearing `energy_transfer_mode` was tree-migrated
+    into each protocol's `ChargeParameterDiscoveryReq` subtree (#105).
     """
 
     network: Network = Field(default_factory=Network)
@@ -238,6 +244,10 @@ class Residual(_StrictBase):
     # target V/A + remaining-time estimates. No static wire form (they ramp),
     # so residual — relocated from the retired `power.ev_dc` block (#102).
     charge_ramp: ChargeRamp = Field(default_factory=ChargeRamp)
+    # SECC meter-reading start seed (relocated from the retired `meter` block in
+    # #105 once its only wire field, `meter_id`, became a tree leaf). No static
+    # wire form (the reading accumulates), so residual.
+    metering: Metering = Field(default_factory=Metering)
     behavior: Behavior = Field(default_factory=Behavior)
 
 
@@ -276,7 +286,6 @@ class _PersonalityBase(_StrictBase):
     """
 
     capabilities: Capabilities = Field(default_factory=Capabilities)
-    meter: Meter = Field(default_factory=Meter)
     # Residual section (ADR-0006): all non-wire config — TLS/SLAC/certs/
     # network/charge-pacing/charge-ramp seeds/behavior. `network` gets a
     # per-role interface default via the EVCC/SECC subclasses below.

@@ -259,8 +259,10 @@ def test_allowlist_is_role_aware_and_leaf_path_granular():
     assert ("dc_ev_status", "ev_ready") in evcc["CableCheckReq"]
     assert ("dc_ev_status", "ev_error_code") in evcc["CableCheckReq"]
     assert ("dc_ev_status", "ev_ress_soc") not in evcc["CableCheckReq"]
-    # Findings 2 & 3.
-    assert ("requested_energy_mode",) in evcc["ChargeParameterDiscoveryReq"]
+    # RequestedEnergyTransferMode is tree-sourced now (#105), so it is NOT
+    # allowlisted — the baseline must pin it in the tree.
+    assert ("requested_energy_mode",) not in evcc["ChargeParameterDiscoveryReq"]
+    # Finding 3.
     assert ("ready_to_charge",) in evcc["PowerDeliveryReq"]
 
 

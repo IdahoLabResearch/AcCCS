@@ -360,11 +360,10 @@ _EVCC_MESSAGE_ALLOWLIST: Dict[str, Set[LeafPath]] = {
     # unadvertised ServiceID and draw FAILED_ServiceSelectionInvalid. Runtime-
     # produced (an echo), so it is omitted from the tree.
     "ServicePaymentSelectionReq": {("selected_service_list", "selected_service")},
-    # EVRequestedEnergyTransferType is single-sourced from the pre-tree
-    # `capabilities.energy_transfer_mode` section this slice (its tree migration
-    # is deferred), so the builder always produces it without the tree (#83
-    # finding 2).
-    "ChargeParameterDiscoveryReq": {("requested_energy_mode",)},
+    # EVRequestedEnergyTransferType is tree-sourced (#105): it is a mandatory
+    # ChargeParameterDiscoveryReq wire leaf the personality must carry (the
+    # baseline pins `DC_extended`), no longer an allowlisted builder fallback —
+    # its retired single-source, `capabilities.energy_transfer_mode`, is gone.
     # ReadyToChargeState is computed True/False per charge phase, like
     # ChargingComplete (#83 finding 3).
     "PowerDeliveryReq": {("ready_to_charge",)},
@@ -447,14 +446,14 @@ _ISO2_SECC_MESSAGE_ALLOWLIST: Dict[str, Set[LeafPath]] = {
 # The ISO-15118-2 EVCC allowlist (issue #97). The runtime-produced required
 # leaves, decoded field-for-field from `Mach-E-ISO.pcapng`: the NIC-MAC EVCCID,
 # the negotiated SelectedPaymentOption and the echoed SelectedServiceList
-# ServiceID, the single-sourced RequestedEnergyTransferMode (from the pre-tree
-# `capabilities.energy_transfer_mode`, as on the DIN side), the DC_EVStatus
+# ServiceID, the DC_EVStatus
 # EVReady / EVErrorCode (the adjacent EVRESSSOC is config-only, pinned by the
 # baseline — mirroring the DIN Cadillac's 88 %), the ramping target voltage /
 # current (value/multiplier/unit — ISO-2 makes the unit a required leaf), the
 # runtime PowerDeliveryReq ChargeProgress / SAScheduleTupleID, the per-loop
 # ChargingComplete and the SessionStopReq ChargingSession. The DC envelope
-# maxima the Mach-E *does* emit (500 A / 422 V / 211000 W) are deliberately
+# maxima the Mach-E *does* emit (500 A / 422 V / 211000 W) and the
+# RequestedEnergyTransferMode (tree-migrated in #105) are deliberately
 # tree-owned, not allowlisted, so the baseline pins them; the Optional fields the
 # Mach-E omits (EVEnergyRequest, FullSOC, BulkSOC, RemainingTime*,
 # BulkChargingComplete) are left unset by the builder and never reach the tree.
@@ -468,7 +467,8 @@ _ISO2_EVCC_MESSAGE_ALLOWLIST: Dict[str, Set[LeafPath]] = {
         ("selected_auth_option",),
         ("selected_service_list", "selected_service"),
     },
-    "ChargeParameterDiscoveryReq": {("requested_energy_mode",)},
+    # RequestedEnergyTransferMode is tree-sourced (#105), no longer an allowlisted
+    # builder fallback — the baseline pins it (`DC_extended`) like the DIN side.
     "CableCheckReq": {
         ("dc_ev_status", "ev_ready"),
         ("dc_ev_status", "ev_error_code"),

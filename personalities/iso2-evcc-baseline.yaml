@@ -39,9 +39,8 @@
 # SelectedPaymentOption and echoed SelectedServiceList ServiceID, EVReady /
 # EVErrorCode, ChargeProgress / SAScheduleTupleID / ChargingProfile,
 # ChargingComplete, ChargingSession, and the present/target voltage & current that
-# ramp. RequestedEnergyTransferMode is single-sourced from the pre-tree
-# `capabilities.energy_transfer_mode` section (its tree migration is a later
-# slice), so it is not duplicated into the tree.
+# ramp. RequestedEnergyTransferMode is a tree leaf (ADR-0006 / #105): the Mach-E
+# requests DC_extended, single-sourced under ChargeParameterDiscoveryReq.
 role: evcc
 capabilities:
   supported_protocols:
@@ -50,12 +49,6 @@ capabilities:
     - EIM
   supported_energy_services:
     - DC
-  # The EVCC's requested energy transfer mode is dual-purpose (emitted as
-  # ChargeParameterDiscoveryReq -> RequestedEnergyTransferMode and consulted
-  # internally when matching the SECC's offer). It stays single-sourced here as a
-  # pre-tree wire section (CLAUDE.md "Configuration"); its message-field-tree
-  # migration is a later slice, so it is not duplicated into the tree.
-  energy_transfer_mode: DC_extended
 residual:
   tls:
     # ISO-2 EIM does not require TLS (matches the plaintext Mach-E capture).
@@ -69,6 +62,11 @@ message_field_tree:
     # pinned. The Mach-E omits EVEnergyCapacity / EVEnergyRequest / FullSOC /
     # BulkSOC / DepartureTime, so the builder leaves them unset.
     ChargeParameterDiscoveryReq:
+      # The EVCC's requested energy transfer mode is dual-purpose (emitted here as
+      # RequestedEnergyTransferMode and consulted internally when matching the
+      # SECC's offer), single-sourced from this tree leaf (ADR-0006 / #105). The
+      # Mach-E requests DC_extended.
+      RequestedEnergyTransferMode: DC_extended
       DC_EVChargeParameter:
         DC_EVStatus:
           EVRESSSOC: 24

@@ -5,7 +5,6 @@ capabilities:
   - PNC
   supported_energy_services:
   - DC
-  energy_transfer_mode: DC_extended
 residual:
   network:
     interface: acccs_evcc

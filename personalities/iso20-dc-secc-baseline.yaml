@@ -57,7 +57,6 @@ capabilities:
   supported_energy_services:
     - DC_BPT
     - DC
-  energy_transfer_mode: DC_extended
 residual:
   tls:
     enable_tls_1_3: true

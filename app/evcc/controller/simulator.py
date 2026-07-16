@@ -125,6 +125,7 @@ from app.shared.messages.iso15118_20.dc import (
     ScheduledDCChargeLoopReqParams,
 )
 from app.shared.network import get_nic_mac_address
+from app.shared.personality.message_field_tree import UNSET, resolve_tree_leaf
 
 logger = logging.getLogger(__name__)
 
@@ -356,8 +357,48 @@ class SimEVController(EVControllerInterface):
     async def get_energy_transfer_mode(
         self, protocol: Protocol
     ) -> EnergyTransferModeEnum:
-        """Overrides EVControllerInterface.get_energy_transfer_mode()."""
-        return self.config.energy_transfer_mode
+        """Overrides EVControllerInterface.get_energy_transfer_mode().
+
+        Single-source the EVCC's requested energy transfer mode from the message
+        field tree (ADR-0006 / #105): it is emitted on the wire as
+        ``ChargeParameterDiscoveryReq -> {EVRequestedEnergyTransferType (DIN) /
+        RequestedEnergyTransferMode (ISO-2)}`` *and* consulted internally (the
+        AC/DC branch in ``get_charge_params_v2``, the ISO-2
+        ``selected_charging_type_is_ac`` flag), so both reads resolve the same
+        tree leaf — advertised == requested by construction. DIN and ISO-2 are
+        the only protocols that carry the field; ISO-20 negotiates energy
+        *services* instead and never calls this.
+
+        Falls back to ``DC_extended`` — what production vehicles request and every
+        stock personality declares — when the tree omits the leaf (an empty-/
+        partial-tree personality, or an unrelated protocol). Like the SECC's
+        advertised-mode read, the value-raw seam is vacuous for this enum-typed
+        wire field (a non-coercible value could never reach the wire and is
+        rejected at personality load, #76), so the raise here is defense-in-depth
+        against a hand-built, unvalidated config.
+        """
+        protocol_key = {
+            Protocol.DIN_SPEC_70121: "DIN_SPEC_70121",
+            Protocol.ISO_15118_2: "ISO_15118_2",
+        }.get(protocol)
+        if protocol_key is not None:
+            tree = getattr(self.config, "message_field_tree", None) or {}
+            leaf = resolve_tree_leaf(
+                tree,
+                protocol_key,
+                "ChargeParameterDiscoveryReq",
+                ("requested_energy_mode",),
+            )
+            if leaf is not UNSET:
+                try:
+                    return EnergyTransferModeEnum(leaf)
+                except (ValueError, TypeError) as exc:
+                    raise ValueError(
+                        f"{protocol_key} ChargeParameterDiscoveryReq requested "
+                        f"energy transfer mode {leaf!r} is not a valid energy "
+                        f"transfer mode; it cannot be requested on the wire"
+                    ) from exc
+        return EnergyTransferModeEnum.DC_EXTENDED
 
     async def get_supported_energy_services(self) -> List[ServiceV20]:
         """Overrides EVControllerInterface.get_energy_transfer_service()."""

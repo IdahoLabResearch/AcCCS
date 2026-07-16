@@ -9,11 +9,12 @@ capabilities:
   - EIM
   supported_energy_services:
   - DC
-  energy_transfer_mode: DC_extended
-meter:
-  meter_id: Switch-Meter-EIM-001
-  starting_reading_wh: 555000
 residual:
+  # SECC meter-reading start seed (relocated from the retired `meter` block, #105).
+  # The ISO-2 SECC does not emit MeterInfo (meter_info stays None), so the id is
+  # dropped and this seed is unused on the wire — kept for parity with the model.
+  metering:
+    starting_reading_wh: 555000
   network:
     interface: acccs_secc
   tls:

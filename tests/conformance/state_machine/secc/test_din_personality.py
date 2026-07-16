@@ -56,19 +56,30 @@ def variant_secc_personality() -> SECCPersonality:
     # field tree, not the retired structured `power.evse_dc` reads. Issue #81
     # extends that to the list-nested SAScheduleList — the tree declares the
     # whole SAScheduleTuple list (PMax included). With `identity` retired (#102)
-    # the EVSEID is now a tree leaf too (SessionSetupRes.EVSEID); the energy mode
-    # still rides the pre-tree `capabilities.energy_transfer_mode` seam (its own
-    # tree migration is deferred), and the ServiceDiscoveryRes builder falls back
-    # to it since the tree below does not pin an EnergyTransferType.
+    # the EVSEID is now a tree leaf too (SessionSetupRes.EVSEID); with the
+    # `capabilities.energy_transfer_mode` seam retired (#105) the energy mode is a
+    # tree leaf as well (ServiceDiscoveryRes -> ChargeService -> EnergyTransferType,
+    # pinned to DC_core here), which the WrongEnergyTransferType reject-gate reads
+    # too (advertised == accepted).
     return SECCPersonality.model_validate(
         {
             "capabilities": {
-                "energy_transfer_mode": "DC_core",
                 "supported_protocols": ["DIN_SPEC_70121"],
             },
             "message_field_tree": {
               "DIN_SPEC_70121": {
                 "SessionSetupRes": {"EVSEID": "55AA66BB77"},
+                "ServiceDiscoveryRes": {
+                    "PaymentOptions": {"PaymentOption": ["ExternalPayment"]},
+                    "ChargeService": {
+                        "ServiceTag": {
+                            "ServiceID": 1,
+                            "ServiceCategory": "EVCharging",
+                        },
+                        "FreeService": False,
+                        "EnergyTransferType": "DC_core",
+                    },
+                },
                 "ChargeParameterDiscoveryRes": {
                     "SAScheduleList": {
                         "SAScheduleTuple": [
@@ -348,9 +359,9 @@ async def test_charge_parameter_discovery_rejects_unoffered_energy_mode(
 def tree_sourced_secc_personality() -> SECCPersonality:
     """A DIN SECC whose energy mode comes only from the message field tree.
 
-    `capabilities.energy_transfer_mode` is left at its DC_extended default, so
-    any assertion that the SECC advertises/accepts DC_core proves the value was
-    read from the tree — not from capabilities.
+    The builder fallback is DC_extended (#105 retired the
+    `capabilities.energy_transfer_mode` seam), so any assertion that the SECC
+    advertises/accepts DC_core proves the value was read from the tree.
     """
     # This personality is DIN-exclusive, so the #83 load-time completeness check
     # runs: a ServiceDiscoveryRes present in the tree must spell out its other
@@ -397,7 +408,7 @@ async def test_service_discovery_advertises_tree_energy_mode(
     result = await peer.feed(req)
 
     charge_service = result.outbound_msg.body.service_discovery_res.charge_service
-    # capabilities defaults to DC_extended, so DC_core can only come from the tree.
+    # The builder fallback is DC_extended, so DC_core can only come from the tree.
     assert charge_service.energy_transfer_type == EnergyTransferModeEnum.DC_CORE
 
 
@@ -407,7 +418,7 @@ async def test_cpd_reject_gate_reads_tree_advertised_mode(
 ):
     """The reject-gate compares the EV's requested mode against the tree's
     advertised EnergyTransferType. A DC_extended request against a DC_core tree
-    is rejected even though `capabilities` still defaults to DC_extended."""
+    is rejected even though the builder fallback is DC_extended."""
     from app.shared.messages.din_spec.datatypes import ResponseCode
 
     session = _stub_secc_session(tree_sourced_secc_personality)

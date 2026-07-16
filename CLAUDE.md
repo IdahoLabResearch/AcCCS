@@ -36,15 +36,20 @@ and [ADR-0006](docs/adr/0006-message-field-tree-personality.md):
   roles), and ISO-20 AC (both roles) are tree-backed with shipped baselines) —
   and a **`residual`** section for
   everything with *no* wire representation (`tls`, `slac`, `certificates`,
-  `network`, `charge_profile`, and behavioral flags under `behavior`). The
+  `network`, `charge_profile`, `metering` reading-seed, and behavioral flags
+  under `behavior`). The
   dividing rule is mechanical: on the wire → tree; not on the wire →
   residual; never duplicated. Dual-purpose fields (e.g. the DIN energy
   transfer mode) are single-sourced from the tree — the
   `WrongEnergyTransferType` reject-gate reads the same
   `ServiceDiscoveryRes → ChargeService → EnergyTransferType` value the SECC
-  advertises. The wire-bearing sections that predate the tree (`identity`,
-  `capabilities`, `power`, `meter`) still live at the top level until later
-  slices migrate them into per-message trees.
+  advertises, and the EVCC's requested mode is the
+  `ChargeParameterDiscoveryReq → RequestedEnergyTransferMode` leaf. The pre-tree
+  concern-first wire sections (`identity`, `power`, `meter`, and the wire-bearing
+  `capabilities.energy_transfer_mode`) are all retired (#102, #105) — every
+  emitted field is tree-sourced. The one top-level section left beside the tree
+  is `capabilities`, holding only the non-wire negotiation inputs
+  (`supported_protocols`, `supported_auth_modes`, `supported_energy_services`).
 - **Layering:** a personality may `extends: <baseline-name>` a per-role
   baseline; the loader deep-merges the device's sparse values over the
   baseline (device leaves win), including individual `message_field_tree`

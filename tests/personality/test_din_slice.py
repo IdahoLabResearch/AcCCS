@@ -127,12 +127,45 @@ def test_secc_default_din_sa_schedule_list_is_constant():
 
 @pytest.mark.asyncio
 async def test_secc_supported_energy_modes_din_track_personality():
+    # The DIN energy transfer mode is tree-sourced (#105): the SECC advertises —
+    # and the reject-gate accepts — the ServiceDiscoveryRes -> ChargeService ->
+    # EnergyTransferType leaf. Pinning DC_core here (the builder fallback is
+    # DC_extended) proves the value comes from the tree.
     personality = SECCPersonality.model_validate(
-        {"capabilities": {"energy_transfer_mode": "DC_core"}}
+        {
+            "capabilities": {"supported_protocols": ["DIN_SPEC_70121"]},
+            "message_field_tree": {
+                "DIN_SPEC_70121": {
+                    "ServiceDiscoveryRes": {
+                        "PaymentOptions": {"PaymentOption": ["ExternalPayment"]},
+                        "ChargeService": {
+                            "ServiceTag": {
+                                "ServiceID": 1,
+                                "ServiceCategory": "EVCharging",
+                            },
+                            "FreeService": False,
+                            "EnergyTransferType": "DC_core",
+                        },
+                    }
+                }
+            },
+        }
     )
     ctrl = SimEVSEController(personality=personality)
     modes = await ctrl.get_supported_energy_transfer_modes(Protocol.DIN_SPEC_70121)
     assert modes == [EnergyTransferModeEnum.DC_CORE]
+
+
+@pytest.mark.asyncio
+async def test_secc_supported_energy_modes_din_default_fallback():
+    # An empty-tree personality falls back to DC_extended (the retired
+    # `capabilities.energy_transfer_mode` seam is gone, #105).
+    personality = SECCPersonality.model_validate(
+        {"capabilities": {"supported_protocols": ["DIN_SPEC_70121"]}}
+    )
+    ctrl = SimEVSEController(personality=personality)
+    modes = await ctrl.get_supported_energy_transfer_modes(Protocol.DIN_SPEC_70121)
+    assert modes == [EnergyTransferModeEnum.DC_EXTENDED]
 
 
 def test_secc_rejects_mistyped_energy_transfer_type_leaf():

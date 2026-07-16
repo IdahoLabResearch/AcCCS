@@ -6,12 +6,13 @@ capabilities:
   - PNC
   supported_energy_services:
   - DC
-  energy_transfer_mode: DC_extended
   is_cert_install_needed: false
-meter:
-  meter_id: Switch-Meter-PnC-002
-  starting_reading_wh: 777000
 residual:
+  # SECC meter-reading start seed (relocated from the retired `meter` block, #105).
+  # The ISO-2 SECC does not emit MeterInfo (meter_info stays None), so the id is
+  # dropped and this seed is unused on the wire — kept for parity with the model.
+  metering:
+    starting_reading_wh: 777000
   network:
     interface: acccs_secc
   tls:

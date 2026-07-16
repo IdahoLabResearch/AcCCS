@@ -23,12 +23,6 @@ capabilities:
     - DIN_SPEC_70121
   supported_energy_services:
     - DC
-  # The EVCC's requested energy transfer mode is dual-purpose (emitted as
-  # ChargeParameterDiscoveryReq -> EVRequestedEnergyTransferType and consulted
-  # internally when matching the SECC's offer). It is a pre-tree wire section
-  # (CLAUDE.md "Configuration"); its message-field-tree migration is a later
-  # slice, so it stays single-sourced here and is not duplicated into the tree.
-  energy_transfer_mode: DC_extended
 residual:
   tls:
     # DIN does not use TLS.
@@ -60,6 +54,11 @@ message_field_tree:
     # EVMaximumPowerLimit and EVEnergyCapacity, so they are left unset (the builder
     # does not emit them). EVReady/EVErrorCode stay computed; EVRESSSOC is pinned.
     ChargeParameterDiscoveryReq:
+      # The EVCC's requested energy transfer mode is dual-purpose (emitted here as
+      # EVRequestedEnergyTransferType and consulted internally when matching the
+      # SECC's offer), single-sourced from this tree leaf (ADR-0006 / #105). The
+      # Cadillac requests DC_extended (type 3).
+      EVRequestedEnergyTransferType: DC_extended
       DC_EVChargeParameter:
         DC_EVStatus:
           EVRESSSOC: 88

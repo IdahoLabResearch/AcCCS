@@ -120,9 +120,12 @@ TLS posture:
 
 Negotiable items the device announces during session setup:
 `supported_protocols`, `supported_auth_modes`, `supported_energy_services`,
-`energy_transfer_mode`, plus a handful of session-policy booleans
+plus a handful of session-policy booleans
 (`free_charging_service`, `allow_cert_install_service`,
-`standby_allowed`, …).
+`standby_allowed`, …). The energy transfer mode is **not** here — it is a wire
+value now (#105), sourced from the message-field-tree
+`ChargeParameterDiscoveryReq → RequestedEnergyTransferMode` (EVCC) /
+`ServiceDiscoveryRes → ChargeService → EnergyTransferType` (SECC) leaves.
 
 This is the section you tune to **scope a personality to one protocol**
 — set `supported_protocols: [DIN_SPEC_70121]` to refuse non-DIN
@@ -150,11 +153,14 @@ CC.5.2 PreCharge inrush limit (< 2 A).
 `pki_path` — where the SECC/EVCC PKI lives — and `max_contract_certs`
 (ISO 15118-2 PnC).
 
-### `meter`
+### `residual.metering`
 
-SECC-side meter identity advertised in `MeterInfo` blocks
-(`meter_id`, `starting_reading_wh`). The per-message reading is
-runtime-derived and is *not* a personality field.
+SECC-side meter-reading start seed (`starting_reading_wh`). The wire-bearing
+meter id is a message-field-tree leaf now (#105) — ISO-20
+`{DC,AC}ChargeLoopRes → MeterInfo → MeterID`, so a device pins it there — while
+the reading start seed, which has no static wire form, is the one residual field
+left. The per-message reading is runtime-derived and is *not* a personality
+field.
 
 ## Authoring a new personality
 
@@ -190,7 +196,7 @@ The repository ships a starter library under `personalities/`:
 | `default-evcc.yaml` / `default-secc.yaml` | All | Materialised model defaults — regenerated from the Pydantic model. |
 | `din_dc_extended-evcc.yaml` / `din_dc_extended-secc.yaml` | DIN 70121 | **Default `--config`** (per role). DIN-only, TLS off, `DC_extended` — the mode production vehicles request. Each `extends:` its per-role baseline. |
 | `din-evcc-baseline.yaml` / `din-secc-baseline.yaml` | DIN 70121 | Per-role DIN baselines (ADR-0006). The advertised DC energy transfer mode is single-sourced from the SECC baseline's `message_field_tree`. The full ABB/Cadillac trees land here in #73/#74. |
-| `din_reference.yaml` | DIN 70121 | DIN-only emulator, TLS off, alternate `energy_transfer_mode` (DC_core, for the personality-swap demo) and a higher `charge_ramp` PreCharge target. A non-tree-backed file: it can no longer pin arbitrary wire values (those are tree-owned now — see the DIN baselines). |
+| `din_reference.yaml` | DIN 70121 | DIN-only emulator, TLS off, alternate energy transfer mode (DC_core, a tree leaf now — under `ServiceDiscoveryRes` for the SECC and `ChargeParameterDiscoveryReq` for the EVCC, #105) for the personality-swap demo, and a higher `charge_ramp` PreCharge target. |
 | `iso2-secc-baseline.yaml` | ISO 15118-2 DC | Per-role ISO-2 **SECC** baseline (ADR-0006 / #96), seeded field-for-field from `HAL+TCP_ISO_2_DC_Example.pcap`. Every SECC-emitted ISO-2 message is tree-sourced; device files `extends:` this. |
 | `iso2-evcc-baseline.yaml` | ISO 15118-2 DC | Per-role ISO-2 **EVCC** baseline (ADR-0006 / #97), seeded field-for-field from `Mach-E-ISO.pcapng`. Every EVCC-emitted ISO-2 message is tree-sourced; device files `extends:` this. |
 | `iso2_eim_dc-secc.yaml` / `iso2_eim_dc-evcc.yaml` | ISO 15118-2 DC | EIM (External Identification Means) auth — no contract certs, no PnC. Per-role split (#96/#97): the SECC side `extends: iso2-secc-baseline` and pins its EVSEID; the EVCC side `extends: iso2-evcc-baseline` and adds its target start values. |

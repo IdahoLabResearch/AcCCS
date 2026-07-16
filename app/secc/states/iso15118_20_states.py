@@ -1544,7 +1544,9 @@ class ACChargeLoop(StateSECC):
 
         meter_info = None
         if ac_charge_loop_req.meter_info_requested:
-            meter_info = await self.comm_session.evse_controller.get_meter_info_v20()
+            meter_info = await self.comm_session.evse_controller.get_meter_info_v20(
+                Protocol.ISO_15118_20_AC
+            )
 
         evse_status: Optional[EVSEStatus] = (
             await self.comm_session.evse_controller.get_evse_status()
@@ -1990,7 +1992,9 @@ class DCChargeLoop(StateSECC):
 
         meter_info: Optional[MeterInfo] = None
         if meter_info_requested:
-            meter_info = await self.comm_session.evse_controller.get_meter_info_v20()
+            meter_info = await self.comm_session.evse_controller.get_meter_info_v20(
+                Protocol.ISO_15118_20_DC
+            )
 
         dc_charge_loop_res = DCChargeLoopRes(
             header=MessageHeader(

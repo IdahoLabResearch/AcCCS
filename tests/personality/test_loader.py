@@ -30,14 +30,14 @@ def test_explicit_path_wins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "personalities").mkdir()
     (tmp_path / "personalities" / "marker.yaml").write_text(
-        "meter:\n  meter_id: from-repo\n"
+        "residual:\n  network:\n    interface: from-repo\n"
     )
 
     explicit = tmp_path / "explicit.yaml"
-    explicit.write_text("meter:\n  meter_id: from-explicit\n")
+    explicit.write_text("residual:\n  network:\n    interface: from-explicit\n")
 
     p = load_personality(str(explicit), role="evcc")
-    assert p.meter.meter_id == "from-explicit"
+    assert p.residual.network.interface == "from-explicit"
 
 
 def test_repo_directory_searched_when_name_is_bare(
@@ -46,11 +46,11 @@ def test_repo_directory_searched_when_name_is_bare(
     monkeypatch.chdir(tmp_path)
     (tmp_path / "personalities").mkdir()
     (tmp_path / "personalities" / "marker.yaml").write_text(
-        "meter:\n  meter_id: from-repo\n"
+        "residual:\n  network:\n    interface: from-repo\n"
     )
 
     p = load_personality("marker", role="evcc")
-    assert p.meter.meter_id == "from-repo"
+    assert p.residual.network.interface == "from-repo"
 
 
 def test_user_local_searched_when_repo_misses(
@@ -60,7 +60,9 @@ def test_user_local_searched_when_repo_misses(
     fake_home = tmp_path / "home"
     user_dir = fake_home / ".acccs" / "personalities"
     user_dir.mkdir(parents=True)
-    (user_dir / "private.yaml").write_text("meter:\n  meter_id: from-user\n")
+    (user_dir / "private.yaml").write_text(
+        "residual:\n  network:\n    interface: from-user\n"
+    )
 
     # Patch the constants since they're captured at import. The loader uses
     # the module-level paths directly.
@@ -69,7 +71,7 @@ def test_user_local_searched_when_repo_misses(
     )
 
     p = load_personality("private", role="evcc")
-    assert p.meter.meter_id == "from-user"
+    assert p.residual.network.interface == "from-user"
 
 
 def test_missing_personality_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -89,7 +91,7 @@ def test_missing_personality_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
 def test_role_mismatch_raises(tmp_path: Path):
     path = tmp_path / "p.yaml"
-    path.write_text("role: secc\nmeter:\n  meter_id: x\n")
+    path.write_text("role: secc\nresidual:\n  network:\n    interface: x\n")
     with pytest.raises(ValueError, match="role"):
         load_personality(str(path), role="evcc")
 
@@ -206,7 +208,7 @@ def test_list_no_role_field(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     _setup_dirs(
         tmp_path,
         monkeypatch,
-        repo_files={"no-role.yaml": "meter:\n  meter_id: x\n"},
+        repo_files={"no-role.yaml": "residual:\n  network:\n    interface: x\n"},
         user_files={},
     )
     entries = list_available_personalities()
@@ -283,25 +285,26 @@ def test_extends_deep_merges_baseline(tmp_path, monkeypatch):
         {
             "base-secc.yaml": """
                 role: secc
-                meter:
-                  meter_id: BASE0000
+                residual:
+                  metering:
+                    starting_reading_wh: 1000
+                  tls:
+                    enable_tls_1_3: false
                 capabilities:
                   supported_protocols:
                     - DIN_SPEC_70121
-                residual:
-                  tls:
-                    enable_tls_1_3: false
                 """,
             "device-secc.yaml": """
                 extends: base-secc
                 role: secc
-                meter:
-                  meter_id: DEVICE99
+                residual:
+                  metering:
+                    starting_reading_wh: 99
                 """,
         },
     )
     p = load_personality("device-secc", role="secc")
-    assert p.meter.meter_id == "DEVICE99"  # device override
+    assert p.residual.metering.starting_reading_wh == 99  # device override
     assert p.capabilities.supported_protocols == ["DIN_SPEC_70121"]  # from baseline
     assert p.residual.tls.enable_tls_1_3 is False  # from baseline
 
@@ -378,12 +381,12 @@ def test_extends_key_is_stripped_not_a_model_field(tmp_path, monkeypatch):
         tmp_path,
         monkeypatch,
         {
-            "b.yaml": "role: evcc\nmeter:\n  meter_id: FROMBASE\n",
+            "b.yaml": "role: evcc\nresidual:\n  network:\n    interface: FROMBASE\n",
             "d.yaml": "extends: b\nrole: evcc\n",
         },
     )
     p = load_personality("d", role="evcc")
-    assert p.meter.meter_id == "FROMBASE"
+    assert p.residual.network.interface == "FROMBASE"
     assert not hasattr(p, "extends")
 
 

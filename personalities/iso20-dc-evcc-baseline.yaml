@@ -64,10 +64,6 @@ capabilities:
   # the provenance header) so the requested BPT envelope reaches the wire.
   supported_energy_services:
     - DC_BPT
-  # Dual-purpose (emitted + consulted internally); single-sourced here as a
-  # pre-tree wire section (CLAUDE.md "Configuration"), not duplicated into the
-  # tree — its message-field-tree migration is a later slice.
-  energy_transfer_mode: DC_extended
 residual:
   tls:
     enable_tls_1_3: true

@@ -2251,8 +2251,10 @@ class ChargingStatus(StateSECC):
             # TODO Could maybe request an OCPP setting that determines
             #      whether or not a receipt is required and when
             #      (probably only makes sense at the beginning and end of
-            #      a charging session). If true, set MeterInfo.
-            # meter_info=await self.comm_session.evse_controller.get_meter_info_v2(),
+            #      a charging session). If true, set MeterInfo. The ISO-2 SECC
+            #      MeterInfo emitter is unimplemented (meter_info stays None); the
+            #      retired `get_meter_info_v2` helper that once seeded it here was
+            #      removed with the `meter` block (#105).
             receipt_required=False,
         )
 

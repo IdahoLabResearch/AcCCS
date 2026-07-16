@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field, field_validator
 from app.shared.messages.enums import (
     UINT_16_MAX,
     AuthEnum,
-    EnergyTransferModeEnum,
     Protocol,
     ServiceV20,
 )
@@ -40,8 +39,6 @@ class EVCCConfig(BaseModel):
 
     raw_supported_auth_modes: Optional[List[str]] = None
     supported_auth_modes: Optional[List[AuthEnum]] = None
-
-    energy_transfer_mode: Optional[EnergyTransferModeEnum] = None
 
     is_cert_install_needed: bool = False
     use_tls: Optional[bool] = True
@@ -92,7 +89,6 @@ class EVCCConfig(BaseModel):
             supported_energy_services=caps.resolved_energy_services(),
             raw_supported_auth_modes=list(caps.supported_auth_modes),
             supported_auth_modes=caps.resolved_auth_modes(),
-            energy_transfer_mode=caps.resolved_energy_transfer_mode(),
             is_cert_install_needed=caps.is_cert_install_needed,
             use_tls=tls.use_tls,
             sdp_retry_cycles=tls.sdp_retry_cycles,
@@ -116,8 +112,6 @@ class EVCCConfig(BaseModel):
                 "supported_auth_modes",
             ) and value:
                 logger.info(f"{key:30}: {[item.name for item in value]}")
-            elif key == "energy_transfer_mode" and value is not None:
-                logger.info(f"{key:30}: {value.name}")
             elif key == "message_field_tree":
                 # The tree can be a large nested dict (the full DIN baseline);
                 # log only its message keys, not every leaf, to keep the

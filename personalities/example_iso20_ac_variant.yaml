@@ -20,6 +20,14 @@ capabilities:
     - AC
   # ISO-20 mandates TLS 1.3; the variant keeps it on.
 
-meter:
-  meter_id: Switch-Meter-ISO20-AC-001
-  starting_reading_wh: 200000
+# Meter identity is a wire value emitted inside ACChargeLoopRes -> MeterInfo, so
+# it is a message-field-tree leaf (#105); the reading start seed has no static
+# wire form, so it lives in the residual section.
+residual:
+  metering:
+    starting_reading_wh: 200000
+message_field_tree:
+  ISO_15118_20_AC:
+    ACChargeLoopRes:
+      MeterInfo:
+        MeterID: Switch-Meter-ISO20-AC-001

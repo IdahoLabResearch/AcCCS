@@ -8,7 +8,22 @@ capabilities:
   - DIN_SPEC_70121
   supported_energy_services:
   - DC
-  energy_transfer_mode: DC_core
+# The SECC-advertised energy transfer mode is a message-field-tree leaf now (#105);
+# the WrongEnergyTransferType reject-gate reads the same leaf (advertised ==
+# accepted). ServiceDiscoveryRes's other required leaves are spelled out to
+# satisfy the load-time completeness check.
+message_field_tree:
+  DIN_SPEC_70121:
+    ServiceDiscoveryRes:
+      PaymentOptions:
+        PaymentOption:
+        - ExternalPayment
+      ChargeService:
+        ServiceTag:
+          ServiceID: 1
+          ServiceCategory: EVCharging
+        FreeService: false
+        EnergyTransferType: DC_core
 residual:
   network:
     interface: acccs_secc

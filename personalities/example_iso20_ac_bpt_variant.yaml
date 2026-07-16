@@ -16,6 +16,14 @@ capabilities:
   supported_energy_services:
     - AC_BPT
 
-meter:
-  meter_id: Switch-Meter-ISO20-ACBPT-001
-  starting_reading_wh: 412000
+# Meter identity is a wire value emitted inside ACChargeLoopRes -> MeterInfo, so
+# it is a message-field-tree leaf (#105); the reading start seed has no static
+# wire form, so it lives in the residual section.
+residual:
+  metering:
+    starting_reading_wh: 412000
+message_field_tree:
+  ISO_15118_20_AC:
+    ACChargeLoopRes:
+      MeterInfo:
+        MeterID: Switch-Meter-ISO20-ACBPT-001

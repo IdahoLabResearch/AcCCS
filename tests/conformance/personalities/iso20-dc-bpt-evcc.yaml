@@ -12,7 +12,6 @@ capabilities:
   - EIM
   supported_energy_services:
   - DC_BPT
-  energy_transfer_mode: DC_extended
 residual:
   network:
     interface: acccs_evcc

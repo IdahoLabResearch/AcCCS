@@ -6,7 +6,6 @@ capabilities:
   - DIN_SPEC_70121
   supported_energy_services:
   - DC
-  energy_transfer_mode: DC_extended
 residual:
   network:
     interface: acccs_evcc

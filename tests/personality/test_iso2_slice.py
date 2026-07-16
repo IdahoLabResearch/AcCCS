@@ -29,19 +29,29 @@ from app.shared.personality.model import EVCCPersonality, SECCPersonality
 
 
 # ---------------------------------------------------------------------------
-# Model: meter section exists with strict validation
+# Model: residual metering section exists with strict validation (#105)
 # ---------------------------------------------------------------------------
 
 
-def test_meter_section_defaults():
+def test_metering_section_defaults():
+    # The wire-bearing `meter_id` is a tree leaf now (#105); only the
+    # reading start seed survives in the residual section.
     p = SECCPersonality.model_validate({})
-    assert p.meter.meter_id
-    assert p.meter.starting_reading_wh >= 0
+    assert p.residual.metering.starting_reading_wh >= 0
 
 
-def test_meter_section_rejects_unknown_field():
+def test_metering_section_rejects_unknown_field():
     with pytest.raises(ValidationError):
-        SECCPersonality.model_validate({"meter": {"meter_id": "X", "junk": 1}})
+        SECCPersonality.model_validate(
+            {"residual": {"metering": {"starting_reading_wh": 1, "junk": 1}}}
+        )
+
+
+def test_meter_section_is_retired():
+    # The pre-tree top-level `meter` section is gone (#105); a personality that
+    # still carries it is a hard (extra_forbidden) error.
+    with pytest.raises(ValidationError):
+        SECCPersonality.model_validate({"meter": {"meter_id": "X"}})
 
 
 # ---------------------------------------------------------------------------
@@ -90,24 +100,34 @@ async def test_secc_sa_schedule_iso2_retired_to_skeleton():
 
 
 @pytest.mark.asyncio
-async def test_secc_meter_info_v2_uses_personality():
+async def test_secc_meter_info_v20_uses_tree_meter_id():
+    # #105: the ISO-20 MeterInfo MeterID is tree-sourced from the ChargeLoopRes
+    # variant the protocol selects; the reading start seed comes from
+    # residual.metering. The ISO-2 `get_meter_info_v2` helper (and the `meter`
+    # block it read) is retired.
     personality = SECCPersonality.model_validate(
-        {"meter": {"meter_id": "ACME-001", "starting_reading_wh": 99999}}
+        {
+            "residual": {"metering": {"starting_reading_wh": 99999}},
+            "message_field_tree": {
+                "ISO_15118_20_DC": {
+                    "DCChargeLoopRes": {"MeterInfo": {"MeterID": "ACME-002"}}
+                }
+            },
+        }
     )
     ctrl = SimEVSEController(personality=personality)
-    info = await ctrl.get_meter_info_v2()
-    assert info.meter_id == "ACME-001"
-    assert info.meter_reading == 99999
+    info = await ctrl.get_meter_info_v20(Protocol.ISO_15118_20_DC)
+    assert info.meter_id == "ACME-002"
+    assert info.charged_energy_reading_wh == 99999
 
 
 @pytest.mark.asyncio
-async def test_secc_meter_info_v20_uses_personality_meter_id():
-    personality = SECCPersonality.model_validate(
-        {"meter": {"meter_id": "ACME-002"}}
-    )
+async def test_secc_meter_info_v20_falls_back_to_default_meter_id():
+    # An empty-tree personality falls back to the builder default MeterID.
+    personality = SECCPersonality.model_validate({})
     ctrl = SimEVSEController(personality=personality)
-    info = await ctrl.get_meter_info_v20()
-    assert info.meter_id == "ACME-002"
+    info = await ctrl.get_meter_info_v20(Protocol.ISO_15118_20_DC)
+    assert info.meter_id == "Switch-Meter-123"
 
 
 # ---------------------------------------------------------------------------
@@ -121,8 +141,18 @@ async def test_evcc_iso2_ac_charge_params_retired_to_skeleton():
     # now tree-sourced at the ChargeParameterDiscoveryReq build site, so this
     # builder returns the AC-limit model-default *skeleton* regardless of the
     # personality's ev_ac (which no longer reaches the ISO-2 wire through here).
+    # The requested energy mode is tree-sourced (#105); pinning AC here drives the
+    # AC branch of get_charge_params_v2.
     personality = EVCCPersonality.model_validate(
-        {"capabilities": {"energy_transfer_mode": "AC_three_phase_core"}}
+        {
+            "message_field_tree": {
+                "ISO_15118_2": {
+                    "ChargeParameterDiscoveryReq": {
+                        "RequestedEnergyTransferMode": "AC_three_phase_core"
+                    }
+                }
+            }
+        }
     )
     evcc_config = EVCCConfig.from_personality(personality)
     sim = SimEVController(evcc_config)
@@ -142,10 +172,9 @@ async def test_evcc_iso2_dc_charge_params_retired_to_skeleton():
     # #97 retired the structured ISO-2 DC announcements: the DC envelope maxima
     # come from the EVDCLimits model-default skeleton (the tree overrides them at
     # the build site), and the Mach-E omits EVEnergyRequest / FullSOC / BulkSOC /
-    # EVEnergyCapacity / DepartureTime, so this builder leaves them unset.
-    personality = EVCCPersonality.model_validate(
-        {"capabilities": {"energy_transfer_mode": "DC_extended"}}
-    )
+    # EVEnergyCapacity / DepartureTime, so this builder leaves them unset. An
+    # empty tree falls back to the default DC_extended request (#105).
+    personality = EVCCPersonality.model_validate({})
     evcc_config = EVCCConfig.from_personality(personality)
     sim = SimEVController(evcc_config)
     params = await sim.get_charge_params_v2(Protocol.ISO_15118_2)
@@ -165,10 +194,31 @@ async def test_evcc_iso2_dc_charge_params_retired_to_skeleton():
 
 
 @pytest.mark.asyncio
-async def test_evcc_iso2_energy_transfer_mode_tracks_personality():
+async def test_evcc_iso2_energy_transfer_mode_tracks_tree():
+    # #105: the EVCC's requested energy transfer mode is tree-sourced from
+    # ChargeParameterDiscoveryReq. Pinning DC_core (fallback is DC_extended)
+    # proves it comes from the tree.
     personality = EVCCPersonality.model_validate(
-        {"capabilities": {"energy_transfer_mode": "DC_extended"}}
+        {
+            "message_field_tree": {
+                "ISO_15118_2": {
+                    "ChargeParameterDiscoveryReq": {
+                        "RequestedEnergyTransferMode": "DC_core"
+                    }
+                }
+            }
+        }
     )
+    evcc_config = EVCCConfig.from_personality(personality)
+    sim = SimEVController(evcc_config)
+    mode = await sim.get_energy_transfer_mode(Protocol.ISO_15118_2)
+    assert mode == EnergyTransferModeEnum.DC_CORE
+
+
+@pytest.mark.asyncio
+async def test_evcc_iso2_energy_transfer_mode_default_fallback():
+    # An empty-tree personality falls back to DC_extended (#105).
+    personality = EVCCPersonality.model_validate({})
     evcc_config = EVCCConfig.from_personality(personality)
     sim = SimEVController(evcc_config)
     mode = await sim.get_energy_transfer_mode(Protocol.ISO_15118_2)

@@ -9,7 +9,12 @@ capabilities:
   - DIN_SPEC_70121
   supported_energy_services:
   - DC
-  energy_transfer_mode: DC_core
+# The EVCC-requested energy transfer mode is a message-field-tree leaf now (#105),
+# single-sourced under ChargeParameterDiscoveryReq (its only required leaf).
+message_field_tree:
+  DIN_SPEC_70121:
+    ChargeParameterDiscoveryReq:
+      EVRequestedEnergyTransferType: DC_core
 residual:
   # EV DC charge-ramp start seeds relocated from the retired
   # `power.ev_dc` block (#102): no static wire form, so residual.

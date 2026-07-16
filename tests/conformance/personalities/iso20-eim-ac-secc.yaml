@@ -7,9 +7,9 @@
 # personality keeps TLS on. Pairs with `iso20-eim-ac-evcc.yaml` via the
 # `iso20-eim-ac` scenario.
 #
-# `energy_transfer_mode` is a legacy ISO 15118-2 / DIN field; ISO 15118-20
-# negotiates the energy service via `supported_energy_services`, so it is
-# left at its model default (matching `example_iso20_ac_variant.yaml`).
+# ISO 15118-20 negotiates the energy service via `supported_energy_services`,
+# not an energy-transfer-mode field (a DIN / ISO 15118-2 concept, tree-migrated
+# in #105), so this AC personality carries none.
 capabilities:
   supported_protocols:
   - ISO_15118_20_AC

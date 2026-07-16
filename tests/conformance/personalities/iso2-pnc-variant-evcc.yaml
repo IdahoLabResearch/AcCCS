@@ -6,7 +6,6 @@ capabilities:
   - PNC
   supported_energy_services:
   - DC
-  energy_transfer_mode: DC_extended
   is_cert_install_needed: false
 residual:
   # EV DC charge-ramp start seeds relocated from the retired

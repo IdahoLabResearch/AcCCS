@@ -11,7 +11,6 @@ capabilities:
   - EIM
   supported_energy_services:
   - DC
-  energy_transfer_mode: DC_extended
 residual:
   # EV DC charge-ramp start seeds relocated from the retired
   # `power.ev_dc` block (#102): no static wire form, so residual.

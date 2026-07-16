@@ -45,7 +45,7 @@ import pytest
 from app.evcc.controller.simulator import SimEVController
 from app.evcc.evcc_config import EVCCConfig
 from app.secc.controller.simulator import SimEVSEController
-from app.shared.messages.enums import ControlMode, ServiceV20
+from app.shared.messages.enums import ControlMode, Protocol, ServiceV20
 from app.shared.messages.iso15118_20.common_messages import (
     SelectedEnergyService,
 )
@@ -125,12 +125,21 @@ async def test_secc_dc_bpt_v20_discharge_retired_to_skeleton():
 
 
 @pytest.mark.asyncio
-async def test_secc_meter_info_v20_uses_personality_reading():
+async def test_secc_meter_info_v20_uses_tree_id_and_residual_reading():
+    # #105: MeterID is tree-sourced from the {DC,AC}ChargeLoopRes MeterInfo leaf;
+    # the reading start seed comes from residual.metering.
     personality = SECCPersonality.model_validate(
-        {"meter": {"meter_id": "ACME-V20", "starting_reading_wh": 78910}}
+        {
+            "residual": {"metering": {"starting_reading_wh": 78910}},
+            "message_field_tree": {
+                "ISO_15118_20_AC": {
+                    "ACChargeLoopRes": {"MeterInfo": {"MeterID": "ACME-V20"}}
+                }
+            },
+        }
     )
     ctrl = SimEVSEController(personality=personality)
-    info = await ctrl.get_meter_info_v20()
+    info = await ctrl.get_meter_info_v20(Protocol.ISO_15118_20_AC)
     assert info.meter_id == "ACME-V20"
     assert info.charged_energy_reading_wh == 78910
 

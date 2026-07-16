@@ -49,7 +49,6 @@ from app.shared.messages.iso15118_2.datatypes import (
     ACEVSEChargeParameter,
     ACEVSEStatus,
 )
-from app.shared.messages.iso15118_2.datatypes import MeterInfo as MeterInfoV2
 from app.shared.messages.iso15118_2.datatypes import ResponseCode as ResponseCodeV2
 from app.shared.messages.iso15118_2.datatypes import (
     SAScheduleTuple,
@@ -276,22 +275,14 @@ class EVSEControllerInterface(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def get_meter_info_v2(self) -> MeterInfoV2:
+    async def get_meter_info_v20(self, protocol: Protocol) -> MeterInfoV20:
         """
         Provides the MeterInfo from the EVSE's smart meter
 
-        Returns:
-            A MeterInfo instance, which contains the meter reading
-
-        Relevant for:
-        - ISO 15118-2
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    async def get_meter_info_v20(self) -> MeterInfoV20:
-        """
-        Provides the MeterInfo from the EVSE's smart meter
+        Args:
+            protocol: the negotiated ISO 15118-20 protocol
+                (``ISO_15118_20_DC`` / ``ISO_15118_20_AC``), selecting which
+                ChargeLoopRes variant the tree-sourced MeterID is read from.
 
         Returns:
             A MeterInfo instance, which contains the meter reading

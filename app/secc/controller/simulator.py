@@ -83,7 +83,6 @@ from app.shared.messages.iso15118_2.datatypes import (
     DHPublicKey,
     EncryptedPrivateKey,
 )
-from app.shared.messages.iso15118_2.datatypes import MeterInfo as MeterInfoV2
 from app.shared.messages.iso15118_2.datatypes import (
     PMaxSchedule,
     PMaxScheduleEntry,
@@ -165,6 +164,13 @@ from app.shared.personality.message_field_tree import UNSET, resolve_tree_leaf
 from app.shared.states import State
 
 logger = logging.getLogger(__name__)
+
+# Default ISO-20 MeterInfo MeterID for an empty-/partial-tree personality
+# (ADR-0006 #105). The wire-bearing meter id is tree-sourced from
+# ``{DC,AC}ChargeLoopRes -> MeterInfo -> MeterID``; this is the builder fallback
+# the tree overrides, mirroring the `get_evse_id` runtime-fallback pattern. It
+# keeps the historical `meter.meter_id` default so a stock session is unchanged.
+_DEFAULT_METER_ID = "Switch-Meter-123"
 
 
 # Skeleton wire-envelope defaults (ADR-0006 #102). The EVSE's advertised DIN /
@@ -420,17 +426,13 @@ class SimEVSEController(EVSEControllerInterface):
                         f"energy transfer mode; it cannot be advertised on the wire"
                     ) from exc
 
-            # Fallback for a personality whose tree omits this leaf (e.g. the
-            # symmetric din_reference, or any pre-tree personality): the
-            # capabilities-sourced mode. DIN SPEC permits only DC_CORE /
-            # DC_EXTENDED, so a personality that picked a non-DC mode by hand
-            # clamps to DC_EXTENDED.
-            configured = self.personality.capabilities.resolved_energy_transfer_mode()
-            if configured in (
-                EnergyTransferModeEnum.DC_CORE,
-                EnergyTransferModeEnum.DC_EXTENDED,
-            ):
-                return [configured]
+            # Fallback for a personality whose tree omits this leaf (an empty-/
+            # partial-tree personality that carries no ServiceDiscoveryRes
+            # EnergyTransferType): DC_extended, what production chargers advertise
+            # and every stock personality declares. The retired
+            # `capabilities.energy_transfer_mode` seam (#105) is gone — the tree
+            # is now the sole source, so a device wanting DC_core pins it in the
+            # tree (advertised == accepted, ADR-0006).
             return [EnergyTransferModeEnum.DC_EXTENDED]
 
         if protocol == Protocol.ISO_15118_2:
@@ -882,34 +884,45 @@ class SimEVSEController(EVSEControllerInterface):
 
         return sa_schedule_list
 
-    async def get_meter_info_v2(self) -> MeterInfoV2:
-        """Overrides EVSEControllerInterface.get_meter_info_v2().
-
-        Per issue #8: `meter_id` and `meter_reading` are sourced from
-        `personality.meter` when a personality is attached. The reading
-        itself is the personality's `starting_reading_wh` baseline — the
-        per-message live reading remains runtime-derived and is layered
-        in by the wire codec on top of the baseline.
-        """
-        meter = self.personality.meter
-        return MeterInfoV2(
-            meter_id=meter.meter_id,
-            meter_reading=meter.starting_reading_wh,
-            t_meter=int(time.time()),
-        )
-
-    async def get_meter_info_v20(self) -> MeterInfoV20:
+    async def get_meter_info_v20(self, protocol: Protocol) -> MeterInfoV20:
         """Overrides EVSEControllerInterface.get_meter_info_v20().
 
-        Both `meter_id` and `charged_energy_reading_wh` are personality
-        fields — the latter sourced from `meter.starting_reading_wh`
-        (same field that seeds the ISO-2 / DIN meter reading) so the
-        per-protocol wire values stay consistent for a given personality.
+        Tree-source the ISO-20 ``MeterInfo.MeterID`` from the message field tree
+        (ADR-0006 / #105): the wire-bearing meter id is read from
+        ``{protocol} -> {DC,AC}ChargeLoopRes -> MeterInfo -> MeterID`` — the
+        message the ISO-20 SECC actually emits this MeterInfo inside — so the id
+        the vehicle sees is the tree value, single-sourced there. *protocol*
+        selects the ChargeLoopRes variant (``DCChargeLoopRes`` for the DC session,
+        ``ACChargeLoopRes`` for the AC session). A personality whose tree omits
+        the leaf (the shipped baselines do — the emulator's own EVCC never sets
+        ``MeterInfoRequested``, so this MeterInfo is not emitted in a stock
+        session) falls back to the historical default id.
+
+        ``charged_energy_reading_wh`` seeds the reading from
+        ``residual.metering.starting_reading_wh`` (the relocated meter-reading
+        seed, #105); the per-message live reading is runtime-derived on top of
+        that baseline and never a static wire value.
         """
-        meter = self.personality.meter
+        message_name = (
+            "ACChargeLoopRes"
+            if protocol == Protocol.ISO_15118_20_AC
+            else "DCChargeLoopRes"
+        )
+        protocol_key = (
+            "ISO_15118_20_AC"
+            if protocol == Protocol.ISO_15118_20_AC
+            else "ISO_15118_20_DC"
+        )
+        leaf = resolve_tree_leaf(
+            self.personality.message_field_tree,
+            protocol_key,
+            message_name,
+            ("meter_info", "meter_id"),
+        )
+        meter_id = leaf if leaf is not UNSET else _DEFAULT_METER_ID
         return MeterInfoV20(
-            meter_id=meter.meter_id,
-            charged_energy_reading_wh=meter.starting_reading_wh,
+            meter_id=meter_id,
+            charged_energy_reading_wh=self.personality.residual.metering.starting_reading_wh,
             meter_timestamp=int(time.time()),
         )
 

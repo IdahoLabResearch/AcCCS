@@ -19,6 +19,14 @@ capabilities:
   supported_energy_services:
     - DC
 
-meter:
-  meter_id: Switch-Meter-ISO20-DC-001
-  starting_reading_wh: 300000
+# Meter identity is a wire value emitted inside DCChargeLoopRes -> MeterInfo, so
+# it is a message-field-tree leaf (#105); the reading start seed has no static
+# wire form, so it lives in the residual section.
+residual:
+  metering:
+    starting_reading_wh: 300000
+message_field_tree:
+  ISO_15118_20_DC:
+    DCChargeLoopRes:
+      MeterInfo:
+        MeterID: Switch-Meter-ISO20-DC-001
