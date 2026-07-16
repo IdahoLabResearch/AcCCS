@@ -14,9 +14,9 @@ Scope (ADR-0006 #83 + the protocol-keyed amendment):
 * **Per supported, tree-backed protocol.** The gate is now per-protocol
   (:func:`is_tree_backed`): a supported protocol whose slice has landed (its
   values actually flow to the wire from the tree — DIN, ISO-2, ISO-20 DC, and
-  ISO-20 AC SECC today) must carry a **present and complete** subtree; a
-  supported protocol still on the builders' pre-tree structured path (the ISO-20
-  AC EVCC side) needs *nothing* in the tree and is exempt. Each protocol
+  ISO-20 AC today) must carry a **present and complete** subtree; a
+  supported protocol still on the builders' pre-tree structured path needs
+  *nothing* in the tree and is exempt. Each protocol
   slice can therefore land independently — no
   flag-day cutover — while the end state (every supported protocol tree-backed
   and checked) is the strong "a personality cannot claim a protocol it does not
@@ -85,8 +85,7 @@ _ISO20_AC_PROTOCOL = "ISO_15118_20_AC"
 # protocol outside it is still driven by the builders' pre-tree path and needs
 # nothing in the tree (ADR-0006 protocol-keyed amendment). ISO-20 DC joins for
 # the SECC role as of #98 and the EVCC role as of #99; ISO-20 AC joins for the
-# SECC role as of #100 (the ISO-20 AC EVCC side adds its own entry as that slice
-# lands).
+# SECC role as of #100 and the EVCC role as of #101.
 _TREE_BACKED_PROTOCOLS: frozenset = frozenset(
     {_DIN_PROTOCOL, _ISO2_PROTOCOL, _ISO20_DC_PROTOCOL, _ISO20_AC_PROTOCOL}
 )
@@ -112,8 +111,8 @@ def is_tree_backed(protocol: str) -> bool:
     for it); a supported protocol that is not yet tree-backed drives its wire
     values through the builders' pre-tree path and is exempt from the gate until
     its slice lands. Tree-backed today: DIN (both roles), ISO-2 (both roles),
-    ISO-20 DC (both roles: SECC #98, EVCC #99), and ISO-20 AC (SECC role, #100).
-    See :data:`_TREE_BACKED_PROTOCOLS`.
+    ISO-20 DC (both roles: SECC #98, EVCC #99), and ISO-20 AC (both roles: SECC
+    #100, EVCC #101). See :data:`_TREE_BACKED_PROTOCOLS`.
     """
     return protocol in _TREE_BACKED_PROTOCOLS
 
@@ -251,6 +250,33 @@ ISO20_DC_EVCC_MESSAGES: Tuple[str, ...] = (
     "DCPreChargeReq",
     "DCChargeLoopReq",
     "DCWeldingDetectionReq",
+)
+
+
+# The ISO-15118-20 AC EVCC-emitted message set (issue #101). The AC sibling of
+# ISO20_DC_EVCC_MESSAGES and the vehicle-side mirror of ISO20_AC_SECC_MESSAGES:
+# the same ten common ``*Req`` (shared with the ISO-20 DC session and
+# single-sourced via the same YAML anchor a combined baseline declares once) plus
+# the AC-specific ``*Req`` the AC state machine emits. There is no DC-style
+# CableCheck / PreCharge / WeldingDetection on the AC path. AC-BPT is a *mode*
+# whose discharge params ride inside these AC messages
+# (``BPTACChargeParameterDiscoveryReqParams`` …), not its own message, so there
+# is no separate BPT message here — exactly as on the DC side.
+ISO20_AC_EVCC_MESSAGES: Tuple[str, ...] = (
+    # --- common (both AC and DC ISO-20 sessions) ---
+    "SessionSetupReq",
+    "AuthorizationSetupReq",
+    "AuthorizationReq",
+    "ServiceDiscoveryReq",
+    "ServiceDetailReq",
+    "ServiceSelectionReq",
+    "ScheduleExchangeReq",
+    "PowerDeliveryReq",
+    "CertificateInstallationReq",
+    "SessionStopReq",
+    # --- AC-specific ---
+    "ACChargeParameterDiscoveryReq",
+    "ACChargeLoopReq",
 )
 
 
@@ -588,6 +614,48 @@ _ISO20_DC_EVCC_MESSAGE_ALLOWLIST: Dict[str, Set[LeafPath]] = {
 }
 
 
+# The ISO-15118-20 AC EVCC allowlist (issue #101). The AC sibling of
+# _ISO20_DC_EVCC_MESSAGE_ALLOWLIST and the vehicle-side mirror of the ISO-20 AC
+# SECC allowlist (#100): its *common*-message entries (the ISO-20 common ``*Req``
+# are the same models regardless of energy transfer mode) plus the one AC-specific
+# entry the DC side had a DC-specific analogue of. Decoded field-for-field from
+# `HAL+TCP_ISO_20_AC_Example.pcap` (a real plain-AC / Dynamic / EIM session,
+# plaintext TCP): the NIC-MAC EVCCID; the negotiated SelectedAuthorizationService
+# (EIM); the echoed ServiceDetailReq ServiceID and the session-scoped
+# ServiceSelectionReq SelectedEnergyService (ServiceID + ParameterSetID, chosen at
+# runtime from the SECC's advertisement); the ScheduleExchangeReq
+# MaximumSupportingPoints (config-owned, single-sourced from `EVCCConfig`); the
+# PowerDeliveryReq EVProcessing / ChargeProgress ready flags; the SessionStopReq
+# ChargingSession; and the ACChargeLoopReq MeterInfoRequested (the constant `False`
+# the builder always emits). The AC-specific ``ACChargeParameterDiscoveryReq``
+# carries *no* entry: its only body leaf is the Optional
+# ``{BPT_,}AC_CPDReqEnergyTransferMode`` sub-model, never completeness-required, and
+# the baseline pins the plain-AC requested envelope in the tree (the retired
+# `power.ev_ac_v20` values). The ACChargeLoopReq control-mode envelope likewise
+# rides inside Optional sub-models (runtime/ramping, never baseline-pinned), so only
+# its mandatory `meter_info_requested` needs the allowlist. The `header` envelope
+# (SessionID, timestamp, signature) is excluded structurally
+# (`_ENVELOPE_ROOT_FIELDS`), not allowlisted. The PnC-only `CertificateInstallation-
+# Req` carries no entry — the EIM baseline never sources it, so per-message-present
+# skips it; a future PnC baseline adds its entries as its slice lands.
+_ISO20_AC_EVCC_MESSAGE_ALLOWLIST: Dict[str, Set[LeafPath]] = {
+    "SessionSetupReq": {("evcc_id",)},
+    "AuthorizationReq": {("selected_auth_service",)},
+    "ServiceDetailReq": {("service_id",)},
+    "ServiceSelectionReq": {
+        ("selected_energy_service", "service_id"),
+        ("selected_energy_service", "parameter_set_id"),
+    },
+    "ScheduleExchangeReq": {("max_supporting_points",)},
+    "PowerDeliveryReq": {
+        ("ev_processing",),
+        ("charge_progress",),
+    },
+    "SessionStopReq": {("charging_session",)},
+    "ACChargeLoopReq": {("meter_info_requested",)},
+}
+
+
 # The ISO-15118-20 AC SECC allowlist (issue #100). The AC sibling of
 # _ISO20_DC_SECC_MESSAGE_ALLOWLIST: exactly its *common*-message entries, because
 # the ISO-20 common ``*Res`` are the same models regardless of energy transfer
@@ -630,8 +698,8 @@ _ISO20_AC_SECC_MESSAGE_ALLOWLIST: Dict[str, Set[LeafPath]] = {
 # allowlist). The SECC base set (ResponseCode) folds into every SECC message of
 # every protocol. ISO-2 is tree-backed for both roles as of #96 (SECC) / #97
 # (EVCC); ISO-20 DC is tree-backed for the SECC role as of #98 and the EVCC role
-# as of #99; ISO-20 AC is tree-backed for the SECC role as of #100. Keyed
-# protocol -> the table `allowlist_for` folds.
+# as of #99; ISO-20 AC is tree-backed for the SECC role as of #100 and the EVCC
+# role as of #101. Keyed protocol -> the table `allowlist_for` folds.
 _SECC_ALLOWLIST_TABLES: Dict[str, Tuple[Tuple[str, ...], Dict[str, Set[LeafPath]]]] = {
     _DIN_PROTOCOL: (SECC_MESSAGES, _SECC_MESSAGE_ALLOWLIST),
     _ISO2_PROTOCOL: (ISO2_SECC_MESSAGES, _ISO2_SECC_MESSAGE_ALLOWLIST),
@@ -642,6 +710,7 @@ _EVCC_ALLOWLIST_TABLES: Dict[str, Tuple[Tuple[str, ...], Dict[str, Set[LeafPath]
     _DIN_PROTOCOL: (EVCC_MESSAGES, _EVCC_MESSAGE_ALLOWLIST),
     _ISO2_PROTOCOL: (ISO2_EVCC_MESSAGES, _ISO2_EVCC_MESSAGE_ALLOWLIST),
     _ISO20_DC_PROTOCOL: (ISO20_DC_EVCC_MESSAGES, _ISO20_DC_EVCC_MESSAGE_ALLOWLIST),
+    _ISO20_AC_PROTOCOL: (ISO20_AC_EVCC_MESSAGES, _ISO20_AC_EVCC_MESSAGE_ALLOWLIST),
 }
 
 
@@ -728,9 +797,11 @@ _PROTOCOL_ROLE_MESSAGES: Dict[str, Dict[str, Tuple[str, ...]]] = {
         "secc": ISO20_DC_SECC_MESSAGES,
         "evcc": ISO20_DC_EVCC_MESSAGES,
     },
-    # ISO-20 AC is tree-backed for the SECC role (#100); the EVCC side has no
-    # entry yet, so an ISO-20 AC EVCC personality carries no required subtree.
-    _ISO20_AC_PROTOCOL: {"secc": ISO20_AC_SECC_MESSAGES},
+    # ISO-20 AC is tree-backed for the SECC role (#100) and the EVCC role (#101).
+    _ISO20_AC_PROTOCOL: {
+        "secc": ISO20_AC_SECC_MESSAGES,
+        "evcc": ISO20_AC_EVCC_MESSAGES,
+    },
 }
 
 
@@ -741,7 +812,7 @@ def check_message_field_tree_completeness(
 
     Per-protocol (ADR-0006 protocol-keyed amendment): for each protocol the
     personality both *supports* and that :func:`is_tree_backed` (DIN, ISO-2,
-    ISO-20 DC, and ISO-20 AC SECC today) — the
+    ISO-20 DC, and ISO-20 AC today) — the
     protocol's subtree must carry a value for every mandatory wire field of every
     message the *role* emits, unless the leaf is on the role's allowlist. A
     supported but not-yet-tree-backed protocol is skipped entirely (its wire

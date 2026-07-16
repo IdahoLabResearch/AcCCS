@@ -1,0 +1,90 @@
+# ISO 15118-20 AC EVCC baseline personality (ADR-0006, issue #101).
+#
+# The per-role baseline supplies an ISO-20 AC vehicle's full default wire output;
+# device files `extends:` this and override only the leaves that differ. The AC
+# sibling of the ISO-20 DC EVCC baseline (#99) and the vehicle-side mirror of the
+# ISO-20 AC SECC baseline (#100): every EVCC-emitted ISO-20 AC message routes its
+# build through construction-time substitution (ADR-0006 protocol-keyed amendment)
+# sourcing its wire values from the `message_field_tree` below, and the structured
+# `power.ev_ac_v20` / AC uses of `power.schedule_exchange_v20` ISO-20 AC EVCC reads
+# are retired (their fallback is now the model-default skeleton).
+#
+# PROVENANCE — capture-seeded, decoded field-for-field from `~/projects/pcaps/
+# HAL+TCP_ISO_20_AC_Example.pcap`, the same real session the AC SECC baseline
+# (#100) replicates: an ISO-15118-20 **plain-AC / Dynamic control mode / EIM**
+# session. It decodes cleanly as ISO-20 AC with the project EXI codec (EVCC source
+# port 60900; payload type 0x8003 AC_MAINSTREAM) — plaintext on the wire (TCP, not
+# TLS), so the synthetic `EVACLimitsV20` fallback the issue reserves for an
+# undecodable capture is not needed here. The one decodable EVCC-emitted message
+# that bears a config-owned wire leaf is reproduced exactly:
+#   * ACChargeParameterDiscoveryReq.AC_CPDReqEnergyTransferMode — the plain-AC
+#     requested envelope (EVMaximumChargePower 12000 W, Exponent 0 / Value 12000;
+#     EVMinimumChargePower 0 W, Exponent -3 / Value 0), the retired
+#     `power.ev_ac_v20` values, now tree-sourced. The session negotiated plain AC
+#     (ServiceID 1), so the capture carries the `AC_CPDReqEnergyTransferMode`
+#     sub-model, not the AC-BPT `BPT_AC_CPDReqEnergyTransferMode` variant; an
+#     AC-BPT device pins the BPT envelope under the same message (the tree can
+#     address either sub-model, whichever the negotiated service builds).
+#
+# Builder-computed / runtime fields are NOT in the tree and stay computed
+# (ADR-0006 #83 optional-field allowlist, extended to ISO-20 AC EVCC in #101):
+# EVCCID (from the NIC MAC — a runtime identity, not pinned); the negotiated
+# SelectedAuthorizationService (EIM); the echoed ServiceDetailReq ServiceID and the
+# session-scoped ServiceSelectionReq SelectedEnergyService (ServiceID 1 / AC); the
+# ScheduleExchangeReq MaximumSupportingPoints (config-owned) and its Dynamic
+# control-mode params; the PowerDeliveryReq EVProcessing / ChargeProgress ready
+# flags; the ACChargeLoopReq MeterInfoRequested and its Dynamic control-mode
+# envelope (present active/reactive power, energy requests — runtime-computed loop
+# values, the AC analogue of the DC charge-loop ramping magnitudes); and the
+# SessionStopReq ChargingSession. The header/envelope (SessionID, timestamp,
+# signature) stays deferred/compute-only (the tree is message-body only). The
+# advertised energy services and auth mode are single-sourced from the
+# `capabilities` block below (the same ADR-0006 dividing rule the ISO-2 / ISO-20
+# slices use):
+#   * supported_energy_services = [AC] <- the capture negotiated ServiceID 1 (AC),
+#     so the baseline advertises AC and the requested AC envelope below reaches the
+#     wire. An AC-BPT device re-adds AC_BPT.
+#   * supported_auth_modes = [EIM] <- SelectedAuthorizationService EIM.
+#
+# ISO-20 mandates TLS 1.3 regardless of auth mode, so this baseline keeps TLS on
+# even though the source capture is plaintext — the reproduced artifact is the
+# message *values*, not the transport. Devices extending this baseline inherit TLS
+# on.
+#
+# `energy_transfer_mode` is a legacy DIN / ISO-2 field; ISO-20 negotiates the
+# energy service via `supported_energy_services`, so it is left at its model
+# default (mirroring the AC SECC baseline and the shipped `iso20-eim-ac-evcc`
+# conformance personality) — unlike the DC EVCC baseline, which pins it because a
+# DC session consults it internally.
+role: evcc
+capabilities:
+  supported_protocols:
+    - ISO_15118_20_AC
+  supported_auth_modes:
+    - EIM
+  # AC (ServiceID 1), matching the capture's negotiated energy service.
+  supported_energy_services:
+    - AC
+residual:
+  tls:
+    enable_tls_1_3: true
+    use_tls: true
+    enforce_tls: true
+message_field_tree:
+  ISO_15118_20_AC:
+    # The ISO-20 *common* messages (shared by AC and DC sessions) carry no
+    # config-owned EVCC leaf: every common EVCC-emitted mandatory leaf is
+    # runtime-produced (EVCCID from the NIC MAC, the negotiated auth service, the
+    # echoed / session-scoped ServiceIDs, the ready flags, ChargingSession) and so
+    # is allowlisted, not tree-pinned — the common block is empty. It is still
+    # declared via a YAML anchor so a future combined DC+AC EVCC baseline can alias
+    # `*iso20_common_evcc` under its `ISO_15118_20_DC` key (ADR-0006 protocol-keyed
+    # amendment), mirroring the SECC baseline's `&iso20_common_secc`.
+    <<: &iso20_common_evcc {}
+    # AC-specific messages. The plain-AC requested envelope is the retired
+    # `power.ev_ac_v20` block, now tree-sourced. Values are RationalNumber
+    # (Exponent + Value) leaves reproduced field-for-field from the capture.
+    ACChargeParameterDiscoveryReq:
+      AC_CPDReqEnergyTransferMode:
+        EVMaximumChargePower: {Exponent: 0, Value: 12000}
+        EVMinimumChargePower: {Exponent: -3, Value: 0}

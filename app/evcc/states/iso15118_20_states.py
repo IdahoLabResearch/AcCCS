@@ -129,9 +129,11 @@ def apply_personality_tree(comm_session, req, skip_fields=None) -> None:
     ServiceDiscovery, …) are shared by both DC and AC sessions: a DC session's
     common messages tree under ``ISO_15118_20_DC`` while an AC session's tree
     under ``ISO_15118_20_AC`` (the same anchor a combined baseline declares once
-    and aliases under each key). ISO-20 DC is a *tree-backed* protocol for the
-    EVCC role as of #99; the shipped ``iso20-dc-evcc-baseline`` replicates the
-    DC-BPT / Dynamic / EIM vehicle in ``iso20.pcap``. The tree rides on
+    and aliases under each key). ISO-20 is a *tree-backed* protocol for the EVCC
+    role in both energy modes: DC as of #99 (``iso20-dc-evcc-baseline``, the
+    DC-BPT / Dynamic / EIM vehicle in ``iso20.pcap``) and AC as of #101
+    (``iso20-ac-evcc-baseline``, the plain-AC / Dynamic / EIM vehicle in
+    ``HAL+TCP_ISO_20_AC_Example.pcap``). The tree rides on
     ``EVCCConfig`` (the EVCC is config-driven), so this is a no-op when the
     session carries no config, the config carries no tree (bare-controller unit
     tests), the negotiated protocol is not a known tree protocol, or the tree
@@ -842,6 +844,12 @@ class ServiceSelection(StateEVCC):
                 bpt_ac_params=bpt_ac_params,
             )
 
+            # The baseline pins the AC / AC-BPT requested envelope here (the
+            # retired `power.ev_ac_v20` values), tree-sourced onto the present
+            # sub-model; the absent one is left untouched (#101), mirroring the DC
+            # branch below.
+            apply_personality_tree(self.comm_session, next_req)
+
             self.create_next_message(
                 ACChargeParameterDiscovery,
                 next_req,
@@ -1126,6 +1134,11 @@ class PowerDelivery(StateEVCC):
                 bpt_dynamic_params=bpt_dynamic_params,
                 meter_info_requested=False,
             )
+
+            # The control-mode envelope rides inside the present Optional
+            # sub-model (runtime/ramping, allowlisted, never baseline-pinned); the
+            # tree still applies for parity with the DC charge loop (#101).
+            apply_personality_tree(self.comm_session, ac_charge_loop_req)
 
             self.create_next_message(
                 ACChargeLoop,
@@ -1464,6 +1477,11 @@ class ACChargeLoop(StateEVCC):
                 bpt_dynamic_params=bpt_dynamic_params,
                 meter_info_requested=False,
             )
+
+            # The control-mode envelope rides inside the present Optional
+            # sub-model (runtime/ramping, allowlisted, never baseline-pinned); the
+            # tree still applies for parity with the DC charge loop (#101).
+            apply_personality_tree(self.comm_session, ac_charge_loop_req)
 
             self.create_next_message(
                 ACChargeLoop,

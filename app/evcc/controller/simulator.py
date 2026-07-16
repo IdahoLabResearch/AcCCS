@@ -125,6 +125,7 @@ from app.shared.messages.iso15118_20.dc import (
 from app.shared.network import get_nic_mac_address
 from app.shared.personality.model import (
     EVACLimits,
+    EVACLimitsV20,
     EVDCLimits,
     EVDCLimitsV20,
     ScheduleExchangeV20,
@@ -385,16 +386,20 @@ class SimEVController(EVControllerInterface):
     ]:
         """Overrides EVControllerInterface.get_charge_params_v20().
 
-        DC retirement (ADR-0006 / #99): the ISO-20 DC / DC-BPT requested envelope
-        is now tree-sourced at the `DCChargeParameterDiscoveryReq` build site
-        (`{BPT_,}DC_CPDReqEnergyTransferMode → …`), so the DC branch here reads the
-        `EVDCLimitsV20` model-default *skeleton* rather than
-        `personality.power.ev_dc_v20`; the tree overrides it (the baseline pins
-        the DC-BPT envelope decoded from `iso20.pcap`). The AC branch is
-        unchanged — the ISO-20 AC slice has not landed, so it still sources
-        `personality.power.ev_ac_v20`.
+        Both branches are now tree-sourced at their ChargeParameterDiscoveryReq
+        build sites, so each reads its model-default *skeleton* here rather than
+        `personality.power.ev_{ac,dc}_v20`:
+
+        * DC retirement (ADR-0006 / #99): the ISO-20 DC / DC-BPT requested
+          envelope comes from the tree (`{BPT_,}DC_CPDReqEnergyTransferMode → …`);
+          the DC branch reads the `EVDCLimitsV20` skeleton (the baseline pins the
+          DC-BPT envelope decoded from `iso20.pcap`).
+        * AC retirement (ADR-0006 / #101): the ISO-20 AC / AC-BPT requested
+          envelope comes from the tree (`{BPT_,}AC_CPDReqEnergyTransferMode → …`);
+          the AC branch reads the `EVACLimitsV20` skeleton (the baseline pins the
+          plain-AC envelope decoded from `HAL+TCP_ISO_20_AC_Example.pcap`).
         """
-        ev_ac_v20 = self.config.ev_ac_v20
+        ev_ac_v20 = EVACLimitsV20()
         ev_dc_v20 = EVDCLimitsV20()
         ac_cpd_params = ACChargeParameterDiscoveryReqParams(
             ev_max_charge_power=RationalNumber.get_rational_repr(
@@ -861,11 +866,16 @@ class SimEVController(EVControllerInterface):
     ]:
         """Overrides EVSControllerInterface.get_ac_charge_loop_params_v20().
 
-        Sources scheduled/dynamic charge-loop magnitudes from
-        `personality.power.ev_ac_v20` + `schedule_exchange_v20`.
+        AC retirement (ADR-0006 / #101): the ACChargeLoopReq is tree-sourced at
+        its build site now, so the scheduled/dynamic charge-loop magnitudes come
+        from the `EVACLimitsV20` / `ScheduleExchangeV20` model-default *skeletons*
+        rather than `personality.power.ev_ac_v20` + `schedule_exchange_v20`. These
+        loop magnitudes (present active/reactive power, energy requests) are
+        runtime-produced and allowlisted — never baseline-pinned — mirroring the
+        ISO-20 DC EVCC charge-loop retirement in #99.
         """
-        ev_ac_v20 = self.config.ev_ac_v20
-        se = self.config.schedule_exchange_v20
+        ev_ac_v20 = EVACLimitsV20()
+        se = ScheduleExchangeV20()
         if control_mode == ControlMode.SCHEDULED:
             scheduled_params = ScheduledACChargeLoopReqParams(
                 ev_present_active_power=RationalNumber.get_rational_repr(

@@ -520,6 +520,69 @@ def test_iso20_dc_evcc_header_envelope_is_excluded_from_completeness():
     )
 
 
+def test_shipped_iso20_ac_evcc_baseline_passes_completeness():
+    # ISO-20 AC is tree-backed for the EVCC as of #101: the shipped baseline must
+    # carry a complete ISO-20 AC subtree. Loading is the check. Every mandatory
+    # EVCC-emitted AC body leaf is runtime-produced (allowlisted) or Optional (the
+    # AC requested envelope the baseline pins), so the baseline's single pinned
+    # message loads clean.
+    load_personality("iso20-ac-evcc-baseline", "evcc")
+
+
+def test_incomplete_iso20_ac_evcc_subtree_fails_now_that_iso20_ac_evcc_is_tree_backed():
+    # ISO-20 AC is tree-backed for the EVCC (#101). As on the DC EVCC side, every
+    # mandatory *common* EVCC leaf is runtime-produced and allowlisted (EVCCID from
+    # the NIC MAC, the negotiated auth service, session-scoped IDs, ready flags),
+    # so the gate-tripping target is the PnC-only CertificateInstallationReq — its
+    # OEMProvisioningCertificateChain leaves are mandatory and *not* allowlisted
+    # (no PnC baseline sources them). A subtree that names that message but omits
+    # them trips the gate. (The shipped EIM baseline never carries this message, so
+    # per-message-present keeps it clean.)
+    with pytest.raises(
+        ValidationError,
+        match=(
+            "ISO_15118_20_AC -> CertificateInstallationReq -> "
+            "oem_prov_cert_chain -> id"
+        ),
+    ):
+        EVCCPersonality.model_validate(
+            {
+                "capabilities": {"supported_protocols": ["ISO_15118_20_AC"]},
+                "message_field_tree": {
+                    "ISO_15118_20_AC": {
+                        "CertificateInstallationReq": {
+                            "MaximumContractCertificateChains": 3
+                        }
+                    }
+                },
+            }
+        )
+
+
+def test_iso20_ac_evcc_cpd_envelope_is_optional_not_completeness_required():
+    # The AC-specific ACChargeParameterDiscoveryReq rides its requested envelope
+    # inside the Optional `{bpt_,}ac_params` sub-models, so no envelope leaf is ever
+    # completeness-required: an AC EVCC subtree that names the message but supplies
+    # only a partial AC envelope loads (the mirror of the SECC-side
+    # `test_iso20_ac_cpd_envelope_is_optional_not_completeness_required`). The tree
+    # is message-present for ACChargeParameterDiscoveryReq here, exercising that it
+    # has no non-allowlisted mandatory body leaf.
+    EVCCPersonality.model_validate(
+        {
+            "capabilities": {"supported_protocols": ["ISO_15118_20_AC"]},
+            "message_field_tree": {
+                "ISO_15118_20_AC": {
+                    "ACChargeParameterDiscoveryReq": {
+                        "AC_CPDReqEnergyTransferMode": {
+                            "EVMaximumChargePower": {"Exponent": 0, "Value": 12000},
+                        }
+                    }
+                }
+            },
+        }
+    )
+
+
 def test_incomplete_iso2_evcc_subtree_fails_now_that_iso2_evcc_is_tree_backed():
     # ISO-2 is tree-backed for the EVCC (#97): a present-but-incomplete ISO-2
     # subtree (a CableCheckReq missing the required, config-only EVRESSSOC) trips
