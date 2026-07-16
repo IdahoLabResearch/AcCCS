@@ -4,9 +4,8 @@ Tests the contract that every personality-shaped field used during a DIN
 session is sourced from the personality config — see issue #7's "What to
 build" / "Acceptance criteria".
 
-The model-level tests assert the new `power.evse_dc` / `power.ev_dc`
-sections exist with strict validation. The controller-level tests assert
-the simulators honour personality values when building DIN wire messages.
+The controller-level tests assert the simulators honour personality
+values when building DIN wire messages.
 """
 
 from __future__ import annotations
@@ -22,43 +21,6 @@ from app.shared.personality.model import EVCCPersonality, SECCPersonality
 
 
 # ---------------------------------------------------------------------------
-# Model: power section grows DIN-relevant sub-blocks
-# ---------------------------------------------------------------------------
-
-
-def test_power_section_has_evse_and_ev_dc_subsections():
-    p = SECCPersonality.model_validate({})
-    assert p.power.evse_dc.max_voltage_v > 0
-    assert p.power.evse_dc.max_current_a > 0
-    assert p.power.evse_dc.max_power_w > 0
-    assert p.power.ev_dc.max_voltage_v > 0
-    assert p.power.ev_dc.max_current_a > 0
-    assert p.power.ev_dc.energy_capacity_wh > 0
-
-
-def test_power_evse_dc_rejects_unknown_field():
-    with pytest.raises(ValidationError):
-        SECCPersonality.model_validate(
-            {"power": {"evse_dc": {"max_voltage_v": 500.0, "bogus": 1}}}
-        )
-
-
-def test_power_ev_dc_rejects_unknown_field():
-    with pytest.raises(ValidationError):
-        EVCCPersonality.model_validate(
-            {"power": {"ev_dc": {"max_voltage_v": 500.0, "made_up": 0}}}
-        )
-
-
-def test_power_evse_dc_overrides_apply():
-    p = SECCPersonality.model_validate(
-        {"power": {"evse_dc": {"max_voltage_v": 1000.0, "max_current_a": 250.0}}}
-    )
-    assert p.power.evse_dc.max_voltage_v == 1000.0
-    assert p.power.evse_dc.max_current_a == 250.0
-
-
-# ---------------------------------------------------------------------------
 # SECC simulator: DIN wire values come from personality
 # ---------------------------------------------------------------------------
 
@@ -68,26 +30,13 @@ async def test_secc_dc_charge_parameters_din_retire_evse_dc():
     """Issue #73 / ADR-0006: the DIN SECC DC envelope is no longer sourced from
     the structured `power.evse_dc` block — it comes from the message field tree
     at the ChargeParameterDiscoveryRes build site. The controller helper builds
-    only a skeleton from the DC-limit model defaults, so a `power.evse_dc` set
-    to distinctive values does NOT surface here (the retirement)."""
-    personality = SECCPersonality.model_validate(
-        {
-            "power": {
-                "evse_dc": {
-                    "max_voltage_v": 600.0,
-                    "min_voltage_v": 10.0,
-                    "max_current_a": 250.0,
-                    "min_current_a": 5.0,
-                    "max_power_w": 150000.0,
-                    "peak_current_ripple_a": 3.0,
-                }
-            }
-        }
-    )
+    only a skeleton from the DC-limit model defaults, so the retirement holds
+    regardless of the personality."""
+    personality = SECCPersonality.model_validate({})
     ctrl = SimEVSEController(personality=personality)
     params = await ctrl.get_dc_charge_parameters_dinspec()
 
-    # Model defaults (EVSEDCLimits), NOT the personality's evse_dc values.
+    # Retired EVSEDCLimits skeleton defaults, not any personality value.
     assert params.evse_maximum_voltage_limit.get_decimal_value() == 500.0
     assert params.evse_maximum_current_limit.get_decimal_value() == 400.0
     assert params.evse_maximum_power_limit.get_decimal_value() == 80000.0
@@ -149,12 +98,10 @@ async def test_secc_max_power_limit_din_retire_evse_dc():
     """The DIN CurrentDemandRes max-power limit no longer reads `evse_dc`
     (#73); the helper returns the model default and the wire value is
     tree-sourced at the build site."""
-    personality = SECCPersonality.model_validate(
-        {"power": {"evse_dc": {"max_power_w": 42000.0}}}
-    )
+    personality = SECCPersonality.model_validate({})
     ctrl = SimEVSEController(personality=personality)
     pmax = await ctrl.get_evse_max_power_limit(protocol=Protocol.DIN_SPEC_70121)
-    # Model default (80000), not the personality's evse_dc.max_power_w (42000).
+    # Retired EVSEDCLimits skeleton default (max_power_w=80000).
     assert pmax.get_decimal_value() == 80000.0
 
 
@@ -265,24 +212,13 @@ async def test_evcc_dc_charge_params_din_retire_ev_dc_maxima():
     fields are the issue's carve-out and DO still come from config, because they
     ramp and are not static baseline tree values."""
     personality = EVCCPersonality.model_validate(
-        {
-            "power": {
-                "ev_dc": {
-                    "max_voltage_v": 800.0,
-                    "max_current_a": 120.0,
-                    "max_power_w": 200000.0,
-                    "energy_capacity_wh": 90000.0,
-                    "target_voltage_v": 750.0,
-                    "target_current_a": 17.0,
-                }
-            }
-        }
+        {"residual": {"charge_ramp": {"target_voltage_v": 750.0, "target_current_a": 17.0}}}
     )
     evcc_config = EVCCConfig.from_personality(personality)
     sim = SimEVController(evcc_config)
     params = await sim.get_dc_charge_params(Protocol.DIN_SPEC_70121)
 
-    # Model defaults (EVDCLimits), NOT the personality's ev_dc maxima.
+    # Retired EVDCLimits skeleton defaults for the announced maxima.
     assert params.dc_max_voltage_limit.get_decimal_value() == 500.0
     assert params.dc_max_current_limit.get_decimal_value() == 32.0
     assert params.dc_max_power_limit.get_decimal_value() == 80000.0
@@ -301,24 +237,13 @@ async def test_evcc_dc_charge_params_iso2_retire_ev_dc_maxima():
     distinctive maxima does NOT surface here. The `target_*` carve-out DOES still
     come from config (it ramps, and is not a static baseline tree value)."""
     personality = EVCCPersonality.model_validate(
-        {
-            "power": {
-                "ev_dc": {
-                    "max_voltage_v": 800.0,
-                    "max_current_a": 120.0,
-                    "max_power_w": 200000.0,
-                    "energy_capacity_wh": 90000.0,
-                    "target_voltage_v": 750.0,
-                    "target_current_a": 17.0,
-                }
-            }
-        }
+        {"residual": {"charge_ramp": {"target_voltage_v": 750.0, "target_current_a": 17.0}}}
     )
     evcc_config = EVCCConfig.from_personality(personality)
     sim = SimEVController(evcc_config)
     params = await sim.get_dc_charge_params(Protocol.ISO_15118_2)
 
-    # Model defaults (EVDCLimits), NOT the personality's ev_dc maxima.
+    # Retired EVDCLimits skeleton defaults for the announced maxima.
     assert params.dc_max_voltage_limit.get_decimal_value() == 500.0
     assert params.dc_max_current_limit.get_decimal_value() == 32.0
     assert params.dc_max_power_limit.get_decimal_value() == 80000.0

@@ -73,7 +73,9 @@ async def test_evcc_override_is_unchecked_out_of_envelope():
     """A value above the personality max is still sent (no clamping)."""
     lc = LiveControl()
     ctrl = _evcc(lc)
-    over = ctrl.config.ev_dc_max_voltage_v + 5000
+    # Well beyond any sane DC target voltage — the announced max envelope is now
+    # tree-owned (retired from EVCCConfig, #102), so use a plain large literal.
+    over = 5500.0
     lc.set_override_voltage(over)
     params = await ctrl.get_dc_charge_params(Protocol.ISO_15118_2)
     assert _magnitude(params.dc_target_voltage) == over
@@ -172,7 +174,8 @@ async def test_evcc_iso20_present_voltage_honours_override():
     lc = LiveControl()
     ctrl = _evcc(lc)
     baseline = (await ctrl.get_present_voltage()).get_decimal_value()
-    assert baseline == ctrl.config.ev_dc_v20.target_voltage_v
+    # Retired `power.ev_dc_v20` skeleton default (#102): target_voltage_v.
+    assert baseline == 20000.0
     lc.set_override_voltage(456)
     assert (await ctrl.get_present_voltage()).get_decimal_value() == 456
     lc.clear_overrides()
@@ -201,16 +204,17 @@ async def test_evcc_iso20_dynamic_params_honour_override():
     assert params.ev_max_voltage.get_decimal_value() == 456
 
 
-async def test_evcc_iso20_no_override_uses_personality():
-    """No override -> mode params fall back to the personality magnitudes."""
+async def test_evcc_iso20_no_override_uses_skeleton():
+    """No override -> mode params fall back to the retired `power.ev_dc_v20`
+    skeleton defaults (#102: the ISO-20 DC charge loop is tree-sourced now, so
+    these builder skeleton magnitudes are the empty-tree fallback)."""
     ctrl = _evcc(LiveControl())
-    ev_dc = ctrl.config.ev_dc_v20
     sched = await ctrl.get_scheduled_dc_charge_loop_params()
-    assert sched.ev_target_current.get_decimal_value() == ev_dc.target_current_a
-    assert sched.ev_target_voltage.get_decimal_value() == ev_dc.target_voltage_v
+    assert sched.ev_target_current.get_decimal_value() == 200.0
+    assert sched.ev_target_voltage.get_decimal_value() == 20000.0
     dyn = await ctrl.get_dynamic_dc_charge_loop_params()
-    assert dyn.ev_max_charge_current.get_decimal_value() == ev_dc.dynamic_max_charge_current_a
-    assert dyn.ev_max_voltage.get_decimal_value() == ev_dc.dynamic_max_voltage_v
+    assert dyn.ev_max_charge_current.get_decimal_value() == 40.0
+    assert dyn.ev_max_voltage.get_decimal_value() == 400.0
 
 
 async def test_evcc_iso20_bpt_params_inherit_override():

@@ -10,81 +10,11 @@
 #   python run_secc.py --config example_iso20_dc_bpt_variant --virtual
 #   python run_evcc.py --config example_iso20_dc_bpt_variant --virtual
 
-identity:
-  evse_id: USINL20DCBPT01
-  evcc_id: 1FATCISO20DCBPT00ABC4
-
 capabilities:
   supported_protocols:
     - ISO_15118_20_DC
   supported_energy_services:
     - DC_BPT
-
-power:
-  evse_dc_v20:
-    max_charge_power_w: 350000.0
-    min_charge_power_w: 200.0
-    max_charge_current_a: 450.0
-    min_charge_current_a: 5.0
-    max_voltage_v: 900.0
-    min_voltage_v: 50.0
-    power_ramp_limit_w_per_s: 75.0
-    # Asymmetric discharge envelope.
-    bpt_max_discharge_power_w: 150000.0
-    bpt_min_discharge_power_w: 100.0
-    bpt_max_discharge_current_a: 250.0
-    bpt_min_discharge_current_a: 5.0
-  ev_dc_v20:
-    max_charge_power_w: 300000.0
-    min_charge_power_w: 150.0
-    max_charge_current_a: 350.0
-    min_charge_current_a: 5.0
-    max_voltage_v: 900.0
-    min_voltage_v: 60.0
-    target_voltage_v: 750.0
-    target_current_a: 220.0
-    dynamic_target_energy_request_wh: 200.0
-    dynamic_max_energy_request_wh: 200.0
-    dynamic_min_energy_request_wh: 20.0
-    dynamic_max_charge_power_w: 4000.0
-    dynamic_min_charge_power_w: 400.0
-    dynamic_max_charge_current_a: 45.0
-    dynamic_max_voltage_v: 450.0
-    dynamic_min_voltage_v: 45.0
-    # BPT discharge envelope on the EV side — asymmetric vs. charge.
-    bpt_max_discharge_power_w: 22000.0
-    bpt_min_discharge_power_w: 500.0
-    bpt_max_discharge_current_a: 22.0
-    bpt_min_discharge_current_a: 0.0
-    bpt_dynamic_max_discharge_power_w: 250000.0
-    bpt_dynamic_min_discharge_power_w: 250000.0
-    bpt_dynamic_max_discharge_current_a: 250000.0
-  schedule_exchange_v20:
-    departure_time_s: 10800
-    scheduled_target_energy_request_wh: 22000.0
-    scheduled_max_energy_request_wh: 35000.0
-    scheduled_min_energy_request_wh: 0.5
-    dynamic_min_soc_percent: 30
-    dynamic_target_soc_percent: 95
-    dynamic_target_energy_request_wh: 60000.0
-    dynamic_max_energy_request_wh: 90000.0
-    # Negative min = the EV is willing to discharge.
-    dynamic_min_energy_request_wh: -40000.0
-    dynamic_max_v2x_energy_request_wh: 15000.0
-    dynamic_min_v2x_energy_request_wh: 0.0
-    power_schedule_duration_s: 1500
-    power_schedule_power_w: -12500.0
-    price_currency: GBP
-    price_energy_fee: 0.18
-  evse_schedule_exchange_v20:
-    schedule_duration_s: 1500
-    charge_power_w: 25000.0
-    available_energy_wh: 500000.0
-    power_tolerance_w: 1250.0
-    discharge_power_w: 12500.0
-    dynamic_departure_time_s: 10800
-    dynamic_min_soc_percent: 30
-    dynamic_target_soc_percent: 95
 
 meter:
   meter_id: Switch-Meter-ISO20-DCBPT-001

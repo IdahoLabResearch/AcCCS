@@ -37,7 +37,6 @@ class Config:
     supported_auth_options: Optional[List[AuthEnum]] = None
     standby_allowed: bool = False
     virtual: bool = False
-    evse_id: Optional[str] = None
     env_dump: Optional[dict] = field(default_factory=dict)
 
     @classmethod
@@ -61,7 +60,6 @@ class Config:
             supported_auth_options=caps.resolved_auth_modes(),
             standby_allowed=caps.standby_allowed,
             virtual=runtime.virtual,
-            evse_id=personality.identity.evse_id,
         )
 
         # ADR-0001's hard rule that ISO 15118-20 requires TLS 1.3 stays

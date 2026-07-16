@@ -1,8 +1,6 @@
 # Conformance DIN 70121 SECC personality that forces EVSEIsolationStatus to
 # Invalid via the message field tree (ADR-0006, issue #71 tracer bullet).
 # Identical to din-secc.yaml plus one tree leaf.
-identity:
-  evse_id: 49A89A6360
 capabilities:
   supported_protocols:
   - DIN_SPEC_70121

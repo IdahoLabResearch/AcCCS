@@ -3,9 +3,12 @@
 These tests target the contract spelled out in ADR-0001 and issue #6:
 
 - Strict validation — unknown fields raise.
-- Two-part shape (ADR-0006) — wire-bearing sections (identity, capabilities,
-  power, meter) at the top level, plus a `residual` section (network, slac,
-  tls, certificates, charge_profile, behavior) for everything non-wire.
+- Two-part shape (ADR-0006) — the wire values live in `message_field_tree`;
+  the residual/negotiation config is `capabilities` + `meter` at the top level
+  plus a `residual` section (network, slac, tls, certificates, charge_profile,
+  charge_ramp, behavior). The pre-tree `identity`/`power` sections are retired
+  (#102): every emitted field is tree-sourced and the EV DC ramp seeds moved to
+  `residual.charge_ramp`.
 - Personality fields are not CLI-overridable; runtime fields are.
 - `personalities/default-*.yaml` is a complete materialised dump and must
   stay in sync with the model defaults (drift test).
@@ -30,19 +33,30 @@ from app.shared.personality.model import (
 
 def test_evcc_rejects_unknown_top_level_field():
     with pytest.raises(ValidationError):
-        EVCCPersonality.model_validate({"identity": {"evcc_id": "1FMVAA45B63C47DD58Y6"}, "bogus": 1})
+        EVCCPersonality.model_validate({"meter": {"meter_id": "M-1"}, "bogus": 1})
 
 
 def test_evcc_rejects_unknown_section_field():
     with pytest.raises(ValidationError):
         EVCCPersonality.model_validate(
-            {"identity": {"evcc_id": "x", "made_up_field": 1}}
+            {"capabilities": {"made_up_field": 1}}
         )
 
 
 def test_secc_rejects_unknown_top_level_field():
     with pytest.raises(ValidationError):
-        SECCPersonality.model_validate({"identity": {"evse_id": "USFRDE8326"}, "junk": True})
+        SECCPersonality.model_validate({"meter": {"meter_id": "M-1"}, "junk": True})
+
+
+def test_retired_identity_and_power_sections_are_rejected():
+    """The pre-tree `identity`/`power` structured wire sections are deleted
+    (#102): every emitted field is tree-sourced. Strict validation now rejects
+    both keys on either role."""
+    for section in ("identity", "power"):
+        with pytest.raises(ValidationError):
+            EVCCPersonality.model_validate({section: {}})
+        with pytest.raises(ValidationError):
+            SECCPersonality.model_validate({section: {}})
 
 
 # ---------------------------------------------------------------------------
@@ -53,13 +67,13 @@ def test_secc_rejects_unknown_top_level_field():
 def test_evcc_personality_constructs_from_empty_dict():
     """All fields have defaults so an empty YAML still validates."""
     p = EVCCPersonality.model_validate({})
-    assert p.identity.evcc_id  # the EVCC id default is non-empty
+    assert p.residual.charge_ramp.target_current_a > 0  # DC ramp seed default
     assert p.residual.network.interface  # interface has a default (ADR-0006)
 
 
 def test_secc_personality_constructs_from_empty_dict():
     p = SECCPersonality.model_validate({})
-    assert p.identity.evse_id
+    assert p.capabilities.supported_protocols  # negotiation input default
     assert p.residual.network.interface
 
 

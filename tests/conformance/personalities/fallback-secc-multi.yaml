@@ -7,8 +7,6 @@
 # Paired with `fallback-evcc-din-only` (DIN-only offer), the negotiation still
 # lands on DIN even though the SECC would have preferred ISO-2 — the mirror of
 # `fallback-evcc-multi` + `fallback-secc-din-only`. TLS off.
-identity:
-  evse_id: 49A89A6360
 capabilities:
   supported_protocols:
   - ISO_15118_2

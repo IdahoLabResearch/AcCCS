@@ -4,26 +4,20 @@
 # pin a `din-variant` scenario without dragging the example file into the
 # conformance test directory. The interface (network/) is the conformance
 # veth pair; everything else matches the variant.
-identity:
-  evse_id: 55AA66BB77
-  evcc_id: 5YJSA1E60GF000123ABC
 capabilities:
   supported_protocols:
   - DIN_SPEC_70121
   supported_energy_services:
   - DC
   energy_transfer_mode: DC_core
-power:
-  ev_dc:
-    max_voltage_v: 920.0
-    max_current_a: 250.0
-    max_power_w: 230000.0
-    energy_capacity_wh: 100000.0
+residual:
+  # EV DC charge-ramp start seeds relocated from the retired
+  # `power.ev_dc` block (#102): no static wire form, so residual.
+  charge_ramp:
     target_voltage_v: 800.0
     target_current_a: 1.5
     remaining_time_to_full_soc_s: 1800
     remaining_time_to_bulk_soc_s: 900
-residual:
   network:
     interface: acccs_evcc
   tls:

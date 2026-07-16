@@ -5,8 +5,6 @@
 # envelope — the tree-sourced retired-`evse_dc_v20` values the baseline pins.
 # Pairs with `iso20-dc-baseline-secc.yaml`, whose baseline advertises
 # [DC_BPT, DC]. ISO-20 mandates TLS 1.3, so TLS stays on.
-identity:
-  evcc_id: 1FMVAA45B63C47DD58Y6
 capabilities:
   supported_protocols:
   - ISO_15118_20_DC

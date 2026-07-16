@@ -10,6 +10,7 @@ import base64
 import logging
 import time
 import os
+from types import SimpleNamespace
 from typing import Dict, List, Optional, Union
 
 from app.secc.controller.common import UnknownEnergyService
@@ -161,16 +162,65 @@ from app.shared.security import (
     load_priv_key,
 )
 from app.shared.personality.message_field_tree import UNSET, resolve_tree_leaf
-from app.shared.personality.model import (
-    EVSEACLimits,
-    EVSEACLimitsV20,
-    EVSEDCLimits,
-    EVSEDCLimitsV20,
-    EVSEScheduleExchangeV20,
-)
 from app.shared.states import State
 
 logger = logging.getLogger(__name__)
+
+
+# Skeleton wire-envelope defaults (ADR-0006 #102). The EVSE's advertised DIN /
+# ISO-2 / ISO-20 envelopes are wire-owned by the [[message field tree]] and
+# applied via construction-time substitution at each `*Res` build site; these
+# namespaces are the empty-/partial-tree fallback the tree overrides — formerly
+# the personality `power.evse_*` model defaults, retired when the pre-tree
+# structured wire sections were deleted. They are builder internals, not
+# personality config.
+_EVSE_DC_SKELETON = SimpleNamespace(
+    max_voltage_v=500.0,
+    min_voltage_v=0.0,
+    max_current_a=400.0,
+    min_current_a=0.0,
+    max_power_w=80000.0,
+    peak_current_ripple_a=5.0,
+    nominal_voltage_v=400.0,
+    iso2_sa_schedule_pmax_w=11000,
+    iso2_sales_tariff_id=10,
+)
+_EVSE_AC_SKELETON = SimpleNamespace(
+    nominal_voltage_v=400.0,
+    max_current_a=32.0,
+)
+_EVSE_DC_V20_SKELETON = SimpleNamespace(
+    max_charge_power_w=1000.0,
+    min_charge_power_w=100.0,
+    max_charge_current_a=100.0,
+    min_charge_current_a=10.0,
+    max_voltage_v=500.0,
+    min_voltage_v=10.0,
+    power_ramp_limit_w_per_s=10.0,
+    bpt_max_discharge_power_w=1000.0,
+    bpt_min_discharge_power_w=100.0,
+    bpt_max_discharge_current_a=100.0,
+    bpt_min_discharge_current_a=10.0,
+)
+_EVSE_AC_V20_SKELETON = SimpleNamespace(
+    max_charge_power_w=30000.0,
+    min_charge_power_w=100.0,
+    nominal_frequency_hz=50.0,
+    max_power_asymmetry_w=0.0,
+    power_ramp_limit_w_per_s=100.0,
+    bpt_max_discharge_power_w=30000.0,
+    bpt_min_discharge_power_w=100.0,
+)
+_EVSE_SE_V20_SKELETON = SimpleNamespace(
+    schedule_duration_s=3600,
+    charge_power_w=10000.0,
+    available_energy_wh=300000.0,
+    power_tolerance_w=2000.0,
+    discharge_power_w=10000.0,
+    dynamic_departure_time_s=7200,
+    dynamic_min_soc_percent=30,
+    dynamic_target_soc_percent=80,
+)
 
 
 def get_evse_context():
@@ -265,11 +315,15 @@ class SimEVSEController(EVSEControllerInterface):
 
         `personality` is a **required** `SECCPersonality` (ADR-0001 /
         ADR-0006 issue #83). Every wire value the SECC emits is sourced from
-        it — `get_evse_id()` reads the EVSEID from `personality.identity`, the
-        DIN messages source their leaves from `personality.message_field_tree`,
-        and the ISO-2/-20 envelopes read `personality.power`. The
-        personality-less construction path (and the in-code `if self.personality
-        else <constant>` fallbacks it used to guard) is retired: a personality
+        it — every emitted message sources its leaves from
+        `personality.message_field_tree`, with the builders' skeleton defaults as
+        the empty-/partial-tree fallback. The retired `identity`/`power`
+        structured sections are gone (#102): the EVSEID is tree-sourced per
+        protocol (`get_evse_id()` is the allowlisted runtime fallback), and the
+        DC/AC envelopes come from the message-model skeletons the tree overrides.
+        The personality-less construction path (and the in-code `if
+        self.personality else <constant>` fallbacks it used to guard) is retired:
+        a personality
         is mandatory to run, so callers that once built the controller bare —
         including the conformance state-machine harness — now pass a
         role-appropriate personality (`SECCPersonality()` for the stock
@@ -319,19 +373,15 @@ class SimEVSEController(EVSEControllerInterface):
         #  Unused <--> 0xB .. 0xF.
         # Example: The DIN SPEC 91286 EVSE ID “49*89*6360” is represented
         # as “0x49 0xA8 0x9A 0x63 0x60”.
-        
-        configured = self.personality.identity.evse_id
+        #
+        # The retired `identity.evse_id` seam is gone (#102): the wire EVSEID is
+        # tree-sourced per protocol (SessionSetupRes.EVSEID etc.), overriding
+        # this value via construction-time substitution. This method is the
+        # allowlisted runtime fallback for an empty-/partial-tree personality, so
+        # it returns the per-protocol default directly.
         if protocol != Protocol.DIN_SPEC_70121:
-            evse_id = configured or "ZZ00000"
-        else:
-            evse_id = configured or "49A89A6360"
-            if not await self.is_valid_evse_id(evse_id):
-                logger.warning(
-                    f"Invalid EVSE ID {evse_id} provided for protocol "
-                    f"{protocol}. Using default EVSE ID."
-                )
-                evse_id = "49A89A6360"
-        return evse_id
+            return "ZZ00000"
+        return "49A89A6360"
 
     async def get_supported_energy_transfer_modes(
         self, protocol: Protocol
@@ -456,7 +506,7 @@ class SimEVSEController(EVSEControllerInterface):
         uses Dynamic control mode with an empty ScheduleExchangeRes control-mode
         payload, so its scheduled/dynamic params stay builder-computed.)
         """
-        evse_se = EVSEScheduleExchangeV20()
+        evse_se = _EVSE_SE_V20_SKELETON
         schedule_duration = evse_se.schedule_duration_s
         charge_power_w = evse_se.charge_power_w
         discharge_power_w = evse_se.discharge_power_w
@@ -661,7 +711,7 @@ class SimEVSEController(EVSEControllerInterface):
         model-default skeleton; the `ScheduleExchangeRes` tree leaves supply any
         configured wire values at the state's build site (mirroring #96).
         """
-        evse_se = EVSEScheduleExchangeV20()
+        evse_se = _EVSE_SE_V20_SKELETON
         price_level_schedule_entry = PriceLevelScheduleEntry(
             duration=evse_se.schedule_duration_s,
             price_level=1,
@@ -759,7 +809,7 @@ class SimEVSEController(EVSEControllerInterface):
         # This builds the skeleton from the DC-limit model defaults so it stays a
         # valid, stable schedule for the tree to override and for empty-/partial-
         # tree personalities to fall back on.
-        skeleton_dc = EVSEDCLimits()
+        skeleton_dc = _EVSE_DC_SKELETON
         configured_pmax_w = skeleton_dc.iso2_sa_schedule_pmax_w
         schedule_entries = []
         # SalesTariff
@@ -937,7 +987,7 @@ class SimEVSEController(EVSEControllerInterface):
         the tree to override and for empty-/partial-tree personalities to fall
         back on.
         """
-        evse_ac = EVSEACLimits()
+        evse_ac = _EVSE_AC_SKELETON
         v_mult, v_val = PhysicalValue.get_exponent_value_repr(evse_ac.nominal_voltage_v)
         c_mult, c_val = PhysicalValue.get_exponent_value_repr(evse_ac.max_current_a)
         evse_nominal_voltage = PVEVSENominalVoltage(
@@ -971,7 +1021,7 @@ class SimEVSEController(EVSEControllerInterface):
         skeleton holds a single magnitude per concept and the wire echoes it to
         L1/L2/L3.
         """
-        evse_ac_v20 = EVSEACLimitsV20()
+        evse_ac_v20 = _EVSE_AC_V20_SKELETON
         max_charge_power = evse_ac_v20.max_charge_power_w
         min_charge_power = evse_ac_v20.min_charge_power_w
         nominal_frequency = evse_ac_v20.nominal_frequency_hz
@@ -1058,7 +1108,7 @@ class SimEVSEController(EVSEControllerInterface):
         the model default for either.
         """
         protocol = self.get_selected_protocol()
-        evse_dc = EVSEDCLimits()
+        evse_dc = _EVSE_DC_SKELETON
 
         max_p_mult, max_p_val = PhysicalValue.get_exponent_value_repr(
             evse_dc.max_power_w
@@ -1178,7 +1228,7 @@ class SimEVSEController(EVSEControllerInterface):
         # CurrentDemandRes.EVSEMaximumPowerLimit is tree-sourced at the build
         # site. Skeleton value = DC-limit model default. ISO-20 keeps its own
         # v20 getter and does not reach here.
-        max_power_w = EVSEDCLimits().max_power_w
+        max_power_w = _EVSE_DC_SKELETON.max_power_w
         mult, val = PhysicalValue.get_exponent_value_repr(max_power_w)
         if protocol == Protocol.DIN_SPEC_70121:
             return PVEVSEMaxPowerLimitDin(multiplier=mult, value=val, unit="W")
@@ -1202,7 +1252,7 @@ class SimEVSEController(EVSEControllerInterface):
             # CurrentDemandRes.EVSEMaximumCurrentLimit is tree-sourced at the
             # build site. Skeleton value = DC-limit model default.
             mult, val = PhysicalValue.get_exponent_value_repr(
-                EVSEDCLimits().max_current_a
+                _EVSE_DC_SKELETON.max_current_a
             )
             return PVEVSEMaxCurrentLimitDin(multiplier=mult, value=val, unit="A")
         if self.evse_data_context.current_type != CurrentType.DC:
@@ -1211,7 +1261,7 @@ class SimEVSEController(EVSEControllerInterface):
         # EVSEMaximumCurrentLimit is tree-sourced at the build site. Skeleton
         # value = DC-limit model default.
         mult, val = PhysicalValue.get_exponent_value_repr(
-            EVSEDCLimits().max_current_a
+            _EVSE_DC_SKELETON.max_current_a
         )
         return PVEVSEMaxCurrentLimit(multiplier=mult, value=val, unit="A")
 
@@ -1223,7 +1273,7 @@ class SimEVSEController(EVSEControllerInterface):
             # CurrentDemandRes.EVSEMaximumVoltageLimit is tree-sourced at the
             # build site. Skeleton value = DC-limit model default.
             mult, val = PhysicalValue.get_exponent_value_repr(
-                EVSEDCLimits().max_voltage_v
+                _EVSE_DC_SKELETON.max_voltage_v
             )
             return PVEVSEMaxVoltageLimitDin(multiplier=mult, value=val, unit="V")
         if self.evse_data_context.current_type != CurrentType.DC:
@@ -1232,7 +1282,7 @@ class SimEVSEController(EVSEControllerInterface):
         # EVSEMaximumVoltageLimit is tree-sourced at the build site. Skeleton
         # value = DC-limit model default.
         mult, val = PhysicalValue.get_exponent_value_repr(
-            EVSEDCLimits().max_voltage_v
+            _EVSE_DC_SKELETON.max_voltage_v
         )
         return PVEVSEMaxVoltageLimit(multiplier=mult, value=val, unit="V")
 
@@ -1253,7 +1303,7 @@ class SimEVSEController(EVSEControllerInterface):
         session limits (the state applies it before `update_dc_charge_parameters_v20`),
         so the DCChargeLoopRes control-mode envelope inherits it too.
         """
-        evse_dc_v20 = EVSEDCLimitsV20()
+        evse_dc_v20 = _EVSE_DC_V20_SKELETON
         dc_charge_parameter_discovery_res = DCChargeParameterDiscoveryResParams(
             evse_max_charge_power=RationalNumber.get_rational_repr(
                 evse_dc_v20.max_charge_power_w

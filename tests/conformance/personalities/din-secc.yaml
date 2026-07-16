@@ -1,6 +1,4 @@
 # Conformance DIN 70121 SECC test personality.
-identity:
-  evse_id: 49A89A6360
 capabilities:
   supported_protocols:
   - DIN_SPEC_70121

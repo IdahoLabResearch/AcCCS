@@ -10,8 +10,6 @@
 # `energy_transfer_mode` is a legacy ISO 15118-2 / DIN field; ISO 15118-20
 # negotiates the energy service via `supported_energy_services`, so it is
 # left at its model default (matching `example_iso20_ac_variant.yaml`).
-identity:
-  evcc_id: 1FMVAA45B63C47DD58Y6
 capabilities:
   supported_protocols:
   - ISO_15118_20_AC

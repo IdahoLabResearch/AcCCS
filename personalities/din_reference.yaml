@@ -1,8 +1,13 @@
 # Example DIN 70121 variant personality.
 #
-# Showcases the personality-swap promise from ADR-0001 / issue #7: every
-# field below differs from `default-{evcc,secc}.yaml` in a way that should
-# be observable in the DIN wire trace (logs or pcap).
+# Showcases the personality-swap promise from ADR-0001 / issue #7. With the
+# pre-tree `identity`/`power` structured wire sections retired (#102), a
+# non-tree-backed file like this can no longer pin arbitrary wire values (those
+# are now tree-owned — see `din-secc-baseline.yaml` for a tree-backed DIN
+# device). What still differs observably from the stock defaults: the SECC
+# advertises `DC_core` energy transfer mode (still a pre-tree `capabilities`
+# field, its own tree migration deferred), and the EVCC seeds a higher PreCharge
+# target via `residual.charge_ramp`.
 #
 # Run a DIN session with this personality on both sides:
 #
@@ -13,35 +18,20 @@
 # are symmetric (each role only consumes the fields relevant to it). The
 # `role:` field is intentionally omitted so the loader doesn't reject one
 # side or the other.
-identity:
-  evse_id: 55AA66BB77
-  evcc_id: 5YJSA1E60GF000123ABC
 capabilities:
   supported_protocols:
   - DIN_SPEC_70121
   supported_energy_services:
   - DC
   energy_transfer_mode: DC_core
-power:
-  evse_dc:
-    max_voltage_v: 950.0
-    min_voltage_v: 50.0
-    max_current_a: 350.0
-    min_current_a: 5.0
-    max_power_w: 240000.0
-    peak_current_ripple_a: 7.0
-    nominal_voltage_v: 480.0
-  ev_dc:
-    max_voltage_v: 920.0
-    max_current_a: 250.0
-    max_power_w: 230000.0
-    energy_capacity_wh: 100000.0
-    target_voltage_v: 800.0
-    target_current_a: 1.5
-    remaining_time_to_full_soc_s: 1800
-    remaining_time_to_bulk_soc_s: 900
 residual:
   tls:
     enable_tls_1_3: false
     use_tls: false
     enforce_tls: false
+  charge_ramp:
+    # EVCC PreCharge/CurrentDemand target start seeds (the SECC ignores these).
+    target_voltage_v: 800.0
+    target_current_a: 1.5
+    remaining_time_to_full_soc_s: 1800
+    remaining_time_to_bulk_soc_s: 900

@@ -1,5 +1,3 @@
-identity:
-  evse_id: USFRDE8326
 capabilities:
   supported_protocols:
   - ISO_15118_2

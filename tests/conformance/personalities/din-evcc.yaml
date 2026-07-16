@@ -1,8 +1,6 @@
 # Conformance DIN 70121 EVCC test personality.
 # DIN-only protocol selection; TLS off (DIN doesn't use TLS); virtual mode
 # is a runtime knob, set via --virtual on the spawned subprocess.
-identity:
-  evcc_id: 1FMVAA45B63C47DD58Y6
 capabilities:
   supported_protocols:
   - DIN_SPEC_70121

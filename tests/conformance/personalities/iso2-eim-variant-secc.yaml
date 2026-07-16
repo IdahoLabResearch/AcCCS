@@ -2,9 +2,6 @@
 #
 # Mirrors `personalities/iso2_eim_dc.yaml` so the E2E suite
 # can pin an `iso2-eim-variant` scenario.
-identity:
-  evse_id: USFRDE9001
-  evcc_id: 1FATCBFLAGSHIPDC0001
 capabilities:
   supported_protocols:
   - ISO_15118_2
@@ -13,17 +10,6 @@ capabilities:
   supported_energy_services:
   - DC
   energy_transfer_mode: DC_extended
-power:
-  evse_dc:
-    max_voltage_v: 920.0
-    min_voltage_v: 50.0
-    max_current_a: 300.0
-    min_current_a: 5.0
-    max_power_w: 200000.0
-    peak_current_ripple_a: 6.0
-    nominal_voltage_v: 480.0
-    iso2_sa_schedule_pmax_w: 50000
-    iso2_sales_tariff_id: 42
 meter:
   meter_id: Switch-Meter-EIM-001
   starting_reading_wh: 555000

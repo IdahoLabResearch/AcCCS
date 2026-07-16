@@ -1,8 +1,9 @@
 # Authoring a personality
 
 A **personality** is a YAML file that describes *who* an AcCCS-emulated
-device is — its identity, supported protocols, power envelope, TLS
-posture, SLAC timings, certificates. One file is loaded per process at
+device is — the wire values it emits (the `message_field_tree`), its
+supported protocols, TLS posture, SLAC timings, certificates. One file is
+loaded per process at
 startup; nothing in a personality is CLI-overridable. Per
 [ADR-0001](adr/0001-personality-yaml-config.md), this is the *only*
 place personality fields live: there is no `.env`, no JSON sub-config,
@@ -27,7 +28,7 @@ file.
 
 | Concern | Lives in | CLI-overridable? |
 |---|---|---|
-| Who the device claims to be (IDs, supported protocols, power, TLS) | personality YAML (`personalities/`) | **No** |
+| Who the device claims to be (emitted wire values, supported protocols, TLS) | personality YAML (`personalities/`) | **No** |
 | How this invocation is operated (log level, NMAP, `--virtual`) | optional `runtime.yaml` | Yes — see flag table below |
 
 The boundary is intentional: personality is a *contract* about the
@@ -85,11 +86,16 @@ The Pydantic loader is strict: **unknown keys at any level are a hard
 error**. A typo will fail validation at startup rather than silently
 falling back to a default.
 
-### `identity`
+### wire values → `message_field_tree`
 
-Wire identifiers the device advertises. `evcc_id` is the EVCCID
-(VIN-shaped on the EV side); `evse_id` follows DIN SPEC 91286 /
-ISO 15118 EVSEID formatting on the SECC side.
+Every field the device emits on the wire — the EVSEID/EVCCID, the DC/AC
+power envelopes, the schedule lists — is addressed per-message in the
+`message_field_tree`, keyed by protocol → message → field path (ADR-0006).
+The pre-tree concern-first `identity` and `power` sections were retired once
+every protocol became tree-backed (#102). To pin a wire value, set its tree
+leaf (a device file typically `extends:` a shipped baseline and overrides only
+the leaves it differs on). The genuinely non-wire config still lives in the
+concern-first sections below.
 
 ### `network`
 
@@ -122,31 +128,22 @@ This is the section you tune to **scope a personality to one protocol**
 — set `supported_protocols: [DIN_SPEC_70121]` to refuse non-DIN
 sessions, etc.
 
-### `power`
-
-The power envelope, split into sub-blocks because the wire shapes
-diverge across protocols:
-
-| Sub-block | Used by | Role | What it covers |
-|---|---|---|---|
-| `evse_dc` | DIN, ISO 15118-2 DC | SECC | DC envelope advertised in CPD/CurrentDemand |
-| `ev_dc` | DIN, ISO 15118-2 DC | EVCC | EV-announced DC maxima + start-of-loop targets |
-| `evse_ac` | ISO 15118-2 AC | SECC | AC nominal voltage and max current |
-| `ev_ac` | ISO 15118-2 AC | EVCC | EV-announced AC envelope and energy ask |
-| `evse_dc_v20` | ISO 15118-20 DC + DC-BPT | SECC | RationalNumber DC envelope + BPT discharge |
-| `ev_dc_v20` | ISO 15118-20 DC + DC-BPT | EVCC | CPD / PreCharge / scheduled + dynamic loop + BPT |
-| `evse_ac_v20` | ISO 15118-20 AC + AC-BPT | SECC | Multiphase AC, ramp limit, BPT |
-| `ev_ac_v20` | ISO 15118-20 AC + AC-BPT | EVCC | CPD + scheduled + dynamic + BPT discharge stubs |
-| `schedule_exchange_v20` | ISO 15118-20 | EVCC | EV-announced ScheduleExchange (scheduled + dynamic) |
-| `evse_schedule_exchange_v20` | ISO 15118-20 | SECC | SECC's schedule envelope (price/tax meta stays hardcoded) |
-
-Each role only consumes its own side. A personality is welcome to fill
-in both sides; the unused fields are simply ignored when that role runs.
-
 ### `charge_profile`
 
 Charge-loop pacing for the simulated EV: `cycle` (target percent before
 welding detection) and `delay_seconds` (between CurrentDemand iterations).
+
+### `charge_ramp`
+
+EVCC-only DC charge-ramp **start seeds**: the initial PreCharge /
+CurrentDemand `target_voltage_v` / `target_current_a` the EV requests before
+the runtime charge controller (or a live-override) takes over the ramp, plus
+the EV-supplied `remaining_time_to_full_soc_s` / `remaining_time_to_bulk_soc_s`
+estimates. These have no *static* wire form (they ramp during the session, and
+the emitted target/present voltage & current are runtime-produced), so per the
+dividing rule they are residual — they were relocated here from the retired
+`power.ev_dc` block (#102). Keep `target_current_a` below the IEC 61851-23
+CC.5.2 PreCharge inrush limit (< 2 A).
 
 ### `certificates`
 
@@ -193,7 +190,7 @@ The repository ships a starter library under `personalities/`:
 | `default-evcc.yaml` / `default-secc.yaml` | All | Materialised model defaults — regenerated from the Pydantic model. |
 | `din_dc_extended-evcc.yaml` / `din_dc_extended-secc.yaml` | DIN 70121 | **Default `--config`** (per role). DIN-only, TLS off, `DC_extended` — the mode production vehicles request. Each `extends:` its per-role baseline. |
 | `din-evcc-baseline.yaml` / `din-secc-baseline.yaml` | DIN 70121 | Per-role DIN baselines (ADR-0006). The advertised DC energy transfer mode is single-sourced from the SECC baseline's `message_field_tree`. The full ABB/Cadillac trees land here in #73/#74. |
-| `din_reference.yaml` | DIN 70121 | DIN-only emulator, TLS off, alternate `energy_transfer_mode` (DC_core, for the personality-swap demo) and a ~3x stock power envelope. |
+| `din_reference.yaml` | DIN 70121 | DIN-only emulator, TLS off, alternate `energy_transfer_mode` (DC_core, for the personality-swap demo) and a higher `charge_ramp` PreCharge target. A non-tree-backed file: it can no longer pin arbitrary wire values (those are tree-owned now — see the DIN baselines). |
 | `iso2-secc-baseline.yaml` | ISO 15118-2 DC | Per-role ISO-2 **SECC** baseline (ADR-0006 / #96), seeded field-for-field from `HAL+TCP_ISO_2_DC_Example.pcap`. Every SECC-emitted ISO-2 message is tree-sourced; device files `extends:` this. |
 | `iso2-evcc-baseline.yaml` | ISO 15118-2 DC | Per-role ISO-2 **EVCC** baseline (ADR-0006 / #97), seeded field-for-field from `Mach-E-ISO.pcapng`. Every EVCC-emitted ISO-2 message is tree-sourced; device files `extends:` this. |
 | `iso2_eim_dc-secc.yaml` / `iso2_eim_dc-evcc.yaml` | ISO 15118-2 DC | EIM (External Identification Means) auth — no contract certs, no PnC. Per-role split (#96/#97): the SECC side `extends: iso2-secc-baseline` and pins its EVSEID; the EVCC side `extends: iso2-evcc-baseline` and adds its target start values. |

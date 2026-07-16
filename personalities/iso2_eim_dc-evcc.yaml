@@ -2,22 +2,22 @@
 #
 # The EVCC half of the retired symmetric `iso2_eim_dc.yaml`. A thin device
 # override that `extends: iso2-evcc-baseline` (the Mach-E-reference tree) — the
-# baseline is already EIM / no-TLS, so this only supplies the vehicle's identity
-# and its target-voltage/current start values (the config-driven carve-out that
-# seeds the first PreCharge / CurrentDemand before the runtime charge controller
-# ramps real targets). Every wire value — the DC envelope, the SOC pins — is
-# inherited from the tree-backed baseline, the vehicle-side analogue of the thin
-# `iso2_eim_dc-secc.yaml`.
+# baseline is already EIM / no-TLS, so this only supplies the vehicle's
+# target-voltage/current start values (the config-driven carve-out that seeds the
+# first PreCharge / CurrentDemand before the runtime charge controller ramps real
+# targets). Every wire value — the DC envelope, the SOC pins — is inherited from
+# the tree-backed baseline, the vehicle-side analogue of the thin
+# `iso2_eim_dc-secc.yaml`. With the pre-tree `power`/`identity` sections deleted
+# (#102) the ramp seeds live in `residual.charge_ramp`; the EVCCID is
+# runtime-derived (NIC MAC on ISO-2).
 #
 # Run an ISO-2 EIM session (TLS is off for EIM, so no PKI needed):
 #   python run_secc.py --config iso2_eim_dc-secc --virtual
 #   python run_evcc.py --config iso2_eim_dc-evcc --virtual
 extends: iso2-evcc-baseline
 role: evcc
-identity:
-  evcc_id: 1FATCBFLAGSHIPDC0001
-power:
-  ev_dc:
+residual:
+  charge_ramp:
     # The Mach-E envelope pins EVMaximumVoltageLimit to 422 V (in the baseline
     # tree), so the target start voltage stays under it. PreCharge also requires
     # target_current < 2 A (IEC 61851-23 CC.5.2 inrush limit).

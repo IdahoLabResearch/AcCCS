@@ -55,18 +55,20 @@ def variant_secc_personality() -> SECCPersonality:
     # Issue #73 / ADR-0006: the DIN SECC DC envelope is sourced from the message
     # field tree, not the retired structured `power.evse_dc` reads. Issue #81
     # extends that to the list-nested SAScheduleList — the tree declares the
-    # whole SAScheduleTuple list (PMax included). EVSEID and the energy mode
-    # stay on their existing seams (identity / capabilities) to prove those
-    # still work.
+    # whole SAScheduleTuple list (PMax included). With `identity` retired (#102)
+    # the EVSEID is now a tree leaf too (SessionSetupRes.EVSEID); the energy mode
+    # still rides the pre-tree `capabilities.energy_transfer_mode` seam (its own
+    # tree migration is deferred), and the ServiceDiscoveryRes builder falls back
+    # to it since the tree below does not pin an EnergyTransferType.
     return SECCPersonality.model_validate(
         {
-            "identity": {"evse_id": "55AA66BB77"},
             "capabilities": {
                 "energy_transfer_mode": "DC_core",
                 "supported_protocols": ["DIN_SPEC_70121"],
             },
             "message_field_tree": {
               "DIN_SPEC_70121": {
+                "SessionSetupRes": {"EVSEID": "55AA66BB77"},
                 "ChargeParameterDiscoveryRes": {
                     "SAScheduleList": {
                         "SAScheduleTuple": [

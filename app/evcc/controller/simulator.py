@@ -10,6 +10,7 @@ EVControllerInterface.
 import logging
 import random
 import os
+from types import SimpleNamespace
 from typing import List, Optional, Tuple, Union
 
 from app.evcc import EVCCConfig
@@ -123,15 +124,88 @@ from app.shared.messages.iso15118_20.dc import (
     ScheduledDCChargeLoopReqParams,
 )
 from app.shared.network import get_nic_mac_address
-from app.shared.personality.model import (
-    EVACLimits,
-    EVACLimitsV20,
-    EVDCLimits,
-    EVDCLimitsV20,
-    ScheduleExchangeV20,
-)
 
 logger = logging.getLogger(__name__)
+
+
+# Skeleton wire-envelope defaults (ADR-0006 #102). The EV's announced DIN /
+# ISO-2 / ISO-20 request envelopes are wire-owned by the [[message field tree]]
+# and applied via construction-time substitution at each `*Req` build site; the
+# ramping charge-loop / target leaves are allowlisted runtime-produced fields
+# (ADR-0006 #83). These namespaces are the empty-/partial-tree fallback the tree
+# overrides — formerly the personality `power.ev_*` model defaults, retired when
+# the pre-tree structured wire sections were deleted. They are builder internals,
+# not personality config; the genuinely residual DC target/remaining-time seeds
+# live in `residual.charge_ramp` (surfaced on `self.config.ev_dc_target_*` /
+# `ev_dc_remaining_*`), not here.
+_EV_DC_SKELETON = SimpleNamespace(
+    max_voltage_v=500.0,
+    max_current_a=32.0,
+    max_power_w=80000.0,
+    energy_capacity_wh=70000.0,
+    remaining_time_to_full_soc_s=100,
+    remaining_time_to_bulk_soc_s=80,
+)
+_EV_AC_SKELETON = SimpleNamespace(
+    e_amount_wh=60.0,
+    max_voltage_v=400.0,
+    max_current_a=32.0,
+    min_current_a=10.0,
+)
+_EV_DC_V20_SKELETON = SimpleNamespace(
+    max_charge_power_w=300000.0,
+    min_charge_power_w=100.0,
+    max_charge_current_a=300.0,
+    min_charge_current_a=10.0,
+    max_voltage_v=1000.0,
+    min_voltage_v=10.0,
+    target_voltage_v=20000.0,
+    target_current_a=200.0,
+    dynamic_target_energy_request_wh=200.0,
+    dynamic_max_energy_request_wh=200.0,
+    dynamic_min_energy_request_wh=20.0,
+    dynamic_max_charge_power_w=4000.0,
+    dynamic_min_charge_power_w=400.0,
+    dynamic_max_charge_current_a=40.0,
+    dynamic_max_voltage_v=400.0,
+    dynamic_min_voltage_v=40.0,
+    bpt_max_discharge_power_w=11000.0,
+    bpt_min_discharge_power_w=1000.0,
+    bpt_max_discharge_current_a=11.0,
+    bpt_min_discharge_current_a=0.0,
+    bpt_dynamic_max_discharge_power_w=300000.0,
+    bpt_dynamic_min_discharge_power_w=300000.0,
+    bpt_dynamic_max_discharge_current_a=300000.0,
+)
+_EV_AC_V20_SKELETON = SimpleNamespace(
+    max_charge_power_w=11000.0,
+    min_charge_power_w=100.0,
+    bpt_max_discharge_power_w=11000.0,
+    bpt_min_discharge_power_w=1.0,
+    scheduled_present_active_power_w=200000.0,
+    dynamic_max_charge_power_w=300000.0,
+    dynamic_min_charge_power_w=100.0,
+    dynamic_present_active_power_w=200000.0,
+    dynamic_present_reactive_power_w=20000.0,
+)
+_SE_V20_SKELETON = SimpleNamespace(
+    departure_time_s=7200,
+    scheduled_target_energy_request_wh=10000.0,
+    scheduled_max_energy_request_wh=20000.0,
+    scheduled_min_energy_request_wh=0.05,
+    dynamic_min_soc_percent=30,
+    dynamic_target_soc_percent=80,
+    dynamic_target_energy_request_wh=40000.0,
+    dynamic_max_energy_request_wh=60000.0,
+    dynamic_min_energy_request_wh=-20000.0,
+    dynamic_max_v2x_energy_request_wh=5000.0,
+    dynamic_min_v2x_energy_request_wh=0.0,
+    ac_dynamic_loop_departure_time_s=2000,
+    power_schedule_duration_s=3600,
+    power_schedule_power_w=-10000.0,
+    price_currency="EUR",
+    price_energy_fee=0.0,
+)
 
 
 class SimEVController(EVControllerInterface):
@@ -183,7 +257,7 @@ class SimEVController(EVControllerInterface):
         is distinct from ISO 15118-2).
         """
         cfg = self.config
-        limits = EVDCLimits()
+        limits = _EV_DC_SKELETON
         max_current_a = limits.max_current_a
         max_power_w = limits.max_power_w
         max_voltage_v = limits.max_voltage_v
@@ -267,9 +341,13 @@ class SimEVController(EVControllerInterface):
                 )
                 return "000000000000"
         elif protocol.ns.startswith(Namespace.ISO_V20_BASE):
-            # ISO 15118-20 EVCCID is a VIN-shaped string sourced from the
-            # personality's identity section (ADR-0001).
-            return self.config.evcc_id or "1FMVAA45B63C47DD58Y6"
+            # ISO 15118-20 EVCCID is a VIN-shaped string. The retired
+            # `identity.evcc_id` personality seam is gone (#102 — EVCCID is
+            # tree-sourced per protocol, and this runtime helper is the
+            # allowlisted fallback); a device that wants a specific ISO-20 EVCCID
+            # pins it via the SessionSetupReq tree leaf, which overrides this
+            # default through construction-time substitution.
+            return "1FMVAA45B63C47DD58Y6"
         else:
             logger.error(f"Invalid protocol '{protocol}', can't determine EVCCID")
             raise InvalidProtocolError
@@ -334,7 +412,7 @@ class SimEVController(EVControllerInterface):
         dc_charge_params = None
 
         if (await self.get_energy_transfer_mode(protocol)).startswith("AC"):
-            ev_ac = EVACLimits()
+            ev_ac = _EV_AC_SKELETON
             e_mult, e_val = PhysicalValue.get_exponent_value_repr(ev_ac.e_amount_wh)
             v_mult, v_val = PhysicalValue.get_exponent_value_repr(ev_ac.max_voltage_v)
             max_c_mult, max_c_val = PhysicalValue.get_exponent_value_repr(
@@ -399,8 +477,8 @@ class SimEVController(EVControllerInterface):
           the AC branch reads the `EVACLimitsV20` skeleton (the baseline pins the
           plain-AC envelope decoded from `HAL+TCP_ISO_20_AC_Example.pcap`).
         """
-        ev_ac_v20 = EVACLimitsV20()
-        ev_dc_v20 = EVDCLimitsV20()
+        ev_ac_v20 = _EV_AC_V20_SKELETON
+        ev_dc_v20 = _EV_DC_V20_SKELETON
         ac_cpd_params = ACChargeParameterDiscoveryReqParams(
             ev_max_charge_power=RationalNumber.get_rational_repr(
                 ev_ac_v20.max_charge_power_w if ev_ac_v20 else 11000
@@ -479,7 +557,7 @@ class SimEVController(EVControllerInterface):
         it carries no ScheduleExchangeReq tree entry — the announcement stays
         builder-computed, mirroring the ISO-20 DC SECC retirement in #98.)
         """
-        se = ScheduleExchangeV20()
+        se = _SE_V20_SKELETON
         ev_price_rule = EVPriceRule(
             energy_fee=RationalNumber.get_rational_repr(
                 se.price_energy_fee if se else 0
@@ -548,7 +626,7 @@ class SimEVController(EVControllerInterface):
         `personality.power.schedule_exchange_v20` — the ScheduleExchangeReq wire
         values are tree-sourced at the build site now (mirroring #98).
         """
-        se = ScheduleExchangeV20()
+        se = _SE_V20_SKELETON
         dynamic_params = DynamicScheduleExchangeReqParams(
             departure_time=se.departure_time_s if se else 7200,
             min_soc=se.dynamic_min_soc_percent if se else 30,
@@ -826,7 +904,7 @@ class SimEVController(EVControllerInterface):
         # the EV DC-limit model default rather than `config.ev_dc_remaining_*`.
         if protocol == Protocol.DIN_SPEC_70121:
             mult, val = PhysicalValue.get_exponent_value_repr(
-                EVDCLimits().remaining_time_to_full_soc_s
+                _EV_DC_SKELETON.remaining_time_to_full_soc_s
             )
             return PVRemainingTimeToFullSOCDin(multiplier=mult, value=val, unit="s")
         mult, val = PhysicalValue.get_exponent_value_repr(
@@ -839,7 +917,7 @@ class SimEVController(EVControllerInterface):
         # DIN retirement (ADR-0006 / #74): see get_remaining_time_to_full_soc.
         if protocol == Protocol.DIN_SPEC_70121:
             mult, val = PhysicalValue.get_exponent_value_repr(
-                EVDCLimits().remaining_time_to_bulk_soc_s
+                _EV_DC_SKELETON.remaining_time_to_bulk_soc_s
             )
             return PVRemainingTimeToBulkSOCDin(multiplier=mult, value=val, unit="s")
         mult, val = PhysicalValue.get_exponent_value_repr(
@@ -874,8 +952,8 @@ class SimEVController(EVControllerInterface):
         runtime-produced and allowlisted — never baseline-pinned — mirroring the
         ISO-20 DC EVCC charge-loop retirement in #99.
         """
-        ev_ac_v20 = EVACLimitsV20()
-        se = ScheduleExchangeV20()
+        ev_ac_v20 = _EV_AC_V20_SKELETON
+        se = _SE_V20_SKELETON
         if control_mode == ControlMode.SCHEDULED:
             scheduled_params = ScheduledACChargeLoopReqParams(
                 ev_present_active_power=RationalNumber.get_rational_repr(
@@ -1019,7 +1097,7 @@ class SimEVController(EVControllerInterface):
         (issue #32) still wins over that fallback via `_iso20_override_or`, and
         these ramping leaves are never baseline-pinned (mirroring #98).
         """
-        ev_dc_v20 = EVDCLimitsV20()
+        ev_dc_v20 = _EV_DC_V20_SKELETON
         return ScheduledDCChargeLoopReqParams(
             ev_target_current=RationalNumber.get_rational_repr(
                 self._iso20_override_or(
@@ -1046,7 +1124,7 @@ class SimEVController(EVControllerInterface):
         `_iso20_override_or`; those ramping leaves are allowlisted, never
         baseline-pinned (mirroring #98).
         """
-        ev_dc_v20 = EVDCLimitsV20()
+        ev_dc_v20 = _EV_DC_V20_SKELETON
         return DynamicDCChargeLoopReqParams(
             ev_target_energy_request=RationalNumber.get_rational_repr(
                 ev_dc_v20.dynamic_target_energy_request_wh if ev_dc_v20 else 200
@@ -1101,7 +1179,7 @@ class SimEVController(EVControllerInterface):
         skeleton, not `personality.power.ev_dc_v20`; the DCChargeLoopReq is
         tree-sourced now (mirroring #98).
         """
-        ev_dc_v20 = EVDCLimitsV20()
+        ev_dc_v20 = _EV_DC_V20_SKELETON
         dc_dynamic_dc_charge_loop_params_v20 = (
             await self.get_dynamic_dc_charge_loop_params()
         ).model_dump()
@@ -1130,7 +1208,7 @@ class SimEVController(EVControllerInterface):
         skeleton, not `personality.power.ev_dc_v20` — this ramping present
         voltage is allowlisted, never baseline-pinned (mirroring #98).
         """
-        ev_dc_v20 = EVDCLimitsV20()
+        ev_dc_v20 = _EV_DC_V20_SKELETON
         return RationalNumber.get_rational_repr(
             self._iso20_override_or(
                 "override_voltage_v",
@@ -1146,7 +1224,7 @@ class SimEVController(EVControllerInterface):
         `EVDCLimitsV20` model-default skeleton, not
         `personality.power.ev_dc_v20`.
         """
-        ev_dc_v20 = EVDCLimitsV20()
+        ev_dc_v20 = _EV_DC_V20_SKELETON
         return RationalNumber.get_rational_repr(
             ev_dc_v20.target_voltage_v if ev_dc_v20 else 20000
         )

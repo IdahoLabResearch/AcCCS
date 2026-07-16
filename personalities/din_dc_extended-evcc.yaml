@@ -2,24 +2,22 @@
 #
 # This is the default `--config` for run_evcc.py. It `extends:` the DIN EVCC
 # baseline (ADR-0006), which now carries the full Cadillac Lyriq wire tree (#74),
-# so this file overrides only EVCCID and the EV's target-voltage/current start
-# values.
+# so this file overrides only the EV's target-voltage/current start values.
 #
 # The announced maxima, battery capacity, and remaining-time estimates that used
 # to live here as `power.ev_dc` fields are retired from the DIN path (ADR-0006 /
 # #74): those wire values are now tree-owned by the baseline. Only the `target_*`
 # start values still feed the DIN path — they seed the first PreCharge /
-# CurrentDemand before the runtime charge controller ramps real targets — so
-# they are all that remains here (the vehicle-side analogue of the SECC's thin
-# `din_dc_extended-secc.yaml`).
+# CurrentDemand before the runtime charge controller ramps real targets. With the
+# pre-tree `power`/`identity` sections deleted (#102) they now live in
+# `residual.charge_ramp` (a runtime seed, no static wire form). The EVCCID is
+# runtime-derived (NIC MAC on DIN), so its old `identity` override is gone.
 #
 # Replaces the retired symmetric din_dc_extended.yaml (now split per role).
 extends: din-evcc-baseline
 role: evcc
-identity:
-  evcc_id: 5YJSA1E60GF000123ABC
-power:
-  ev_dc:
+residual:
+  charge_ramp:
     # PreCharge requires target_current < 2 A (IEC 61851-23 CC.5.2 inrush limit).
     target_voltage_v: 800.0
     target_current_a: 1.5

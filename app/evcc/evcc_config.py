@@ -15,12 +15,7 @@ from app.shared.messages.enums import (
     Protocol,
     ServiceV20,
 )
-from app.shared.personality.model import (
-    EVACLimitsV20,
-    EVCCPersonality,
-    EVDCLimitsV20,
-    ScheduleExchangeV20,
-)
+from app.shared.personality.model import EVCCPersonality
 
 logger = logging.getLogger(__name__)
 
@@ -59,40 +54,19 @@ class EVCCConfig(BaseModel):
     charge_loop_cycle: Optional[int] = 10
     charge_loop_delay_time: Optional[int] = 0
 
-    # Identity surfaced for protocol layers that need it at session-build
-    # time (ISO 15118-20 EVCCID). Populated from `personality.identity`.
-    evcc_id: Optional[str] = None
-
-    # DC charge envelope advertised in DIN ChargeParameterDiscoveryReq /
-    # CurrentDemandReq. Sourced from `personality.power.ev_dc`. See
-    # ADR-0001 / issue #7 (DIN personality slice).
-    ev_dc_max_voltage_v: float = 500.0
-    ev_dc_max_current_a: float = 32.0
-    ev_dc_max_power_w: float = 80000.0
-    ev_dc_energy_capacity_wh: float = 70000.0
+    # EV DC charge-ramp start seeds (ADR-0006 residual, relocated from the
+    # retired `power.ev_dc` block in #102): the initial PreCharge / CurrentDemand
+    # target voltage & current the EV requests before the runtime charge
+    # controller (or a live-override) takes over the ramp, plus the EV-supplied
+    # remaining-time estimates. Sourced from `personality.residual.charge_ramp`.
+    # The announced DC/AC maxima and ISO-20 envelopes are no longer carried here
+    # — they are wire-owned by the message field tree at each `*Req` build site
+    # (#74/#97/#99/#101), so the simulator sources those from the message-model
+    # skeletons the tree overrides, not from this config.
     ev_dc_target_voltage_v: float = 500.0
     ev_dc_target_current_a: float = 1.0
     ev_dc_remaining_time_to_full_soc_s: int = 100
     ev_dc_remaining_time_to_bulk_soc_s: int = 80
-    # ISO 15118-2 DCEVChargeParameter (no DIN equivalent on the wire).
-    # See issue #8 (ISO-2 personality slice).
-    ev_dc_iso2_energy_request_wh: float = 6000.0
-    ev_dc_iso2_full_soc_percent: int = 90
-    ev_dc_iso2_bulk_soc_percent: int = 80
-
-    # AC charge envelope advertised in ISO 15118-2 ACEVChargeParameter.
-    # Sourced from `personality.power.ev_ac`.
-    ev_ac_e_amount_wh: float = 60.0
-    ev_ac_max_voltage_v: float = 400.0
-    ev_ac_max_current_a: float = 32.0
-    ev_ac_min_current_a: float = 10.0
-
-    # ISO 15118-20 EV-side envelopes + ScheduleExchange announcement.
-    # Carried as nested sub-blocks rather than flattened fields because the
-    # ISO-20 surface area is too large to inline (see issue #9 / Slice 4).
-    ev_dc_v20: Optional[EVDCLimitsV20] = None
-    ev_ac_v20: Optional[EVACLimitsV20] = None
-    schedule_exchange_v20: Optional[ScheduleExchangeV20] = None
 
     # The [[message field tree]] (ADR-0006): per-message, per-field emitted wire
     # values, carried through from the personality so the EVCC DIN states can
@@ -109,8 +83,7 @@ class EVCCConfig(BaseModel):
         tls = personality.residual.tls
         certs = personality.residual.certificates
         cp = personality.residual.charge_profile
-        ev_dc = personality.power.ev_dc
-        ev_ac = personality.power.ev_ac
+        ramp = personality.residual.charge_ramp
 
         ev_config = cls(
             raw_supported_protocols=list(caps.supported_protocols),
@@ -128,25 +101,10 @@ class EVCCConfig(BaseModel):
             max_supporting_points=caps.max_supporting_points,
             charge_loop_cycle=cp.cycle,
             charge_loop_delay_time=cp.delay_seconds,
-            evcc_id=personality.identity.evcc_id,
-            ev_dc_max_voltage_v=ev_dc.max_voltage_v,
-            ev_dc_max_current_a=ev_dc.max_current_a,
-            ev_dc_max_power_w=ev_dc.max_power_w,
-            ev_dc_energy_capacity_wh=ev_dc.energy_capacity_wh,
-            ev_dc_target_voltage_v=ev_dc.target_voltage_v,
-            ev_dc_target_current_a=ev_dc.target_current_a,
-            ev_dc_remaining_time_to_full_soc_s=ev_dc.remaining_time_to_full_soc_s,
-            ev_dc_remaining_time_to_bulk_soc_s=ev_dc.remaining_time_to_bulk_soc_s,
-            ev_dc_iso2_energy_request_wh=ev_dc.iso2_energy_request_wh,
-            ev_dc_iso2_full_soc_percent=ev_dc.iso2_full_soc_percent,
-            ev_dc_iso2_bulk_soc_percent=ev_dc.iso2_bulk_soc_percent,
-            ev_ac_e_amount_wh=ev_ac.e_amount_wh,
-            ev_ac_max_voltage_v=ev_ac.max_voltage_v,
-            ev_ac_max_current_a=ev_ac.max_current_a,
-            ev_ac_min_current_a=ev_ac.min_current_a,
-            ev_dc_v20=personality.power.ev_dc_v20,
-            ev_ac_v20=personality.power.ev_ac_v20,
-            schedule_exchange_v20=personality.power.schedule_exchange_v20,
+            ev_dc_target_voltage_v=ramp.target_voltage_v,
+            ev_dc_target_current_a=ramp.target_current_a,
+            ev_dc_remaining_time_to_full_soc_s=ramp.remaining_time_to_full_soc_s,
+            ev_dc_remaining_time_to_bulk_soc_s=ramp.remaining_time_to_bulk_soc_s,
             message_field_tree=personality.message_field_tree,
         )
 

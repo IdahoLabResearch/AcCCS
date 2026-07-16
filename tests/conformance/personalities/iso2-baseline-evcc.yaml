@@ -5,12 +5,11 @@
 # baseline wire values the EVCC actually emits. Mirrors `iso2-baseline-secc.yaml`.
 extends: iso2-evcc-baseline
 role: evcc
-power:
-  ev_dc:
-    # Target start voltage stays under the baseline's 422 V EVMaximumVoltageLimit;
-    # target current < 2 A for PreCharge (IEC 61851-23 CC.5.2 inrush limit).
+residual:
+  # EV DC charge-ramp start seeds relocated from the retired
+  # `power.ev_dc` block (#102): no static wire form, so residual.
+  charge_ramp:
     target_voltage_v: 400.0
     target_current_a: 1.5
-residual:
   network:
     interface: acccs_evcc

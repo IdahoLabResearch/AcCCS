@@ -6,14 +6,16 @@ paths. Runtime knobs are *per-invocation operator* concerns (logging level,
 NMAP toggles, virtual mode).
 
 Per ADR-0006 a personality has two parts: a `message_field_tree` (everything
-emitted on the wire, keyed by message + field path) and a `residual` section
-(everything with no wire representation — TLS/SLAC/certificates/network/charge-
-pacing/behavior). The dividing rule is mechanical: on the wire -> tree; not on
-the wire -> residual; never duplicated. The wire-bearing concern-first sections
-that predate the tree (identity / capabilities / power / meter) still live at
-the top level this slice — the tree is DIN-only for now, so they remain the
-source for the not-yet-migrated protocols and are absorbed into per-message
-trees in later slices.
+emitted on the wire, keyed by protocol + message + field path) and a `residual`
+section (everything with no wire representation — TLS/SLAC/certificates/network/
+charge-pacing/charge-ramp seeds/behavior). The dividing rule is mechanical: on
+the wire -> tree; not on the wire -> residual; never duplicated. The pre-tree
+concern-first wire sections (`identity` and `power`) are retired now that every
+protocol is tree-backed (#102) — their genuinely residual seeds (the EV DC
+target/remaining-time ramp values) moved into `residual.charge_ramp`. Two
+top-level sections remain: `capabilities` (the cross-cutting negotiation inputs,
+plus the still-pre-tree `energy_transfer_mode`) and `meter` (awaiting its own
+MeterInfo tree migration).
 
 Strict validation: unknown keys at any level are a hard error. That is what
 makes a personality a contract rather than a suggestion.
@@ -50,20 +52,6 @@ class _StrictBase(BaseModel):
 # ---------------------------------------------------------------------------
 # Section models
 # ---------------------------------------------------------------------------
-
-
-class Identity(_StrictBase):
-    """Identity fields the device advertises.
-
-    `evcc_id` is the EVCCID (today: a VIN-shaped string on the EVCC side).
-    `evse_id` follows DIN SPEC 91286 / ISO 15118 EVSEID formatting on the
-    SECC side. Both fields are present on the model so a single personality
-    file shape works for both roles, but each role only consumes the field
-    relevant to it.
-    """
-
-    evcc_id: str = "1FMVAA45B63C47DD58Y6"
-    evse_id: str = "49A89A6360"
 
 
 class Network(_StrictBase):
@@ -152,314 +140,30 @@ class Capabilities(_StrictBase):
         return EnergyTransferModeEnum(self.energy_transfer_mode)
 
 
-class EVSEDCLimits(_StrictBase):
-    """SECC-side DC power-electronics envelope.
+class ChargeRamp(_StrictBase):
+    """EV-side DC charge-ramp start seeds (EVCC, residual section).
 
-    These fields go on the wire as the PVEVSE* physical values inside DIN
-    70121 ChargeParameterDiscoveryRes (the per-session maxima/minima and
-    peak ripple) and CurrentDemandRes (the max current/voltage/power
-    advertised during the charge loop). They describe what the EVSE *can*
-    deliver — not what it is presently delivering, which is a runtime-derived
-    measurement and remains computed at message-build time.
+    The initial PreCharge / CurrentDemand target voltage & current the EV
+    requests, plus the EV-supplied remaining-time estimates. These have **no
+    static wire representation**: the emitted target/present voltage & current
+    ramp during the session and are allowlisted runtime-produced fields
+    (ADR-0006 #83), so per the mechanical dividing rule (not on the wire ->
+    residual) they belong here, not in the [[message field tree]]. They seed the
+    ramp before the runtime charge controller (or a [[live-override]]) takes
+    over.
+
+    Formerly `power.ev_dc.{target_voltage_v,target_current_a,remaining_time_*}`
+    on the retired concern-first `Power` model; relocated to the residual
+    section when the pre-tree structured wire sections were deleted (#102). The
+    ``target_current_a`` default stays below the IEC 61851-23 CC.5.2 PreCharge
+    inrush limit (< 2 A).
     """
 
-    # Voltage envelope advertised by the EVSE.
-    max_voltage_v: float = 500.0
-    min_voltage_v: float = 0.0
-    # Current envelope advertised by the EVSE.
-    max_current_a: float = 400.0
-    min_current_a: float = 0.0
-    # Maximum DC power the EVSE can source. The same value is reused for
-    # both ChargeParameterDiscoveryRes.evse_maximum_power_limit and the
-    # CurrentDemandRes.evse_max_power_limit field in DIN 70121.
-    max_power_w: float = 80000.0
-    # Peak ripple current the EVSE may emit on the DC bus.
-    peak_current_ripple_a: float = 5.0
-    # AC-side nominal voltage at the EVSE inlet — referenced by
-    # interface.get_evse_max_current_limit() when current_type is AC.
-    nominal_voltage_v: float = 400.0
-    # NB: the DIN SAScheduleList PMax / duration are no longer structured
-    # fields. They are list-nested wire values sourced from the
-    # `message_field_tree` (ADR-0006 issue #81 amendment) —
-    # ChargeParameterDiscoveryRes -> SAScheduleList -> SAScheduleTuple. A
-    # personality that omits that tree (empty-/partial-tree, ADR-0006 #83)
-    # falls back to the DIN SECC state's minimal pre-tree builder default;
-    # see `_default_din_sa_schedule_list` in
-    # `app/secc/states/din_spec_states.py` (#86).
-    # ISO 15118-2 SAScheduleList PMaxScheduleEntry — the EVSE-advertised
-    # power envelope for the ISO-2 charging schedule. Distinct from DIN's
-    # field because ISO-2's PMax goes on the wire as a PVPMax (PhysicalValue
-    # with multiplier) so the XSD does not pin it to int16.
-    iso2_sa_schedule_pmax_w: int = Field(default=11000, ge=0)
-    # SalesTariff.sales_tariff_id advertised alongside the PMax schedule.
-    # The XSD constrains this to xs:unsignedByte (1..255).
-    iso2_sales_tariff_id: int = Field(default=10, ge=1, le=255)
-
-
-class EVDCLimits(_StrictBase):
-    """EVCC-side DC charging envelope.
-
-    These fields go on the wire as the PVEVMax* physical values in DIN
-    70121 ChargeParameterDiscoveryReq (the EV's announced maxima) and
-    CurrentDemandReq (the same maxima resent each loop). The `target_*`
-    fields populate the EV's PreCharge and start-of-loop CurrentDemand
-    intent before the runtime charge controller substitutes real targets.
-    """
-
-    max_voltage_v: float = 500.0
-    max_current_a: float = 32.0
-    max_power_w: float = 80000.0
-    # EV battery nameplate energy capacity — DIN
-    # ChargeParameterDiscoveryReq.dc_energy_capacity.
-    energy_capacity_wh: float = 70000.0
-    # EV's initial target voltage/current used for the first PreCharge and
-    # CurrentDemand messages.
     target_voltage_v: float = 500.0
     target_current_a: float = 1.0
-    # DIN CurrentDemandReq's optional EV-supplied remaining-time estimates.
+    # DIN / ISO-2 CurrentDemandReq optional EV-supplied remaining-time estimates.
     remaining_time_to_full_soc_s: int = 100
     remaining_time_to_bulk_soc_s: int = 80
-    # ISO 15118-2 DCEVChargeParameter additions (no DIN equivalent on the
-    # wire). EnergyRequest is what the EV asks the EVSE to deliver this
-    # session; the full_soc / bulk_soc fields are EV-side battery targets.
-    iso2_energy_request_wh: float = 6000.0
-    iso2_full_soc_percent: int = Field(default=90, ge=0, le=100)
-    iso2_bulk_soc_percent: int = Field(default=80, ge=0, le=100)
-
-
-class EVSEACLimits(_StrictBase):
-    """SECC-side AC charging envelope (ISO 15118-2 AC mode).
-
-    Goes on the wire as ACEVSEChargeParameter.evse_nominal_voltage and
-    evse_max_current advertised during ChargeParameterDiscoveryRes when
-    the negotiated energy mode is AC.
-    """
-
-    nominal_voltage_v: float = 400.0
-    max_current_a: float = 32.0
-
-
-class EVACLimits(_StrictBase):
-    """EVCC-side AC charging envelope (ISO 15118-2 AC mode).
-
-    Goes on the wire as ACEVChargeParameter fields in
-    ChargeParameterDiscoveryReq: e_amount (energy requested),
-    ev_max_voltage / ev_max_current / ev_min_current.
-    """
-
-    # ISO-2 sends e_amount in Wh; the wire field uses PVEAmount with a
-    # multiplier so the value here is the plain Wh number.
-    e_amount_wh: float = 60.0
-    max_voltage_v: float = 400.0
-    max_current_a: float = 32.0
-    min_current_a: float = 10.0
-
-
-class EVSEDCLimitsV20(_StrictBase):
-    """SECC-side DC envelope advertised in ISO 15118-20 sessions.
-
-    Goes on the wire as the EVSE* fields inside
-    `DCChargeParameterDiscoveryResParams` and (for DC-BPT) the
-    `BPTDCChargeParameterDiscoveryResParams` extension. ISO 15118-20's DC
-    envelope is distinct from the DIN/ISO-2 `evse_dc` block both in
-    XSD shape (RationalNumber rather than PhysicalValue) and in which
-    fields exist (min_charge_power, power_ramp_limit, BPT discharge).
-    Defaults preserve the historical placeholder values from the
-    simulator, so wire behaviour is unchanged when a personality is loaded
-    from `default-secc.yaml`.
-    """
-
-    max_charge_power_w: float = 1000.0
-    min_charge_power_w: float = 100.0
-    max_charge_current_a: float = 100.0
-    min_charge_current_a: float = 10.0
-    max_voltage_v: float = 500.0
-    min_voltage_v: float = 10.0
-    power_ramp_limit_w_per_s: float = 10.0
-    # ISO 15118-20 DC-BPT discharge envelope (BPTDCChargeParameterDiscoveryRes).
-    bpt_max_discharge_power_w: float = 1000.0
-    bpt_min_discharge_power_w: float = 100.0
-    bpt_max_discharge_current_a: float = 100.0
-    bpt_min_discharge_current_a: float = 10.0
-
-
-class EVDCLimitsV20(_StrictBase):
-    """EV-side DC envelope announced in ISO 15118-20 sessions.
-
-    Splits into three groups: `ChargeParameterDiscoveryReq` (the static
-    envelope), DC `PreCharge` + scheduled `ChargeLoop` targets, and the
-    `dynamic_*` set used by `DynamicDCChargeLoopReqParams` (which the
-    Tester simulator emits with smaller stub magnitudes — kept distinct
-    so a personality can sweep them independently of CPD).
-
-    All fields are EV-announced — the SECC is not expected to ever exceed
-    them. Defaults match the simulator stubs in
-    `SimEVController.get_charge_params_v20()` /
-    `get_dynamic_dc_charge_loop_params()` so existing wire behaviour is
-    preserved.
-    """
-
-    # DCChargeParameterDiscoveryReq (DC + DC-BPT).
-    max_charge_power_w: float = 300000.0
-    min_charge_power_w: float = 100.0
-    max_charge_current_a: float = 300.0
-    min_charge_current_a: float = 10.0
-    max_voltage_v: float = 1000.0
-    min_voltage_v: float = 10.0
-    # PreCharge + scheduled DC ChargeLoop target voltage/current.
-    target_voltage_v: float = 20000.0
-    target_current_a: float = 200.0
-    # Dynamic DC ChargeLoop stubs (kept distinct from CPD because the
-    # simulator emits very different magnitudes here).
-    dynamic_target_energy_request_wh: float = 200.0
-    dynamic_max_energy_request_wh: float = 200.0
-    dynamic_min_energy_request_wh: float = 20.0
-    dynamic_max_charge_power_w: float = 4000.0
-    dynamic_min_charge_power_w: float = 400.0
-    dynamic_max_charge_current_a: float = 40.0
-    dynamic_max_voltage_v: float = 400.0
-    dynamic_min_voltage_v: float = 40.0
-    # DC-BPT CPD discharge envelope.
-    bpt_max_discharge_power_w: float = 11000.0
-    bpt_min_discharge_power_w: float = 1000.0
-    bpt_max_discharge_current_a: float = 11.0
-    bpt_min_discharge_current_a: float = 0.0
-    # BPT dynamic DC ChargeLoop discharge (separate from CPD because the
-    # simulator emits 300 kW / 300 A here).
-    bpt_dynamic_max_discharge_power_w: float = 300000.0
-    bpt_dynamic_min_discharge_power_w: float = 300000.0
-    bpt_dynamic_max_discharge_current_a: float = 300000.0
-
-
-class EVSEACLimitsV20(_StrictBase):
-    """SECC-side AC envelope advertised in ISO 15118-20 sessions.
-
-    Distinct from the ISO-2 `evse_ac` block: ISO 15118-20 AC is
-    multiphase (L1/L2/L3), declares nominal frequency, power asymmetry
-    tolerance, and a power ramp limit. The per-phase values are modelled
-    here as a single magnitude that's replicated to L1/L2/L3 on the wire
-    — variant personalities that need asymmetric phases can be added
-    later without breaking this contract.
-    """
-
-    max_charge_power_w: float = 30000.0
-    min_charge_power_w: float = 100.0
-    nominal_frequency_hz: float = 50.0
-    max_power_asymmetry_w: float = 0.0
-    power_ramp_limit_w_per_s: float = 100.0
-    # ISO 15118-20 AC-BPT discharge envelope.
-    bpt_max_discharge_power_w: float = 30000.0
-    bpt_min_discharge_power_w: float = 100.0
-
-
-class EVACLimitsV20(_StrictBase):
-    """EV-side AC envelope announced in ISO 15118-20 sessions.
-
-    Splits into the static CPD envelope, the scheduled charge loop's
-    present-active-power stub, and the dynamic AC charge loop stubs.
-    The dynamic-loop fields are separate from the CPD envelope because
-    the simulator emits very different stub magnitudes there.
-    """
-
-    # ACChargeParameterDiscoveryReq (AC + AC-BPT).
-    max_charge_power_w: float = 11000.0
-    min_charge_power_w: float = 100.0
-    # AC-BPT discharge envelope (CPD).
-    bpt_max_discharge_power_w: float = 11000.0
-    bpt_min_discharge_power_w: float = 1.0
-    # ACChargeLoop simulator stubs (present-active-power in scheduled
-    # mode; full set of dynamic-mode magnitudes).
-    scheduled_present_active_power_w: float = 200000.0
-    dynamic_max_charge_power_w: float = 300000.0
-    dynamic_min_charge_power_w: float = 100.0
-    dynamic_present_active_power_w: float = 200000.0
-    dynamic_present_reactive_power_w: float = 20000.0
-
-
-class ScheduleExchangeV20(_StrictBase):
-    """EV-side ScheduleExchange announcement (ISO 15118-20 only).
-
-    Covers the values the EV declares in `ScheduledScheduleExchangeReq`,
-    `DynamicScheduleExchangeReq`, and the dynamic AC ChargeLoop (which
-    re-states a departure-time stub). The two "modes" — scheduled and
-    dynamic — carry different magnitudes in the simulator, so the model
-    splits them rather than collapsing.
-    """
-
-    departure_time_s: int = 7200
-    # ScheduledScheduleExchangeReq energy requests.
-    scheduled_target_energy_request_wh: float = 10000.0
-    scheduled_max_energy_request_wh: float = 20000.0
-    scheduled_min_energy_request_wh: float = 0.05
-    # DynamicScheduleExchangeReq SOC + energy + V2X-energy requests.
-    dynamic_min_soc_percent: int = Field(default=30, ge=0, le=100)
-    dynamic_target_soc_percent: int = Field(default=80, ge=0, le=100)
-    dynamic_target_energy_request_wh: float = 40000.0
-    dynamic_max_energy_request_wh: float = 60000.0
-    dynamic_min_energy_request_wh: float = -20000.0
-    dynamic_max_v2x_energy_request_wh: float = 5000.0
-    dynamic_min_v2x_energy_request_wh: float = 0.0
-    # Dynamic AC ChargeLoop carries its own departure-time stub distinct
-    # from the SE-level one (simulator emits 2000 s here).
-    ac_dynamic_loop_departure_time_s: int = 2000
-    # EVPowerScheduleEntry + EVPriceRule offered alongside the schedule.
-    power_schedule_duration_s: int = 3600
-    power_schedule_power_w: float = -10000.0
-    price_currency: str = "EUR"
-    price_energy_fee: float = 0.0
-
-
-class EVSEScheduleExchangeV20(_StrictBase):
-    """SECC-side ScheduleExchange schedule envelope (ISO 15118-20).
-
-    Mirrors the Slice 2 pattern (`EVSEDCLimits.iso2_sa_schedule_pmax_w` etc.)
-    by surfacing the *envelope* of the EVSE's offered schedule — power,
-    duration, available energy, tolerance — and the dynamic-mode SOC
-    targets. The pricing / tax / overstay meta-structures the simulator
-    embeds for protocol-interop completeness are deliberately left
-    hardcoded; they don't shape "who the EVSE is" the way an envelope does.
-    """
-
-    schedule_duration_s: int = 3600
-    charge_power_w: float = 10000.0
-    available_energy_wh: float = 300000.0
-    power_tolerance_w: float = 2000.0
-    discharge_power_w: float = 10000.0
-    # Dynamic SE response — the EVSE confirms the EV's departure + SOC
-    # ask. Defaults track `ScheduleExchangeV20.dynamic_*` so the simulator
-    # round-trips cleanly under stock personalities.
-    dynamic_departure_time_s: int = 7200
-    dynamic_min_soc_percent: int = Field(default=30, ge=0, le=100)
-    dynamic_target_soc_percent: int = Field(default=80, ge=0, le=100)
-
-
-class Power(_StrictBase):
-    """Power envelopes for both roles.
-
-    Each role only reads its own side — the EVCC consumes `ev_dc` / `ev_ac`
-    / `ev_dc_v20` / `ev_ac_v20` / `schedule_exchange_v20`; the SECC
-    consumes `evse_dc` / `evse_ac` / `evse_dc_v20` / `evse_ac_v20` /
-    `evse_schedule_exchange_v20`. The `*_v20` sub-blocks are ISO
-    15118-20-specific because the protocol's wire shape (RationalNumber,
-    multiphase AC, BPT discharge, schedule exchange) does not collapse
-    cleanly into the DIN/ISO-2 envelope.
-    """
-
-    evse_dc: EVSEDCLimits = Field(default_factory=EVSEDCLimits)
-    ev_dc: EVDCLimits = Field(default_factory=EVDCLimits)
-    evse_ac: EVSEACLimits = Field(default_factory=EVSEACLimits)
-    ev_ac: EVACLimits = Field(default_factory=EVACLimits)
-    # ISO 15118-20 sub-blocks (Slice 4 / issue #9).
-    evse_dc_v20: EVSEDCLimitsV20 = Field(default_factory=EVSEDCLimitsV20)
-    ev_dc_v20: EVDCLimitsV20 = Field(default_factory=EVDCLimitsV20)
-    evse_ac_v20: EVSEACLimitsV20 = Field(default_factory=EVSEACLimitsV20)
-    ev_ac_v20: EVACLimitsV20 = Field(default_factory=EVACLimitsV20)
-    schedule_exchange_v20: ScheduleExchangeV20 = Field(
-        default_factory=ScheduleExchangeV20
-    )
-    evse_schedule_exchange_v20: EVSEScheduleExchangeV20 = Field(
-        default_factory=EVSEScheduleExchangeV20
-    )
 
 
 class ChargeProfile(_StrictBase):
@@ -510,14 +214,19 @@ class Residual(_StrictBase):
 
     Everything that configures the device but has *no wire representation* —
     TLS posture, SLAC layer-2 timings, certificate file paths, the network
-    interface, charge-loop pacing, and behavioral path-selecting flags. The
-    dividing rule is mechanical: on the wire -> [[message field tree]]; not on
-    the wire -> here. A value is therefore never duplicated across the two.
+    interface, charge-loop pacing, the EV's DC charge-ramp start seeds, and
+    behavioral path-selecting flags. The dividing rule is mechanical: on the
+    wire -> [[message field tree]]; not on the wire -> here. A value is
+    therefore never duplicated across the two.
 
-    The wire-bearing sections (`identity`, `capabilities`, `power`, `meter`)
-    deliberately still live at the personality top level this slice: the tree
-    is DIN-only for now, so those sections remain the source for the not-yet-
-    migrated protocols and are absorbed into per-message trees in later slices.
+    The pre-tree structured wire sections (`identity`, `power`, and the
+    wire-bits of `meter`) that once lived at the personality top level are
+    retired (#102): every emitted field is tree-sourced, and the genuinely
+    residual runtime seeds they carried (the EV DC target/remaining-time
+    values) moved here as `charge_ramp`. `capabilities` and `meter` stay at the
+    top level — the former holds the cross-cutting negotiation inputs (plus the
+    still-pre-tree `energy_transfer_mode`), the latter awaits its own
+    MeterInfo tree migration.
     """
 
     network: Network = Field(default_factory=Network)
@@ -525,6 +234,10 @@ class Residual(_StrictBase):
     tls: TLS = Field(default_factory=TLS)
     certificates: Certificates = Field(default_factory=Certificates)
     charge_profile: ChargeProfile = Field(default_factory=ChargeProfile)
+    # EV DC charge-ramp start seeds (EVCC): initial PreCharge/CurrentDemand
+    # target V/A + remaining-time estimates. No static wire form (they ramp),
+    # so residual — relocated from the retired `power.ev_dc` block (#102).
+    charge_ramp: ChargeRamp = Field(default_factory=ChargeRamp)
     behavior: Behavior = Field(default_factory=Behavior)
 
 
@@ -562,13 +275,11 @@ class _PersonalityBase(_StrictBase):
     uniformly.
     """
 
-    identity: Identity = Field(default_factory=Identity)
     capabilities: Capabilities = Field(default_factory=Capabilities)
-    power: Power = Field(default_factory=Power)
     meter: Meter = Field(default_factory=Meter)
     # Residual section (ADR-0006): all non-wire config — TLS/SLAC/certs/
-    # network/charge-pacing/behavior. `network` gets a per-role interface
-    # default via the EVCC/SECC subclasses below.
+    # network/charge-pacing/charge-ramp seeds/behavior. `network` gets a
+    # per-role interface default via the EVCC/SECC subclasses below.
     residual: Residual = Field(default_factory=Residual)
 
     # The [[message field tree]] (ADR-0006): per-message, per-field emitted

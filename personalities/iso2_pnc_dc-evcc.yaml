@@ -14,20 +14,17 @@
 #   python run_evcc.py --config iso2_pnc_dc-evcc --virtual
 extends: iso2-evcc-baseline
 role: evcc
-identity:
-  evcc_id: 1FATCBFLAGSHIPDC0002
 capabilities:
   supported_auth_modes:
     - PNC
   is_cert_install_needed: false
-power:
-  ev_dc:
+residual:
+  charge_ramp:
     # The Mach-E envelope pins EVMaximumVoltageLimit to 422 V (in the baseline
     # tree), so the target start voltage stays under it. PreCharge also requires
     # target_current < 2 A (IEC 61851-23 CC.5.2 inrush limit).
     target_voltage_v: 410.0
     target_current_a: 1.7
-residual:
   tls:
     enable_tls_1_3: true
     use_tls: true

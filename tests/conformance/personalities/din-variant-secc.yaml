@@ -3,23 +3,12 @@
 # Mirrors `personalities/din_reference.yaml` so the E2E suite can
 # pin a `din-variant` scenario without dragging the example file into the
 # conformance test directory.
-identity:
-  evse_id: 55AA66BB77
 capabilities:
   supported_protocols:
   - DIN_SPEC_70121
   supported_energy_services:
   - DC
   energy_transfer_mode: DC_core
-power:
-  evse_dc:
-    max_voltage_v: 950.0
-    min_voltage_v: 50.0
-    max_current_a: 350.0
-    min_current_a: 5.0
-    max_power_w: 240000.0
-    peak_current_ripple_a: 7.0
-    nominal_voltage_v: 480.0
 residual:
   network:
     interface: acccs_secc

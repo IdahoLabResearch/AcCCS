@@ -1,7 +1,4 @@
 # Conformance ISO 15118-2 PnC SECC variant test personality.
-identity:
-  evse_id: USFRDE9002
-  evcc_id: 1FATCBFLAGSHIPDC0002
 capabilities:
   supported_protocols:
   - ISO_15118_2
@@ -11,17 +8,6 @@ capabilities:
   - DC
   energy_transfer_mode: DC_extended
   is_cert_install_needed: false
-power:
-  evse_dc:
-    max_voltage_v: 1000.0
-    min_voltage_v: 100.0
-    max_current_a: 400.0
-    min_current_a: 10.0
-    max_power_w: 350000.0
-    peak_current_ripple_a: 8.0
-    nominal_voltage_v: 500.0
-    iso2_sa_schedule_pmax_w: 75000
-    iso2_sales_tariff_id: 99
 meter:
   meter_id: Switch-Meter-PnC-002
   starting_reading_wh: 777000

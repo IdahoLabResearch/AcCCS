@@ -4,8 +4,6 @@
 # `fallback-secc-multi` (which supports ISO-2 > DIN), this confirms the
 # negotiation lands on DIN regardless of which peer is the limiting one: the
 # SECC prefers ISO-2 but the EVCC only offers DIN. TLS off.
-identity:
-  evcc_id: 1FMVAA45B63C47DD58Y6
 capabilities:
   supported_protocols:
   - DIN_SPEC_70121

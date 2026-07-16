@@ -4,8 +4,6 @@
 # offers ISO-20 > ISO-2 > DIN), this forces the SECC to walk past the two
 # higher-priority offers and negotiate DIN — the SECC is the constraining
 # side of the asymmetry. TLS off (DIN mandates no transport-layer security).
-identity:
-  evse_id: 49A89A6360
 capabilities:
   supported_protocols:
   - DIN_SPEC_70121
