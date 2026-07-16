@@ -18,6 +18,9 @@ from app.evcc.states.din_spec_states import SessionSetup as SessionSetupDINSPEC
 from app.evcc.states.din_spec_states import apply_personality_tree
 from app.evcc.states.evcc_state import StateEVCC
 from app.evcc.states.iso15118_2_states import SessionSetup as SessionSetupV2
+from app.evcc.states.iso15118_2_states import (
+    apply_personality_tree as apply_personality_tree_iso2,
+)
 from app.evcc.states.iso15118_20_states import SessionSetup as SessionSetupV20
 from app.shared.exceptions import MessageProcessingError
 from app.shared.messages.app_protocol import (
@@ -118,7 +121,12 @@ class SupportedAppProtocol(StateEVCC):
                 if protocol.protocol_ns == Protocol.ISO_15118_2.ns.value:
                     self.comm_session.protocol = Protocol.ISO_15118_2
                     self.comm_session.session_id = self.get_session_id()
-                    # message is already set to SessionSetupReqV2 as default
+                    # message is already set to SessionSetupReqV2 as default.
+                    # Route the ISO-2 SessionSetupReq through the message field
+                    # tree (ADR-0006 / #97) so a personality can override its one
+                    # wire field (EVCCID); the Mach-E baseline leaves it computed
+                    # from the NIC MAC.
+                    apply_personality_tree_iso2(self.comm_session, next_msg)
                     next_state = SessionSetupV2
                 elif protocol.protocol_ns == Protocol.DIN_SPEC_70121.ns.value:
                     self.comm_session.protocol = Protocol.DIN_SPEC_70121

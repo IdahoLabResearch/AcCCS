@@ -293,9 +293,13 @@ async def test_evcc_dc_charge_params_din_retire_ev_dc_maxima():
 
 
 @pytest.mark.asyncio
-async def test_evcc_dc_charge_params_iso2_still_use_personality_limits():
-    """The retirement is DIN-only: ISO 15118-2 still sources the full EV DC
-    envelope from `power.ev_dc` (issue #7 / ADR-0001), unchanged by #74."""
+async def test_evcc_dc_charge_params_iso2_retire_ev_dc_maxima():
+    """Issue #97 / ADR-0006: the ISO-2 EVCC announced maxima + capacity are now
+    retired too (the #74 DIN retirement extended to ISO-2) — they come from the
+    message field tree at each `*Req` build site, so the controller builds only a
+    skeleton from the EV DC-limit model defaults. A `power.ev_dc` set to
+    distinctive maxima does NOT surface here. The `target_*` carve-out DOES still
+    come from config (it ramps, and is not a static baseline tree value)."""
     personality = EVCCPersonality.model_validate(
         {
             "power": {
@@ -314,10 +318,12 @@ async def test_evcc_dc_charge_params_iso2_still_use_personality_limits():
     sim = SimEVController(evcc_config)
     params = await sim.get_dc_charge_params(Protocol.ISO_15118_2)
 
-    assert params.dc_max_voltage_limit.get_decimal_value() == 800.0
-    assert params.dc_max_current_limit.get_decimal_value() == 120.0
-    assert params.dc_max_power_limit.get_decimal_value() == 200000.0
-    assert params.dc_energy_capacity.get_decimal_value() == 90000.0
+    # Model defaults (EVDCLimits), NOT the personality's ev_dc maxima.
+    assert params.dc_max_voltage_limit.get_decimal_value() == 500.0
+    assert params.dc_max_current_limit.get_decimal_value() == 32.0
+    assert params.dc_max_power_limit.get_decimal_value() == 80000.0
+    assert params.dc_energy_capacity.get_decimal_value() == 70000.0
+    # Targets stay config-sourced (computed/start-value carve-out).
     assert params.dc_target_voltage.get_decimal_value() == 750.0
     assert params.dc_target_current.get_decimal_value() == 17.0
 

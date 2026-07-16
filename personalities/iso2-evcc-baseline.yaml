@@ -1,0 +1,99 @@
+# ISO 15118-2 EVCC baseline personality (ADR-0006, issue #97).
+#
+# The per-role baseline supplies an ISO-2 vehicle's full default wire output;
+# device files (e.g. iso2_eim_dc-evcc.yaml) `extends:` this and override only the
+# leaves that differ. The vehicle-side mirror of the HAL-reference ISO-2 SECC
+# baseline (#96) and the direct analogue of the DIN EVCC baseline (#74): every
+# EVCC-emitted ISO-2 message sources its wire values from the `message_field_tree`
+# below via construction-time substitution (ADR-0006); the structured
+# `power.ev_ac` / ISO-2 `power.ev_dc` / `iso2_energy_request_wh` /
+# `iso2_full_soc_percent` / `iso2_bulk_soc_percent` reads are retired.
+#
+# PROVENANCE — decoded field-for-field from `~/projects/pcaps/Mach-E-ISO.pcapng`
+# (a real Ford Mach-E, plaintext EIM/no-TLS ISO-2 DC session) via tshark + the
+# project EXI codec, cross-checked against `Mach-E-ISO-2-CordStop.pcapng` (an
+# identical envelope). The decodable EVCC-emitted messages are reproduced exactly:
+#   * ChargeParameterDiscoveryReq.DC_EVChargeParameter: the DC envelope the Mach-E
+#     announces — EVMaximumCurrentLimit 500 A (5000 x 10^-1), EVMaximumPowerLimit
+#     211000 W (21100 x 10^1), EVMaximumVoltageLimit 422 V (4220 x 10^-1) — with
+#     RequestedEnergyTransferMode DC_extended.
+#   * CurrentDemandReq echoes the same max V/A/W envelope every loop.
+#   * EVRESSSOC — the Mach-E ramps it 24 -> 26 % across the session; the baseline
+#     pins the initial/dominant 24 % per message (a static snapshot, config-only,
+#     mirroring the DIN Cadillac's pinned 88 %).
+#
+# Synthetic-fallback / omitted fields (ADR-0006 option B, matching the capture):
+#   * The Mach-E OMITS several Optional fields, so the builders emit none of them
+#     (the per-message tree can override a field but not remove one):
+#     ChargeParameterDiscoveryReq DC_EVChargeParameter — no DepartureTime,
+#     EVEnergyCapacity, EVEnergyRequest, FullSOC, BulkSOC; CurrentDemandReq — no
+#     BulkChargingComplete, RemainingTimeToFullSoC, RemainingTimeToBulkSoC;
+#     PowerDeliveryReq DC_EVPowerDeliveryParameter — no BulkChargingComplete.
+#   * The AC and PnC paths have no Mach-E capture (this is a DC/EIM session), so
+#     the AC envelope falls back to the EVACLimits model defaults and no
+#     ServiceDetailReq / CertificateInstallationReq / PaymentDetailsReq /
+#     MeteringReceiptReq / ChargingStatusReq entry is shipped.
+#
+# Runtime/computed fields are NOT in the tree and stay computed (ADR-0006 #83 /
+# #97 optional-field allowlist): EVCCID (from the NIC MAC), the negotiated
+# SelectedPaymentOption and echoed SelectedServiceList ServiceID, EVReady /
+# EVErrorCode, ChargeProgress / SAScheduleTupleID / ChargingProfile,
+# ChargingComplete, ChargingSession, and the present/target voltage & current that
+# ramp. RequestedEnergyTransferMode is single-sourced from the pre-tree
+# `capabilities.energy_transfer_mode` section (its tree migration is a later
+# slice), so it is not duplicated into the tree.
+role: evcc
+capabilities:
+  supported_protocols:
+    - ISO_15118_2
+  supported_auth_modes:
+    - EIM
+  supported_energy_services:
+    - DC
+  # The EVCC's requested energy transfer mode is dual-purpose (emitted as
+  # ChargeParameterDiscoveryReq -> RequestedEnergyTransferMode and consulted
+  # internally when matching the SECC's offer). It stays single-sourced here as a
+  # pre-tree wire section (CLAUDE.md "Configuration"); its message-field-tree
+  # migration is a later slice, so it is not duplicated into the tree.
+  energy_transfer_mode: DC_extended
+residual:
+  tls:
+    # ISO-2 EIM does not require TLS (matches the plaintext Mach-E capture).
+    enable_tls_1_3: false
+    use_tls: false
+    enforce_tls: false
+message_field_tree:
+  ISO_15118_2:
+    # The EV announces its charging envelope in ChargeParameterDiscoveryReq:
+    # 500 A / 422 V / 211000 W. EVReady/EVErrorCode stay computed; EVRESSSOC is
+    # pinned. The Mach-E omits EVEnergyCapacity / EVEnergyRequest / FullSOC /
+    # BulkSOC / DepartureTime, so the builder leaves them unset.
+    ChargeParameterDiscoveryReq:
+      DC_EVChargeParameter:
+        DC_EVStatus:
+          EVRESSSOC: 24
+        EVMaximumCurrentLimit: {Value: 5000, Multiplier: -1, Unit: A}
+        EVMaximumPowerLimit: {Value: 21100, Multiplier: 1, Unit: W}
+        EVMaximumVoltageLimit: {Value: 4220, Multiplier: -1, Unit: V}
+    CableCheckReq:
+      DC_EVStatus:
+        EVRESSSOC: 24
+    PreChargeReq:
+      DC_EVStatus:
+        EVRESSSOC: 24
+    PowerDeliveryReq:
+      DC_EVPowerDeliveryParameter:
+        DC_EVStatus:
+          EVRESSSOC: 24
+    # Each CurrentDemandReq resends the max envelope (500 A / 422 V / 211000 W).
+    # EVTargetCurrent / EVTargetVoltage ramp and stay computed; the Mach-E omits
+    # BulkChargingComplete and the RemainingTime* estimates.
+    CurrentDemandReq:
+      DC_EVStatus:
+        EVRESSSOC: 24
+      EVMaximumVoltageLimit: {Value: 4220, Multiplier: -1, Unit: V}
+      EVMaximumCurrentLimit: {Value: 5000, Multiplier: -1, Unit: A}
+      EVMaximumPowerLimit: {Value: 21100, Multiplier: 1, Unit: W}
+    WeldingDetectionReq:
+      DC_EVStatus:
+        EVRESSSOC: 24

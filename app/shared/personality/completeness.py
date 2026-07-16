@@ -152,6 +152,29 @@ ISO2_SECC_MESSAGES: Tuple[str, ...] = (
     "SessionStopRes",
 )
 
+# The ISO-15118-2 EVCC-emitted message set (issue #97). The vehicle-side mirror
+# of ISO2_SECC_MESSAGES: every ``*Req`` the EVCC state machine emits. The
+# per-message-present rule means the shipped DC-EIM Mach-E baseline (which carries
+# only the DC messages that bear tree leaves) simply skips the AC / PnC entries.
+ISO2_EVCC_MESSAGES: Tuple[str, ...] = (
+    "SessionSetupReq",
+    "ServiceDiscoveryReq",
+    "ServiceDetailReq",
+    "PaymentServiceSelectionReq",
+    "CertificateInstallationReq",
+    "PaymentDetailsReq",
+    "AuthorizationReq",
+    "ChargeParameterDiscoveryReq",
+    "CableCheckReq",
+    "PreChargeReq",
+    "PowerDeliveryReq",
+    "CurrentDemandReq",
+    "ChargingStatusReq",
+    "MeteringReceiptReq",
+    "WeldingDetectionReq",
+    "SessionStopReq",
+)
+
 
 # ---------------------------------------------------------------------------
 # The optional-field allowlist (ADR-0006 #83)
@@ -292,16 +315,79 @@ _ISO2_SECC_MESSAGE_ALLOWLIST: Dict[str, Set[LeafPath]] = {
 }
 
 
+# The ISO-15118-2 EVCC allowlist (issue #97). The runtime-produced required
+# leaves, decoded field-for-field from `Mach-E-ISO.pcapng`: the NIC-MAC EVCCID,
+# the negotiated SelectedPaymentOption and the echoed SelectedServiceList
+# ServiceID, the single-sourced RequestedEnergyTransferMode (from the pre-tree
+# `capabilities.energy_transfer_mode`, as on the DIN side), the DC_EVStatus
+# EVReady / EVErrorCode (the adjacent EVRESSSOC is config-only, pinned by the
+# baseline — mirroring the DIN Cadillac's 88 %), the ramping target voltage /
+# current (value/multiplier/unit — ISO-2 makes the unit a required leaf), the
+# runtime PowerDeliveryReq ChargeProgress / SAScheduleTupleID, the per-loop
+# ChargingComplete and the SessionStopReq ChargingSession. The DC envelope
+# maxima the Mach-E *does* emit (500 A / 422 V / 211000 W) are deliberately
+# tree-owned, not allowlisted, so the baseline pins them; the Optional fields the
+# Mach-E omits (EVEnergyRequest, FullSOC, BulkSOC, RemainingTime*,
+# BulkChargingComplete) are left unset by the builder and never reach the tree.
+# The AC-/PnC-only messages (ServiceDetailReq, CertificateInstallationReq,
+# PaymentDetailsReq, MeteringReceiptReq, ChargingStatusReq) carry no entry: the
+# DC/EIM baseline never sources them, so per-message-present skips them; a future
+# AC / PnC baseline adds their allowlist entries as its slice lands.
+_ISO2_EVCC_MESSAGE_ALLOWLIST: Dict[str, Set[LeafPath]] = {
+    "SessionSetupReq": {("evcc_id",)},
+    "PaymentServiceSelectionReq": {
+        ("selected_auth_option",),
+        ("selected_service_list", "selected_service"),
+    },
+    "ChargeParameterDiscoveryReq": {("requested_energy_mode",)},
+    "CableCheckReq": {
+        ("dc_ev_status", "ev_ready"),
+        ("dc_ev_status", "ev_error_code"),
+    },
+    "PreChargeReq": {
+        ("dc_ev_status", "ev_ready"),
+        ("dc_ev_status", "ev_error_code"),
+        ("ev_target_voltage", "value"),
+        ("ev_target_voltage", "multiplier"),
+        ("ev_target_voltage", "unit"),
+        ("ev_target_current", "value"),
+        ("ev_target_current", "multiplier"),
+        ("ev_target_current", "unit"),
+    },
+    "PowerDeliveryReq": {
+        ("charge_progress",),
+        ("sa_schedule_tuple_id",),
+    },
+    "CurrentDemandReq": {
+        ("dc_ev_status", "ev_ready"),
+        ("dc_ev_status", "ev_error_code"),
+        ("ev_target_current", "value"),
+        ("ev_target_current", "multiplier"),
+        ("ev_target_current", "unit"),
+        ("ev_target_voltage", "value"),
+        ("ev_target_voltage", "multiplier"),
+        ("ev_target_voltage", "unit"),
+        ("charging_complete",),
+    },
+    "WeldingDetectionReq": {
+        ("dc_ev_status", "ev_ready"),
+        ("dc_ev_status", "ev_error_code"),
+    },
+    "SessionStopReq": {("charging_session",)},
+}
+
+
 # Per-protocol, per-role allowlist tables: (emitted message set, per-message
 # allowlist). The SECC base set (ResponseCode) folds into every SECC message of
-# every protocol. ISO-2 has no EVCC entry this slice (its EVCC path is still
-# pre-tree). Keyed protocol -> the table `allowlist_for` folds.
+# every protocol. ISO-2 is tree-backed for both roles as of #96 (SECC) / #97
+# (EVCC). Keyed protocol -> the table `allowlist_for` folds.
 _SECC_ALLOWLIST_TABLES: Dict[str, Tuple[Tuple[str, ...], Dict[str, Set[LeafPath]]]] = {
     _DIN_PROTOCOL: (SECC_MESSAGES, _SECC_MESSAGE_ALLOWLIST),
     _ISO2_PROTOCOL: (ISO2_SECC_MESSAGES, _ISO2_SECC_MESSAGE_ALLOWLIST),
 }
 _EVCC_ALLOWLIST_TABLES: Dict[str, Tuple[Tuple[str, ...], Dict[str, Set[LeafPath]]]] = {
     _DIN_PROTOCOL: (EVCC_MESSAGES, _EVCC_MESSAGE_ALLOWLIST),
+    _ISO2_PROTOCOL: (ISO2_EVCC_MESSAGES, _ISO2_EVCC_MESSAGE_ALLOWLIST),
 }
 
 
@@ -315,8 +401,8 @@ def allowlist_for(
     guard tests iterate to assert each entry has a real builder fallback.
     ``protocol`` defaults to DIN so existing single-arg callers keep their DIN
     view; the completeness check passes the protocol it is walking. Returns an
-    empty mapping for a protocol/role with no allowlist table (e.g. ISO-2 EVCC,
-    still pre-tree this slice).
+    empty mapping for a protocol/role with no allowlist table (e.g. an ISO-20
+    role, still pre-tree).
     """
     if role == "secc":
         table, base = _SECC_ALLOWLIST_TABLES, _SECC_BASE_ALLOWLIST
@@ -375,15 +461,14 @@ def _required_leaf_paths(
 
 
 # The completeness data (which messages a role emits, and which required leaves
-# are emulator-produced) is per-protocol. DIN is the only tree-backed protocol
-# this slice, so it is the only entry; ISO-2 / ISO-20 add their own as they
-# migrate. Keyed protocol -> role -> emitted message set, mirroring the
-# tree-backed set in :data:`_TREE_BACKED_PROTOCOLS`.
+# are emulator-produced) is per-protocol. DIN (both roles) and ISO-2 (both roles)
+# are tree-backed; ISO-20 adds its own entry as it migrates. Keyed protocol ->
+# role -> emitted message set, mirroring the tree-backed set in
+# :data:`_TREE_BACKED_PROTOCOLS`.
 _PROTOCOL_ROLE_MESSAGES: Dict[str, Dict[str, Tuple[str, ...]]] = {
     _DIN_PROTOCOL: {"secc": SECC_MESSAGES, "evcc": EVCC_MESSAGES},
-    # ISO-2 is SECC-only this slice; its EVCC path is still pre-tree, so there is
-    # no ISO-2 EVCC message set (the walk skips ISO-2 for an EVCC personality).
-    _ISO2_PROTOCOL: {"secc": ISO2_SECC_MESSAGES},
+    # ISO-2 is tree-backed for both roles: SECC (#96) and EVCC (#97).
+    _ISO2_PROTOCOL: {"secc": ISO2_SECC_MESSAGES, "evcc": ISO2_EVCC_MESSAGES},
 }
 
 

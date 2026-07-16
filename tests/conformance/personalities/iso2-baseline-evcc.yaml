@@ -1,0 +1,16 @@
+# Conformance ISO 15118-2 EVCC personality, tree-backed via the shipped Mach-E
+# baseline (ADR-0006 / #97). Extends the repo `iso2-evcc-baseline` (resolved
+# through the personality search path) and only adds the veth interface plus a
+# target start voltage under the baseline's 422 V envelope, so the E2E asserts the
+# baseline wire values the EVCC actually emits. Mirrors `iso2-baseline-secc.yaml`.
+extends: iso2-evcc-baseline
+role: evcc
+power:
+  ev_dc:
+    # Target start voltage stays under the baseline's 422 V EVMaximumVoltageLimit;
+    # target current < 2 A for PreCharge (IEC 61851-23 CC.5.2 inrush limit).
+    target_voltage_v: 400.0
+    target_current_a: 1.5
+residual:
+  network:
+    interface: acccs_evcc

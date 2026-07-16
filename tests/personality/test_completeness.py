@@ -68,9 +68,6 @@ def test_empty_tree_personalities_load():
         ("default-secc", "secc"),
         ("default-evcc", "evcc"),
         ("default-no-tls-secc", "secc"),
-        # ISO-2 EVCC is still pre-tree, so its shipped personality carries no
-        # tree and loads as the empty-tree case does.
-        ("iso2_eim_dc-evcc", "evcc"),
         ("iso20_dc", "secc"),
     ],
 )
@@ -87,6 +84,17 @@ def test_shipped_iso2_secc_personalities_pass_completeness(name):
     # files that `extends` it must carry a complete ISO-2 subtree. Loading is the
     # check — it raises on an incomplete tree.
     load_personality(name, "secc")
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["iso2-evcc-baseline", "iso2_eim_dc-evcc", "iso2_pnc_dc-evcc"],
+)
+def test_shipped_iso2_evcc_personalities_pass_completeness(name):
+    # ISO-2 is tree-backed for the EVCC as of #97: the shipped Mach-E baseline and
+    # the device files that `extends` it must carry a complete ISO-2 subtree.
+    # Loading is the check — it raises on an incomplete tree.
+    load_personality(name, "evcc")
 
 
 # ---------------------------------------------------------------------------
@@ -348,5 +356,26 @@ def test_incomplete_iso2_subtree_fails_now_that_iso2_is_tree_backed():
             {
                 "capabilities": {"supported_protocols": ["ISO_15118_2"]},
                 "message_field_tree": {"ISO_15118_2": {"SessionSetupRes": {}}},
+            }
+        )
+
+
+def test_incomplete_iso2_evcc_subtree_fails_now_that_iso2_evcc_is_tree_backed():
+    # ISO-2 is tree-backed for the EVCC (#97): a present-but-incomplete ISO-2
+    # subtree (a CableCheckReq missing the required, config-only EVRESSSOC) trips
+    # the completeness gate. EVReady / EVErrorCode are allowlisted (runtime-
+    # produced), so dropping them would NOT fail — EVRESSSOC is the config leaf.
+    with pytest.raises(
+        ValidationError,
+        match="ISO_15118_2 -> CableCheckReq -> dc_ev_status -> ev_ress_soc",
+    ):
+        EVCCPersonality.model_validate(
+            {
+                "capabilities": {"supported_protocols": ["ISO_15118_2"]},
+                "message_field_tree": {
+                    "ISO_15118_2": {
+                        "CableCheckReq": {"DC_EVStatus": {"EVReady": True}}
+                    }
+                },
             }
         )

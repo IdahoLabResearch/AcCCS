@@ -21,7 +21,6 @@ from app.shared.messages.datatypes import (
     PhysicalValue,
     PVEAmount,
     PVEVEnergyCapacity,
-    PVEVEnergyRequest,
     PVEVMaxCurrent,
     PVEVMaxCurrentLimit,
     PVEVMaxPowerLimit,
@@ -124,7 +123,7 @@ from app.shared.messages.iso15118_20.dc import (
     ScheduledDCChargeLoopReqParams,
 )
 from app.shared.network import get_nic_mac_address
-from app.shared.personality.model import EVDCLimits
+from app.shared.personality.model import EVACLimits, EVDCLimits
 
 logger = logging.getLogger(__name__)
 
@@ -164,29 +163,25 @@ class SimEVController(EVControllerInterface):
         because the EXI schema is distinct from ISO 15118-2; everything
         else uses the base PV classes.
 
-        DIN retirement (ADR-0006 / #74): on the DIN path the *announced maxima*
-        (max V/A/W) and battery capacity are wire-owned by the message field
-        tree at each `*Req` build site, so they are sourced here from the EV
-        DC-limit model defaults (`EVDCLimits`) rather than `config.ev_dc_*`. The
-        structured `ev_dc` maxima no longer feed the DIN wire; a personality that
-        wants different maxima sets the tree leaves. The `target_*` fields are
-        the issue's explicit carve-out — they stay computed/start-value from the
-        config (and pick up the live override in `get_dc_charge_params`), because
-        they ramp during the session and are not static baseline tree values.
-        ISO 15118-2 (`din=False`) is unchanged: every field comes from config.
+        DIN (#74) and ISO-2 (#97) retirement (ADR-0006): on both protocols the
+        *announced maxima* (max V/A/W) and battery capacity are wire-owned by the
+        message field tree at each `*Req` build site, so they are sourced here
+        from the EV DC-limit model defaults (`EVDCLimits`) rather than
+        `config.ev_dc_*`. The structured `ev_dc` maxima no longer feed either
+        wire; a personality that wants different maxima sets the tree leaves. The
+        `target_*` fields are the issue's explicit carve-out — they stay
+        computed/start-value from the config (and pick up the live override in
+        `get_dc_charge_params`), because they ramp during the session and are not
+        static baseline tree values. The only remaining `din`/non-`din`
+        difference is the `*Din`-suffixed PV class selection (the DIN EXI schema
+        is distinct from ISO 15118-2).
         """
         cfg = self.config
-        if din:
-            limits = EVDCLimits()
-            max_current_a = limits.max_current_a
-            max_power_w = limits.max_power_w
-            max_voltage_v = limits.max_voltage_v
-            energy_capacity_wh = limits.energy_capacity_wh
-        else:
-            max_current_a = cfg.ev_dc_max_current_a
-            max_power_w = cfg.ev_dc_max_power_w
-            max_voltage_v = cfg.ev_dc_max_voltage_v
-            energy_capacity_wh = cfg.ev_dc_energy_capacity_wh
+        limits = EVDCLimits()
+        max_current_a = limits.max_current_a
+        max_power_w = limits.max_power_w
+        max_voltage_v = limits.max_voltage_v
+        energy_capacity_wh = limits.energy_capacity_wh
         max_c_mult, max_c_val = PhysicalValue.get_exponent_value_repr(max_current_a)
         max_p_mult, max_p_val = PhysicalValue.get_exponent_value_repr(max_power_w)
         max_v_mult, max_v_val = PhysicalValue.get_exponent_value_repr(max_voltage_v)
@@ -316,27 +311,31 @@ class SimEVController(EVControllerInterface):
     async def get_charge_params_v2(self, protocol: Protocol) -> ChargeParamsV2:
         """Overrides EVControllerInterface.get_charge_params_v2().
 
-        Per ADR-0001 / issue #8 the AC envelope (e_amount, max voltage,
-        max/min current) and the ISO 15118-2-specific DC announcements
-        (ev_energy_request, full_soc, bulk_soc) are sourced from the
-        personality via `EVCCConfig`.
+        ISO-2 retirement (ADR-0006 / #97): the ChargeParameterDiscoveryReq wire
+        values are sourced from the message field tree at the build site, so the
+        structured reads are retired here. The DC envelope maxima come from the
+        `EVDCLimits` model-default skeleton in `self.dc_ev_charge_params` (the
+        tree overrides them to the Mach-E 500 A / 422 V / 211000 W). The Mach-E
+        (`Mach-E-ISO.pcapng`) omits DepartureTime, EVEnergyCapacity,
+        EVEnergyRequest, FullSOC and BulkSOC, so they are left unset to match the
+        capture field-for-field — this also retires the structured
+        `iso2_energy_request_wh` / `iso2_full_soc_percent` /
+        `iso2_bulk_soc_percent` reads. The AC envelope is retired to the
+        `EVACLimits` model defaults (no AC capture serves the baseline; the tree
+        overrides it, synthetic-fallback per ADR-0006 option B).
         """
-        cfg = self.config
         ac_charge_params = None
         dc_charge_params = None
 
         if (await self.get_energy_transfer_mode(protocol)).startswith("AC"):
-            e_mult, e_val = PhysicalValue.get_exponent_value_repr(
-                cfg.ev_ac_e_amount_wh
-            )
-            v_mult, v_val = PhysicalValue.get_exponent_value_repr(
-                cfg.ev_ac_max_voltage_v
-            )
+            ev_ac = EVACLimits()
+            e_mult, e_val = PhysicalValue.get_exponent_value_repr(ev_ac.e_amount_wh)
+            v_mult, v_val = PhysicalValue.get_exponent_value_repr(ev_ac.max_voltage_v)
             max_c_mult, max_c_val = PhysicalValue.get_exponent_value_repr(
-                cfg.ev_ac_max_current_a
+                ev_ac.max_current_a
             )
             min_c_mult, min_c_val = PhysicalValue.get_exponent_value_repr(
-                cfg.ev_ac_min_current_a
+                ev_ac.min_current_a
             )
             ac_charge_params = ACEVChargeParameter(
                 departure_time=0,
@@ -354,22 +353,16 @@ class SimEVController(EVControllerInterface):
                 ),
             )
         else:
-            req_mult, req_val = PhysicalValue.get_exponent_value_repr(
-                cfg.ev_dc_iso2_energy_request_wh
-            )
-            ev_energy_request = PVEVEnergyRequest(
-                multiplier=req_mult, value=req_val, unit=UnitSymbol.WATT_HOURS
-            )
             dc_charge_params = DCEVChargeParameter(
-                departure_time=0,
+                departure_time=None,
                 dc_ev_status=await self.get_dc_ev_status(),
                 ev_maximum_current_limit=self.dc_ev_charge_params.dc_max_current_limit,
                 ev_maximum_power_limit=self.dc_ev_charge_params.dc_max_power_limit,
                 ev_maximum_voltage_limit=self.dc_ev_charge_params.dc_max_voltage_limit,
-                ev_energy_capacity=self.dc_ev_charge_params.dc_energy_capacity,
-                ev_energy_request=ev_energy_request,
-                full_soc=cfg.ev_dc_iso2_full_soc_percent,
-                bulk_soc=cfg.ev_dc_iso2_bulk_soc_percent,
+                ev_energy_capacity=None,
+                ev_energy_request=None,
+                full_soc=None,
+                bulk_soc=None,
             )
         return ChargeParamsV2(
             await self.get_energy_transfer_mode(protocol),
@@ -786,9 +779,12 @@ class SimEVController(EVControllerInterface):
         )
 
     async def get_dc_ev_power_delivery_parameter(self) -> DCEVPowerDeliveryParameter:
+        # The Mach-E omits BulkChargingComplete from PowerDeliveryReq's
+        # DC_EVPowerDeliveryParameter (Mach-E-ISO.pcapng), so it is left unset to
+        # match the capture field-for-field (#97); it is Optional.
         return DCEVPowerDeliveryParameter(
             dc_ev_status=await self.get_dc_ev_status(),
-            bulk_charging_complete=False,
+            bulk_charging_complete=None,
             charging_complete=await self.continue_charging(),
         )
 

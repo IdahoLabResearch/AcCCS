@@ -88,7 +88,9 @@ from app.shared.messages.iso15118_20.common_types import (
 )
 from app.shared.messages.timeouts import Timeouts as TimeoutsShared
 from app.shared.messages.xmldsig import X509IssuerSerial
+from app.shared.live_control import override_skip_fields
 from app.shared.notifications import StopNotification
+from app.shared.personality.message_field_tree import apply_message_field_tree
 from app.shared.security import (
     CertPath,
     KeyEncoding,
@@ -107,6 +109,45 @@ from app.shared.security import (
 from app.shared.states import Terminate
 
 logger = logging.getLogger(__name__)
+
+
+def apply_personality_tree(
+    comm_session: EVCCCommunicationSession, req, skip_fields=None
+) -> None:
+    """Substitute the personality's ISO-15118-2 tree overrides onto a built Req.
+
+    Construction-time substitution per ADR-0006 (protocol-keyed amendment), the
+    vehicle-side mirror of the ISO-2 SECC helper wired in #96 and the direct
+    analogue of the DIN EVCC helper in ``din_spec_states`` (#74): after an EVCC
+    state builds an outbound ``*Req`` the EVCC pokes every leaf the personality's
+    ``message_field_tree`` sets for ``ISO_15118_2 -> message_name`` onto it, so a
+    configured value replaces what the builder computed (and flows into any
+    internal logic that reads the field). The message name is the model's class
+    name, which is exactly the tree key. A leaf set nowhere leaves the built value
+    untouched — the fallback empty-/partial-tree personalities rely on.
+
+    ISO-2 is a *tree-backed* protocol for the EVCC as of #97: every EVCC-emitted
+    ISO-2 message routes its build through here, and the shipped
+    ``iso2-evcc-baseline`` replicates the Mach-E ``Mach-E-ISO.pcapng`` field-for-
+    field. The tree rides on ``EVCCConfig`` (the EVCC is config-driven), so this is
+    a no-op when the session carries no config, the config carries no tree
+    (bare-controller unit tests), or the tree sets nothing for this message.
+
+    For the signed PnC messages (CertificateInstallationReq, the signed
+    AuthorizationReq, MeteringReceiptReq) the caller applies this **before**
+    computing the signature, so an overridden field is covered by the signature.
+
+    *skip_fields* names top-level fields (by Python name) the tree should leave at
+    the builder's already-set value — used by the charge loop to keep a live
+    override above the tree (ADR-0006 live-override precedence, issue #75), the
+    same seam the DIN EVCC helper uses.
+    """
+    config = getattr(comm_session, "config", None)
+    tree = getattr(config, "message_field_tree", None)
+    if tree:
+        apply_message_field_tree(
+            req, "ISO_15118_2", type(req).__name__, tree, skip_fields=skip_fields
+        )
 
 
 # ============================================================================
@@ -147,9 +188,12 @@ class SessionSetup(StateEVCC):
         self.comm_session.session_id = msg.header.session_id
         self.comm_session.evse_id = session_setup_res.evse_id
 
+        service_discovery_req = ServiceDiscoveryReq()
+        apply_personality_tree(self.comm_session, service_discovery_req)
+
         self.create_next_message(
             ServiceDiscovery,
-            ServiceDiscoveryReq(),
+            service_discovery_req,
             Timeouts.SERVICE_DISCOVERY_REQ,
             Namespace.ISO_V2_MSG_DEF,
         )
@@ -210,6 +254,7 @@ class ServiceDiscovery(StateEVCC):
                     selected_service=self.comm_session.selected_services
                 ),
             )
+            apply_personality_tree(self.comm_session, payment_service_selection_req)
 
             self.create_next_message(
                 PaymentServiceSelection,
@@ -221,6 +266,7 @@ class ServiceDiscovery(StateEVCC):
             service_detail_req = ServiceDetailReq(
                 service_id=self.comm_session.service_details_to_request.pop()
             )
+            apply_personality_tree(self.comm_session, service_detail_req)
 
             self.create_next_message(
                 ServiceDetail,
@@ -381,6 +427,7 @@ class ServiceDetail(StateEVCC):
                     selected_service=self.comm_session.selected_services
                 ),
             )
+            apply_personality_tree(self.comm_session, payment_service_selection_req)
 
             self.create_next_message(
                 PaymentServiceSelection,
@@ -392,6 +439,7 @@ class ServiceDetail(StateEVCC):
             service_detail_req = ServiceDetailReq(
                 service_id=self.comm_session.service_details_to_request.pop()
             )
+            apply_personality_tree(self.comm_session, service_detail_req)
 
             self.create_next_message(
                 ServiceDetail,
@@ -444,6 +492,9 @@ class PaymentServiceSelection(StateEVCC):
                         ]
                     ),
                 )
+                # Apply the tree before signing so an overridden field is
+                # covered by the signature computed over the EXI fragment below.
+                apply_personality_tree(self.comm_session, cert_install_req)
 
                 try:
                     signature = create_signature(
@@ -490,6 +541,8 @@ class PaymentServiceSelection(StateEVCC):
                     self.stop_state_machine(f"Can't find file {exc.filename}")
                     return
 
+                apply_personality_tree(self.comm_session, payment_details_req)
+
                 self.create_next_message(
                     PaymentDetails,
                     payment_details_req,
@@ -497,9 +550,11 @@ class PaymentServiceSelection(StateEVCC):
                     Namespace.ISO_V2_MSG_DEF,
                 )
         else:
+            authorization_req = AuthorizationReq()
+            apply_personality_tree(self.comm_session, authorization_req)
             self.create_next_message(
                 Authorization,
-                AuthorizationReq(),
+                authorization_req,
                 Timeouts.AUTHORIZATION_REQ,
                 Namespace.ISO_V2_MSG_DEF,
             )
@@ -606,6 +661,7 @@ class CertificateInstallation(StateEVCC):
                 sub_ca1_path=CertPath.MO_SUB_CA1_DER,
             ),
         )
+        apply_personality_tree(self.comm_session, payment_details_req)
 
         self.create_next_message(
             PaymentDetails,
@@ -644,6 +700,9 @@ class PaymentDetails(StateEVCC):
         authorization_req = AuthorizationReq(
             id="id1", gen_challenge=payment_details_res.gen_challenge
         )
+        # Apply the tree before signing so an overridden field is covered by the
+        # signature computed over the EXI fragment below.
+        apply_personality_tree(self.comm_session, authorization_req)
 
         try:
             signature = create_signature(
@@ -712,6 +771,9 @@ class Authorization(StateEVCC):
                 requested_energy_mode=charge_params.energy_mode,
                 ac_ev_charge_parameter=charge_params.ac_parameters,
                 dc_ev_charge_parameter=charge_params.dc_parameters,
+            )
+            apply_personality_tree(
+                self.comm_session, charge_parameter_discovery_req
             )
 
             self.create_next_message(
@@ -816,6 +878,7 @@ class ChargeParameterDiscovery(StateEVCC):
                     sa_schedule_tuple_id=schedule_id,
                     charging_profile=charging_profile,
                 )
+                apply_personality_tree(self.comm_session, power_delivery_req)
 
                 self.create_next_message(
                     PowerDelivery,
@@ -827,6 +890,7 @@ class ChargeParameterDiscovery(StateEVCC):
                 cable_check_req = CableCheckReq(
                     dc_ev_status=await ev_controller.get_dc_ev_status(),
                 )
+                apply_personality_tree(self.comm_session, cable_check_req)
 
                 self.create_next_message(
                     CableCheck,
@@ -865,6 +929,9 @@ class ChargeParameterDiscovery(StateEVCC):
                 requested_energy_mode=charge_params.energy_mode,
                 ac_ev_charge_parameter=charge_params.ac_parameters,
                 dc_ev_charge_parameter=charge_params.dc_parameters,
+            )
+            apply_personality_tree(
+                self.comm_session, charge_parameter_discovery_req
             )
 
             self.create_next_message(
@@ -909,6 +976,7 @@ class PowerDelivery(StateEVCC):
             session_stop_req = SessionStopReq(
                 charging_session=self.comm_session.charging_session_stop_v2
             )
+            apply_personality_tree(self.comm_session, session_stop_req)
             self.create_next_message(
                 SessionStop,
                 session_stop_req,
@@ -920,6 +988,7 @@ class PowerDelivery(StateEVCC):
             welding_detection_req = WeldingDetectionReq(
                 dc_ev_status=await self.comm_session.ev_controller.get_dc_ev_status()
             )
+            apply_personality_tree(self.comm_session, welding_detection_req)
             self.create_next_message(
                 WeldingDetection,
                 welding_detection_req,
@@ -938,6 +1007,9 @@ class PowerDelivery(StateEVCC):
                 ac_ev_charge_parameter=charge_params.ac_parameters,
                 dc_ev_charge_parameter=charge_params.dc_parameters,
             )
+            apply_personality_tree(
+                self.comm_session, charge_parameter_discovery_req
+            )
 
             self.create_next_message(
                 ChargeParameterDiscovery,
@@ -949,9 +1021,11 @@ class PowerDelivery(StateEVCC):
             self.comm_session.selected_energy_mode
             and self.comm_session.selected_charging_type_is_ac
         ):
+            charging_status_req = ChargingStatusReq()
+            apply_personality_tree(self.comm_session, charging_status_req)
             self.create_next_message(
                 ChargingStatus,
-                ChargingStatusReq(),
+                charging_status_req,
                 Timeouts.CHARGING_STATUS_REQ,
                 Namespace.ISO_V2_MSG_DEF,
             )
@@ -974,26 +1048,30 @@ class PowerDelivery(StateEVCC):
         current_demand_req = CurrentDemandReq(
             dc_ev_status=await self.comm_session.ev_controller.get_dc_ev_status(),
             ev_target_current=dc_ev_charge_params.dc_target_current,
+            ev_max_voltage_limit=dc_ev_charge_params.dc_max_voltage_limit,
             ev_max_current_limit=dc_ev_charge_params.dc_max_current_limit,
             ev_max_power_limit=dc_ev_charge_params.dc_max_power_limit,
-            bulk_charging_complete=(
-                await self.comm_session.ev_controller.is_bulk_charging_complete()
-            ),
+            # The Mach-E omits BulkChargingComplete / RemainingTimeToFullSoC /
+            # RemainingTimeToBulkSoC from CurrentDemandReq (Mach-E-ISO.pcapng),
+            # so they are left unset to match the capture field-for-field (#97);
+            # they are Optional and the tree cannot remove a field it emits.
+            bulk_charging_complete=None,
             charging_complete=(
                 await self.comm_session.ev_controller.is_charging_complete()
             ),
-            remaining_time_to_full_soc=(
-                await self.comm_session.ev_controller.get_remaining_time_to_full_soc(
-                    protocol=Protocol.ISO_15118_2
-                )
-            ),
-            remaining_time_to_bulk_soc=(
-                await self.comm_session.ev_controller.get_remaining_time_to_bulk_soc(
-                    protocol=Protocol.ISO_15118_2
-                )
-            ),
+            remaining_time_to_full_soc=None,
+            remaining_time_to_bulk_soc=None,
             ev_target_voltage=dc_ev_charge_params.dc_target_voltage,
         )
+        # Live-override precedence (ADR-0006, issue #75): skip the target V/I
+        # leaves so an active operator override built into get_dc_charge_params is
+        # not clobbered by the tree start value. A cleared override skips nothing.
+        skip = override_skip_fields(
+            getattr(self.comm_session.ev_controller, "live_control", None),
+            voltage_field="ev_target_voltage",
+            current_field="ev_target_current",
+        )
+        apply_personality_tree(self.comm_session, current_demand_req, skip_fields=skip)
         return current_demand_req
 
 
@@ -1030,24 +1108,28 @@ class MeteringReceipt(StateEVCC):
 
         if notification == EVSENotification.STOP_CHARGING:
             logger.debug("SECC requested to stop the charging session")
+            power_delivery_req = PowerDeliveryReq(
+                charge_progress=ChargeProgress.STOP,
+                sa_schedule_tuple_id=self.comm_session.selected_schedule,
+            )
+            apply_personality_tree(self.comm_session, power_delivery_req)
             self.create_next_message(
                 PowerDelivery,
-                PowerDeliveryReq(
-                    charge_progress=ChargeProgress.STOP,
-                    sa_schedule_tuple_id=self.comm_session.selected_schedule,
-                ),
+                power_delivery_req,
                 Timeouts.POWER_DELIVERY_REQ,
                 Namespace.ISO_V2_MSG_DEF,
             )
         elif notification == EVSENotification.RE_NEGOTIATION:
             logger.debug("SECC requested a renegotiation")
             self.comm_session.renegotiation_requested = True
+            power_delivery_req = PowerDeliveryReq(
+                charge_progress=ChargeProgress.RENEGOTIATE,
+                sa_schedule_tuple_id=self.comm_session.selected_schedule,
+            )
+            apply_personality_tree(self.comm_session, power_delivery_req)
             self.create_next_message(
                 PowerDelivery,
-                PowerDeliveryReq(
-                    charge_progress=ChargeProgress.RENEGOTIATE,
-                    sa_schedule_tuple_id=self.comm_session.selected_schedule,
-                ),
+                power_delivery_req,
                 Timeouts.POWER_DELIVERY_REQ,
                 Namespace.ISO_V2_MSG_DEF,
             )
@@ -1056,9 +1138,11 @@ class MeteringReceipt(StateEVCC):
                 self.comm_session.selected_energy_mode
                 and self.comm_session.selected_charging_type_is_ac
             ):
+                charging_status_req = ChargingStatusReq()
+                apply_personality_tree(self.comm_session, charging_status_req)
                 self.create_next_message(
                     ChargingStatus,
-                    ChargingStatusReq(),
+                    charging_status_req,
                     Timeouts.CHARGING_STATUS_REQ,
                     Namespace.ISO_V2_MSG_DEF,
                 )
@@ -1081,23 +1165,30 @@ class MeteringReceipt(StateEVCC):
             ev_max_voltage_limit=dc_charge_params.dc_max_voltage_limit,
             ev_max_current_limit=dc_charge_params.dc_max_current_limit,
             ev_max_power_limit=dc_charge_params.dc_max_power_limit,
-            bulk_charging_complete=(
-                await self.comm_session.ev_controller.is_bulk_charging_complete()
-            ),
+            # The Mach-E omits BulkChargingComplete / RemainingTimeToFullSoC /
+            # RemainingTimeToBulkSoC from CurrentDemandReq (Mach-E-ISO.pcapng),
+            # so the ISO-2 builder leaves them unset to match the capture
+            # field-for-field (#97) — the per-message tree can override a field
+            # but not remove one, and these are Optional. EVMaximum*Limit above
+            # are tree-owned (500 A / 422 V / 211000 W).
+            bulk_charging_complete=None,
             charging_complete=(
                 await self.comm_session.ev_controller.is_charging_complete()
             ),
-            remaining_time_to_full_soc=(
-                await self.comm_session.ev_controller.get_remaining_time_to_full_soc(
-                    protocol=Protocol.ISO_15118_2
-                )
-            ),
-            remaining_time_to_bulk_soc=(
-                await self.comm_session.ev_controller.get_remaining_time_to_bulk_soc(
-                    protocol=Protocol.ISO_15118_2
-                )
-            ),
+            remaining_time_to_full_soc=None,
+            remaining_time_to_bulk_soc=None,
         )
+        # Live-override precedence (ADR-0006, issue #75): get_dc_charge_params has
+        # already applied any operator override onto the built target V/I, so skip
+        # those leaves — the tree is the pre-override start value and must not
+        # clobber the override back. A cleared override skips nothing, falling the
+        # field back to the tree (then computed).
+        skip = override_skip_fields(
+            getattr(self.comm_session.ev_controller, "live_control", None),
+            voltage_field="ev_target_voltage",
+            current_field="ev_target_current",
+        )
+        apply_personality_tree(self.comm_session, current_demand_req, skip_fields=skip)
         return current_demand_req
 
 
@@ -1178,6 +1269,9 @@ class ChargingStatus(StateEVCC):
                 sa_schedule_tuple_id=charging_status_res.sa_schedule_tuple_id,
                 meter_info=charging_status_res.meter_info,
             )
+            # Apply the tree before signing so an overridden field is covered by
+            # the signature computed over the EXI fragment below.
+            apply_personality_tree(self.comm_session, metering_receipt_req)
 
             try:
                 signature = create_signature(
@@ -1215,6 +1309,7 @@ class ChargingStatus(StateEVCC):
                 charge_progress=ChargeProgress.RENEGOTIATE,
                 sa_schedule_tuple_id=self.comm_session.selected_schedule,
             )
+            apply_personality_tree(self.comm_session, power_delivery_req)
             self.create_next_message(
                 PowerDelivery,
                 power_delivery_req,
@@ -1234,9 +1329,11 @@ class ChargingStatus(StateEVCC):
                 await asyncio.sleep(delay)
             except Exception as e:
                 logger.info(f"No delay for the next ChargeLoop Req. Reason {e}")
+            charging_status_req = ChargingStatusReq()
+            apply_personality_tree(self.comm_session, charging_status_req)
             self.create_next_message(
                 ChargingStatus,
-                ChargingStatusReq(),
+                charging_status_req,
                 Timeouts.CHARGING_STATUS_REQ,
                 Namespace.ISO_V2_MSG_DEF,
             )
@@ -1248,6 +1345,7 @@ class ChargingStatus(StateEVCC):
             charge_progress=ChargeProgress.STOP,
             sa_schedule_tuple_id=self.comm_session.selected_schedule,
         )
+        apply_personality_tree(self.comm_session, power_delivery_req)
         self.create_next_message(
             PowerDelivery,
             power_delivery_req,
@@ -1325,6 +1423,7 @@ class CableCheck(StateEVCC):
             cable_check_req = CableCheckReq(
                 dc_ev_status=await self.comm_session.ev_controller.get_dc_ev_status(),
             )
+            apply_personality_tree(self.comm_session, cable_check_req)
             self.create_next_message(
                 CableCheck,
                 cable_check_req,
@@ -1343,6 +1442,15 @@ class CableCheck(StateEVCC):
             ev_target_voltage=charge_params.dc_target_voltage,
             ev_target_current=charge_params.dc_target_current,
         )
+        # Live-override precedence (ADR-0006, issue #75): skip the target V/I so
+        # an active operator override built into get_dc_charge_params is not
+        # clobbered by the tree start value. A cleared override skips nothing.
+        skip = override_skip_fields(
+            getattr(self.comm_session.ev_controller, "live_control", None),
+            voltage_field="ev_target_voltage",
+            current_field="ev_target_current",
+        )
+        apply_personality_tree(self.comm_session, pre_charge_req, skip_fields=skip)
         return pre_charge_req
 
 
@@ -1383,6 +1491,7 @@ class PreCharge(StateEVCC):
                     await ev_controller.get_dc_ev_power_delivery_parameter()
                 ),
             )
+            apply_personality_tree(self.comm_session, power_delivery_req)
             self.create_next_message(
                 PowerDelivery,
                 power_delivery_req,
@@ -1419,6 +1528,15 @@ class PreCharge(StateEVCC):
             ev_target_voltage=charge_params.dc_target_voltage,
             ev_target_current=charge_params.dc_target_current,
         )
+        # Live-override precedence (ADR-0006, issue #75): skip the target V/I so
+        # an active operator override built into get_dc_charge_params is not
+        # clobbered by the tree start value. A cleared override skips nothing.
+        skip = override_skip_fields(
+            getattr(self.comm_session.ev_controller, "live_control", None),
+            voltage_field="ev_target_voltage",
+            current_field="ev_target_current",
+        )
+        apply_personality_tree(self.comm_session, pre_charge_req, skip_fields=skip)
         return pre_charge_req
 
 
@@ -1481,20 +1599,17 @@ class CurrentDemand(StateEVCC):
         current_demand_req = CurrentDemandReq(
             dc_ev_status=await ev_controller.get_dc_ev_status(),
             ev_target_current=dc_ev_charge_params.dc_target_current,
+            ev_max_voltage_limit=dc_ev_charge_params.dc_max_voltage_limit,
             ev_max_current_limit=dc_ev_charge_params.dc_max_current_limit,
             ev_max_power_limit=dc_ev_charge_params.dc_max_power_limit,
-            bulk_charging_complete=(await ev_controller.is_bulk_charging_complete()),
+            # The Mach-E omits BulkChargingComplete / RemainingTimeToFullSoC /
+            # RemainingTimeToBulkSoC from CurrentDemandReq (Mach-E-ISO.pcapng),
+            # so they are left unset to match the capture field-for-field (#97);
+            # they are Optional and the tree cannot remove a field it emits.
+            bulk_charging_complete=None,
             charging_complete=await ev_controller.is_charging_complete(),
-            remaining_time_to_full_soc=(
-                await ev_controller.get_remaining_time_to_full_soc(
-                    protocol=Protocol.ISO_15118_2
-                )
-            ),
-            remaining_time_to_bulk_soc=(
-                await ev_controller.get_remaining_time_to_bulk_soc(
-                    protocol=Protocol.ISO_15118_2
-                )
-            ),
+            remaining_time_to_full_soc=None,
+            remaining_time_to_bulk_soc=None,
             ev_target_voltage=dc_ev_charge_params.dc_target_voltage,
         )
         current = dc_ev_charge_params.dc_target_current
@@ -1503,6 +1618,15 @@ class CurrentDemand(StateEVCC):
         logger.info(f"EV Target Voltage: {voltage.value * (10 ** voltage.multiplier)} {voltage.unit.value}")
         logger.info(f"EV Target Current: {current.value * (10 ** current.multiplier)} {current.unit.value}")
         logger.info(f"EV Max Power Limit: {max_power.value * (10 ** max_power.multiplier)} {max_power.unit.value}")
+        # Live-override precedence (ADR-0006, issue #75): skip the target V/I
+        # leaves so an active operator override built into get_dc_charge_params is
+        # not clobbered by the tree start value. A cleared override skips nothing.
+        skip = override_skip_fields(
+            getattr(self.comm_session.ev_controller, "live_control", None),
+            voltage_field="ev_target_voltage",
+            current_field="ev_target_current",
+        )
+        apply_personality_tree(self.comm_session, current_demand_req, skip_fields=skip)
         return current_demand_req
 
     async def stop_charging(self):
@@ -1515,6 +1639,7 @@ class CurrentDemand(StateEVCC):
                 await ev_controller.get_dc_ev_power_delivery_parameter()
             ),
         )
+        apply_personality_tree(self.comm_session, power_delivery_req)
         self.create_next_message(
             PowerDelivery,
             power_delivery_req,
@@ -1564,11 +1689,13 @@ class WeldingDetection(StateEVCC):
         next_request: Any = WeldingDetectionReq(
             dc_ev_status=await self.comm_session.ev_controller.get_dc_ev_status()
         )
+        apply_personality_tree(self.comm_session, next_request)
         next_timeout = Timeouts.WELDING_DETECTION_REQ
         if await self.comm_session.ev_controller.welding_detection_has_finished():
             session_stop_req = SessionStopReq(
                 charging_session=self.comm_session.charging_session_stop_v2
             )
+            apply_personality_tree(self.comm_session, session_stop_req)
             next_state = SessionStop
             next_request = session_stop_req
             next_timeout = Timeouts.SESSION_STOP_REQ

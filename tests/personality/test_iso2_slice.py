@@ -9,11 +9,14 @@ the new sections exist with strict validation, and controller-level
 tests assert the simulators honour personality values when building
 ISO-2 wire messages.
 
-Note (#96): the ISO-2 *SECC* structured reads (AC charge params, ISO-2 SA
-schedule) are retired — those wire values are now sourced from the
-`message_field_tree`, so the corresponding SECC builders return the
-model-default skeleton and the tests below assert that retirement. The EV-side
-AC + ISO-2 DC announcements are unchanged (ISO-2 EVCC is still pre-tree).
+Note (#96 / #97): the ISO-2 *SECC* structured reads (AC charge params, ISO-2 SA
+schedule) are retired (#96) and the ISO-2 *EVCC* structured reads (AC envelope,
+ISO-2 DC announcements) are retired (#97) — those wire values are now sourced
+from the `message_field_tree`, so the corresponding builders return the
+model-default skeleton (or omit the fields the Mach-E omits) and the tests below
+assert that retirement. The personality *model* fields still exist (the
+structured `power` section predates the tree and is migrated in a later slice),
+so the model-level tests still assert them.
 """
 
 from __future__ import annotations
@@ -194,7 +197,13 @@ async def test_secc_meter_info_v20_uses_personality_meter_id():
 
 
 @pytest.mark.asyncio
-async def test_evcc_iso2_ac_charge_params_use_personality():
+async def test_evcc_iso2_ac_charge_params_retired_to_skeleton():
+    # #97 retired the structured `power.ev_ac` ISO-2 EVCC read: the AC envelope is
+    # now tree-sourced at the ChargeParameterDiscoveryReq build site, so this
+    # builder returns the AC-limit model-default *skeleton* regardless of the
+    # personality's ev_ac (which no longer reaches the ISO-2 wire through here).
+    from app.shared.personality.model import EVACLimits
+
     personality = EVCCPersonality.model_validate(
         {
             "capabilities": {"energy_transfer_mode": "AC_three_phase_core"},
@@ -214,14 +223,21 @@ async def test_evcc_iso2_ac_charge_params_use_personality():
 
     ac = params.ac_parameters
     assert ac is not None
-    assert ac.e_amount.get_decimal_value() == 5000.0
-    assert ac.ev_max_voltage.get_decimal_value() == 230.0
-    assert ac.ev_max_current.get_decimal_value() == 16.0
-    assert ac.ev_min_current.get_decimal_value() == 6.0
+    default = EVACLimits()
+    assert ac.e_amount.get_decimal_value() == default.e_amount_wh
+    assert ac.ev_max_voltage.get_decimal_value() == default.max_voltage_v
+    assert ac.ev_max_current.get_decimal_value() == default.max_current_a
+    assert ac.ev_min_current.get_decimal_value() == default.min_current_a
 
 
 @pytest.mark.asyncio
-async def test_evcc_iso2_dc_charge_params_use_personality():
+async def test_evcc_iso2_dc_charge_params_retired_to_skeleton():
+    # #97 retired the structured ISO-2 DC announcements: the DC envelope maxima
+    # come from the EVDCLimits model-default skeleton (the tree overrides them at
+    # the build site), and the Mach-E omits EVEnergyRequest / FullSOC / BulkSOC /
+    # EVEnergyCapacity / DepartureTime, so this builder leaves them unset.
+    from app.shared.personality.model import EVDCLimits
+
     personality = EVCCPersonality.model_validate(
         {
             "capabilities": {"energy_transfer_mode": "DC_extended"},
@@ -240,9 +256,17 @@ async def test_evcc_iso2_dc_charge_params_use_personality():
 
     dc = params.dc_parameters
     assert dc is not None
-    assert dc.ev_energy_request.get_decimal_value() == 20000.0
-    assert dc.full_soc == 95
-    assert dc.bulk_soc == 75
+    # The Mach-E-omitted Optional fields are left unset (not the personality's).
+    assert dc.ev_energy_request is None
+    assert dc.full_soc is None
+    assert dc.bulk_soc is None
+    assert dc.ev_energy_capacity is None
+    assert dc.departure_time is None
+    # The announced maxima come from the DC-limit model-default skeleton.
+    default = EVDCLimits()
+    assert dc.ev_maximum_power_limit.get_decimal_value() == default.max_power_w
+    assert dc.ev_maximum_voltage_limit.get_decimal_value() == default.max_voltage_v
+    assert dc.ev_maximum_current_limit.get_decimal_value() == default.max_current_a
 
 
 @pytest.mark.asyncio

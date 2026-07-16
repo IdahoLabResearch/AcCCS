@@ -1,44 +1,32 @@
-# Example ISO 15118-2 PnC (Plug-and-Charge) EVCC variant.
+# Example ISO 15118-2 PnC (Plug-and-Charge) EVCC device.
 #
-# The EVCC half of the retired symmetric `iso2_pnc_dc.yaml` (ADR-0006 / #96 split
-# it per role). ISO-2 EVCC is still pre-tree this slice, so this stays a
-# structured personality. The SECC counterpart `iso2_pnc_dc-secc.yaml` is
-# tree-backed and `extends: iso2-secc-baseline`. PnC auth means the EV presents a
-# contract certificate chain — TLS is mandatory (PKI certs under
-# app/shared/pki/iso15118_2/certs/ are required; see CLAUDE.md).
+# The EVCC half of the retired symmetric `iso2_pnc_dc.yaml`. A device override
+# that `extends: iso2-evcc-baseline` (the Mach-E-reference EIM tree) and
+# overrides the leaves a PnC vehicle differs on: it selects the Contract (PnC)
+# payment option instead of the baseline's EIM, turns TLS on, and points at the
+# contract-cert PKI. The DC envelope and SOC pins are inherited from the
+# tree-backed baseline; the SelectedPaymentOption is runtime-negotiated from the
+# auth mode, so it is not a tree leaf. The counterpart is `iso2_pnc_dc-secc.yaml`.
 #
+# PKI certs under app/shared/pki/iso15118_2/certs/ are required (see CLAUDE.md).
 # Run an ISO-2 PnC session:
 #   python run_secc.py --config iso2_pnc_dc-secc --virtual
 #   python run_evcc.py --config iso2_pnc_dc-evcc --virtual
+extends: iso2-evcc-baseline
 role: evcc
 identity:
-  evse_id: USFRDE9002
   evcc_id: 1FATCBFLAGSHIPDC0002
 capabilities:
-  supported_protocols:
-  - ISO_15118_2
   supported_auth_modes:
-  - PNC
-  supported_energy_services:
-  - DC
-  energy_transfer_mode: DC_extended
+    - PNC
   is_cert_install_needed: false
 power:
   ev_dc:
-    max_voltage_v: 950.0
-    max_current_a: 280.0
-    max_power_w: 250000.0
-    energy_capacity_wh: 120000.0
-    target_voltage_v: 850.0
+    # The Mach-E envelope pins EVMaximumVoltageLimit to 422 V (in the baseline
+    # tree), so the target start voltage stays under it. PreCharge also requires
+    # target_current < 2 A (IEC 61851-23 CC.5.2 inrush limit).
+    target_voltage_v: 410.0
     target_current_a: 1.7
-    remaining_time_to_full_soc_s: 3000
-    remaining_time_to_bulk_soc_s: 1500
-    iso2_energy_request_wh: 25000.0
-    iso2_full_soc_percent: 100
-    iso2_bulk_soc_percent: 85
-meter:
-  meter_id: Switch-Meter-PnC-002
-  starting_reading_wh: 777000
 residual:
   tls:
     enable_tls_1_3: true
