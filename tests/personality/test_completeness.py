@@ -281,9 +281,10 @@ def test_unknown_role_rejected():
 
 def test_is_tree_backed_gate():
     assert is_tree_backed("DIN_SPEC_70121") is True
-    # ISO-2 became tree-backed in #96; ISO-20 is still on the pre-tree path.
+    # ISO-2 became tree-backed in #96; ISO-20 DC in #98 (SECC). ISO-20 AC is
+    # still on the pre-tree path.
     assert is_tree_backed("ISO_15118_2") is True
-    assert is_tree_backed("ISO_15118_20_DC") is False
+    assert is_tree_backed("ISO_15118_20_DC") is True
     assert is_tree_backed("ISO_15118_20_AC") is False
 
 
@@ -334,14 +335,15 @@ def test_multi_protocol_personality_with_absent_din_subtree_loads():
 
 
 def test_supported_but_not_tree_backed_protocol_subtree_is_exempt():
-    # ISO_15118_20_DC is supported and even carries a (deliberately bare)
+    # ISO_15118_20_AC is supported and even carries a (deliberately bare)
     # subtree, but it is not yet tree-backed, so it is never walked — an
-    # incomplete ISO-20 subtree cannot trip the completeness gate, and the absent
-    # DIN subtree is a no-op.
+    # incomplete ISO-20 AC subtree cannot trip the completeness gate, and the
+    # absent DIN subtree is a no-op. (ISO-20 DC became tree-backed in #98, so it
+    # is no longer the exempt example.)
     check_message_field_tree_completeness(
-        {"ISO_15118_20_DC": {"SessionSetupRes": {}}},
+        {"ISO_15118_20_AC": {"SessionSetupRes": {}}},
         "secc",
-        ["DIN_SPEC_70121", "ISO_15118_20_DC"],
+        ["DIN_SPEC_70121", "ISO_15118_20_AC"],
     )
 
 
@@ -358,6 +360,44 @@ def test_incomplete_iso2_subtree_fails_now_that_iso2_is_tree_backed():
                 "message_field_tree": {"ISO_15118_2": {"SessionSetupRes": {}}},
             }
         )
+
+
+def test_shipped_iso20_dc_secc_baseline_passes_completeness():
+    # ISO-20 DC is tree-backed for the SECC as of #98: the shipped baseline must
+    # carry a complete ISO-20 DC subtree. Loading is the check.
+    load_personality("iso20-dc-secc-baseline", "secc")
+
+
+def test_incomplete_iso20_dc_subtree_fails_now_that_iso20_dc_is_tree_backed():
+    # ISO-20 DC is tree-backed (#98): a present-but-incomplete DC subtree (a
+    # SessionSetupRes missing the required, config-owned EVSEID) trips the gate.
+    # ResponseCode is allowlisted and the header envelope is excluded, so EVSEID
+    # is the leaf that must be present.
+    with pytest.raises(
+        ValidationError,
+        match="ISO_15118_20_DC -> SessionSetupRes -> evse_id",
+    ):
+        SECCPersonality.model_validate(
+            {
+                "capabilities": {"supported_protocols": ["ISO_15118_20_DC"]},
+                "message_field_tree": {"ISO_15118_20_DC": {"SessionSetupRes": {}}},
+            }
+        )
+
+
+def test_iso20_header_envelope_is_excluded_from_completeness():
+    # The ISO-20 message models carry a required `header` (SessionID + timestamp),
+    # which stays compute-only/deferred (ADR-0006) — the tree is message-body
+    # only. A DC subtree that supplies EVSEID but nothing under `header` must
+    # still load: the header leaves are never demanded of the tree.
+    SECCPersonality.model_validate(
+        {
+            "capabilities": {"supported_protocols": ["ISO_15118_20_DC"]},
+            "message_field_tree": {
+                "ISO_15118_20_DC": {"SessionSetupRes": {"EVSEID": "PcLoadLetter"}}
+            },
+        }
+    )
 
 
 def test_incomplete_iso2_evcc_subtree_fails_now_that_iso2_evcc_is_tree_backed():

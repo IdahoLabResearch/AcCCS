@@ -161,7 +161,12 @@ from app.shared.security import (
     load_priv_key,
 )
 from app.shared.personality.message_field_tree import UNSET, resolve_tree_leaf
-from app.shared.personality.model import EVSEACLimits, EVSEDCLimits
+from app.shared.personality.model import (
+    EVSEACLimits,
+    EVSEDCLimits,
+    EVSEDCLimitsV20,
+    EVSEScheduleExchangeV20,
+)
 from app.shared.states import State
 
 logger = logging.getLogger(__name__)
@@ -439,13 +444,18 @@ class SimEVSEController(EVSEControllerInterface):
     ) -> ScheduledScheduleExchangeResParams:
         """Overrides EVSEControllerInterface.get_scheduled_se_params().
 
-        Per issue #9 / Slice 4 the schedule envelope (durations + power +
-        available energy + tolerance) is sourced from
-        `personality.power.evse_schedule_exchange_v20`. The pricing /
-        tax / overstay meta-structures stay hardcoded — they are
-        protocol-interop stubs, not personality.
+        Retired structured read (ADR-0006 / #98): the schedule envelope
+        (durations + power + available energy + tolerance) no longer comes from
+        `personality.power.evse_schedule_exchange_v20`. The builder emits a
+        model-default skeleton; the `ScheduleExchangeRes` tree leaves supply any
+        configured wire values via construction-time substitution at the state's
+        build site (mirroring the ISO-2 SECC retirement, #96). The pricing / tax
+        / overstay meta-structures stay hardcoded — they are protocol-interop
+        stubs, not personality. (The `iso20-dc-secc-baseline`'s source capture
+        uses Dynamic control mode with an empty ScheduleExchangeRes control-mode
+        payload, so its scheduled/dynamic params stay builder-computed.)
         """
-        evse_se = self.personality.power.evse_schedule_exchange_v20
+        evse_se = EVSEScheduleExchangeV20()
         schedule_duration = evse_se.schedule_duration_s
         charge_power_w = evse_se.charge_power_w
         discharge_power_w = evse_se.discharge_power_w
@@ -644,10 +654,13 @@ class SimEVSEController(EVSEControllerInterface):
     ) -> DynamicScheduleExchangeResParams:
         """Overrides EVSEControllerInterface.get_dynamic_se_params().
 
-        Sources `departure_time`, `min_soc`, `target_soc`, and the price
-        schedule duration from `personality.power.evse_schedule_exchange_v20`.
+        Retired structured read (ADR-0006 / #98): `departure_time`, `min_soc`,
+        `target_soc`, and the price schedule duration no longer come from
+        `personality.power.evse_schedule_exchange_v20`. The builder emits a
+        model-default skeleton; the `ScheduleExchangeRes` tree leaves supply any
+        configured wire values at the state's build site (mirroring #96).
         """
-        evse_se = self.personality.power.evse_schedule_exchange_v20
+        evse_se = EVSEScheduleExchangeV20()
         price_level_schedule_entry = PriceLevelScheduleEntry(
             duration=evse_se.schedule_duration_s,
             price_level=1,
@@ -1223,12 +1236,17 @@ class SimEVSEController(EVSEControllerInterface):
     ]:
         """Override EVSEControllerInterface.get_dc_charge_params_v20().
 
-        Per issue #9 / Slice 4 the DC envelope (and DC-BPT discharge
-        envelope) is sourced from `personality.power.evse_dc_v20` — kept
-        distinct from the DIN/ISO-2 `evse_dc` block because the ISO-20
-        DC wire encoding and field set are different.
+        Retired structured read (ADR-0006 / #98): the ISO-20 DC envelope (and
+        DC-BPT discharge envelope) no longer comes from
+        `personality.power.evse_dc_v20`. The builder now emits a model-default
+        skeleton and the `DCChargeParameterDiscoveryRes` tree leaves
+        (`{BPT_,}DC_CPDResEnergyTransferMode → …`) supply the wire values via
+        construction-time substitution at the DC state's build site, mirroring
+        the ISO-2 SECC retirement (#96). The tree value flows on into the EVSE
+        session limits (the state applies it before `update_dc_charge_parameters_v20`),
+        so the DCChargeLoopRes control-mode envelope inherits it too.
         """
-        evse_dc_v20 = self.personality.power.evse_dc_v20
+        evse_dc_v20 = EVSEDCLimitsV20()
         dc_charge_parameter_discovery_res = DCChargeParameterDiscoveryResParams(
             evse_max_charge_power=RationalNumber.get_rational_repr(
                 evse_dc_v20.max_charge_power_w

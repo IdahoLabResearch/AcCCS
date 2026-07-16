@@ -1,0 +1,24 @@
+# Conformance ISO 15118-20 DC-BPT EIM EVCC test personality (#98).
+#
+# Mirrors `iso20-eim-evcc.yaml` but requests the DC_BPT energy service, so the
+# session negotiates DC-BPT and the SECC emits its BPT_DC_CPDResEnergyTransferMode
+# envelope — the tree-sourced retired-`evse_dc_v20` values the baseline pins.
+# Pairs with `iso20-dc-baseline-secc.yaml`, whose baseline advertises
+# [DC_BPT, DC]. ISO-20 mandates TLS 1.3, so TLS stays on.
+identity:
+  evcc_id: 1FMVAA45B63C47DD58Y6
+capabilities:
+  supported_protocols:
+  - ISO_15118_20_DC
+  supported_auth_modes:
+  - EIM
+  supported_energy_services:
+  - DC_BPT
+  energy_transfer_mode: DC_extended
+residual:
+  network:
+    interface: acccs_evcc
+  tls:
+    enable_tls_1_3: true
+    use_tls: true
+role: evcc

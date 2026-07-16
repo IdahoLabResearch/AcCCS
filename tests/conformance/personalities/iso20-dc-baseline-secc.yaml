@@ -1,0 +1,11 @@
+# Conformance ISO 15118-20 DC SECC personality, tree-backed via the shipped
+# baseline (ADR-0006 / #98). Extends the repo `iso20-dc-secc-baseline` (resolved
+# through the personality search path) and only adds the veth interface, so the
+# E2E asserts the baseline wire values the SECC actually emits (SessionSetupRes
+# EVSEID and the tree-sourced DC-BPT ChargeParameterDiscovery envelope). TLS 1.3
+# stays on (inherited from the baseline; ISO-20 mandates it).
+extends: iso20-dc-secc-baseline
+role: secc
+residual:
+  network:
+    interface: acccs_secc

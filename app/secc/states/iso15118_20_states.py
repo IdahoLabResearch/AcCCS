@@ -108,10 +108,54 @@ from app.shared.messages.iso15118_20.dc import (
 )
 from app.shared.messages.iso15118_20.timeouts import Timeouts
 from app.shared.notifications import StopNotification
+from app.shared.personality.message_field_tree import (
+    apply_message_field_tree,
+    known_protocols,
+)
 from app.shared.security import get_random_bytes, verify_signature
 from app.shared.states import State, Terminate
 
 logger = logging.getLogger(__name__)
+
+
+def apply_personality_tree(comm_session, res, message_name: str, skip_fields=None) -> None:
+    """Substitute the personality's ISO-15118-20 tree overrides onto a built Res.
+
+    Construction-time substitution per ADR-0006 (protocol-keyed amendment), the
+    ISO-20 counterpart of the DIN / ISO-2 SECC helpers: after an ISO-20 state
+    builds an outbound ``*Res`` the SECC pokes every leaf the personality's
+    ``message_field_tree`` sets for the *session's negotiated ISO-20 protocol* ->
+    ``message_name`` onto it, so a configured value replaces the builder's
+    computed one (and flows into any internal logic that reads the field — e.g.
+    the DC envelope the state feeds into ``update_dc_charge_parameters_v20`` and
+    thence the session limits). A leaf set nowhere leaves the built value
+    untouched — the fallback for empty-/partial-tree personalities.
+
+    The protocol key is derived from ``comm_session.protocol.name`` rather than
+    hardcoded, because the ISO-20 *common* states (SessionSetup, Authorization,
+    ServiceDiscovery, …) are shared by both DC and AC sessions: a DC session's
+    common messages tree under ``ISO_15118_20_DC`` while an AC session's tree
+    under ``ISO_15118_20_AC`` (the same anchor the baseline declares once and a
+    combined personality aliases under each key). ISO-20 DC is a *tree-backed*
+    protocol for the SECC role as of #98; the shipped ``iso20-dc-secc-baseline``
+    replicates ``iso20.pcap`` (a real DC-BPT / Dynamic / EIM charger). No-op when
+    no personality is attached, when the negotiated protocol is not a known tree
+    protocol, or when the tree carries nothing for that protocol/message.
+
+    *skip_fields* forwards to :func:`apply_message_field_tree` to leave named
+    top-level fields at the builder's computed value while still applying the
+    rest of the tree.
+    """
+    personality = getattr(comm_session.evse_controller, "personality", None)
+    tree = getattr(personality, "message_field_tree", None)
+    if not tree:
+        return
+    protocol = getattr(getattr(comm_session, "protocol", None), "name", None)
+    if protocol not in known_protocols():
+        return
+    apply_message_field_tree(
+        res, protocol, message_name, tree, skip_fields=skip_fields
+    )
 
 
 # ============================================================================
@@ -175,6 +219,8 @@ class SessionSetup(StateSECC):
 
         self.comm_session.evcc_id = session_setup_req.evcc_id
         self.comm_session.session_id = session_id
+
+        apply_personality_tree(self.comm_session, session_setup_res, "SessionSetupRes")
 
         self.create_next_message(
             AuthorizationSetup,
@@ -287,6 +333,10 @@ class AuthorizationSetup(StateSECC):
             cert_install_service=self.comm_session.config.allow_cert_install_service,
             eim_as_res=eim_as_res,
             pnc_as_res=pnc_as_res,
+        )
+
+        apply_personality_tree(
+            self.comm_session, auth_setup_res, "AuthorizationSetupRes"
         )
 
         self.create_next_message(
@@ -501,6 +551,8 @@ class Authorization(StateSECC):
             evse_processing=evse_processing,
         )
 
+        apply_personality_tree(self.comm_session, auth_res, "AuthorizationRes")
+
         self.create_next_message(
             None,
             auth_res,
@@ -602,6 +654,10 @@ class ServiceDiscovery(StateSECC):
             service_renegotiation_supported=await self.comm_session.evse_controller.service_renegotiation_supported(),  # noqa: E501
             energy_service_list=offered_energy_services,
             vas_list=offered_vas,
+        )
+
+        apply_personality_tree(
+            self.comm_session, service_discovery_res, "ServiceDiscoveryRes"
         )
 
         self.create_next_message(
@@ -719,6 +775,10 @@ class ServiceDetail(StateSECC):
             service_parameter_list=service_parameter_list,
         )
 
+        apply_personality_tree(
+            self.comm_session, service_detail_res, "ServiceDetailRes"
+        )
+
         self.create_next_message(
             None,
             service_detail_res,
@@ -787,6 +847,10 @@ class ServiceSelection(StateSECC):
                 session_id=self.comm_session.session_id, timestamp=int(time.time())
             ),
             response_code=ResponseCode.OK,
+        )
+
+        apply_personality_tree(
+            self.comm_session, service_selection_res, "ServiceSelectionRes"
         )
 
         self.create_next_message(
@@ -997,6 +1061,12 @@ class ScheduleExchange(StateSECC):
             dynamic_params=params if control_mode == ControlMode.DYNAMIC else None,
         )
 
+        # Apply the tree before the data-context update, symmetric with the DC
+        # CPDRes site, so a tree-sourced schedule flows into internal state too.
+        apply_personality_tree(
+            self.comm_session, schedule_exchange_res, "ScheduleExchangeRes"
+        )
+
         if evse_processing == Processing.FINISHED:
             evse_data_context = self.comm_session.evse_controller.evse_data_context
             evse_data_context.update_schedule_exchange_parameters(
@@ -1195,6 +1265,10 @@ class PowerDelivery(StateSECC):
             header=header, response_code=response_code
         )
 
+        apply_personality_tree(
+            self.comm_session, power_delivery_res, "PowerDeliveryRes"
+        )
+
         self.create_next_message(
             next_state,
             power_delivery_res,
@@ -1312,6 +1386,8 @@ class SessionStop(StateSECC):
             ),
             response_code=ResponseCode.OK,
         )
+
+        apply_personality_tree(self.comm_session, session_stop_res, "SessionStopRes")
 
         self.create_next_message(
             next_state,
@@ -1572,6 +1648,15 @@ class DCChargeParameterDiscovery(StateSECC):
                 dc_params=params if energy_service == ServiceV20.DC else None,
                 bpt_dc_params=params if energy_service == ServiceV20.DC_BPT else None,
             )
+            # Apply the personality's message field tree BEFORE the data-context
+            # update so a tree-sourced DC/BPT envelope flows into both the
+            # emitted bytes and the EVSE session limits that feed the later
+            # DCChargeLoopRes control-mode envelope (ADR-0006 #98). The tree pokes
+            # the present sub-model (`{bpt_,}dc_params`); the absent one is left
+            # untouched, so a plain-DC session keeps its `dc_params`.
+            apply_personality_tree(
+                self.comm_session, dc_cpd_res, "DCChargeParameterDiscoveryRes"
+            )
             # Update EVSE Data Context
             evse_data_context = self.comm_session.evse_controller.evse_data_context
             evse_data_context.current_type = CurrentType.DC
@@ -1700,6 +1785,10 @@ class DCCableCheck(StateSECC):
             evse_processing=processing,
         )
 
+        apply_personality_tree(
+            self.comm_session, dc_cable_check_res, "DCCableCheckRes"
+        )
+
         self.create_next_message(
             next_state,
             dc_cable_check_res,
@@ -1773,6 +1862,9 @@ class DCPreCharge(StateSECC):
                 Protocol.ISO_15118_20_DC
             ),
         )
+
+        apply_personality_tree(self.comm_session, dc_precharge_res, "DCPreChargeRes")
+
         self.create_next_message(
             next_state,
             dc_precharge_res,
@@ -1923,6 +2015,9 @@ class DCChargeLoop(StateSECC):
                 else None
             ),
         )
+        apply_personality_tree(
+            self.comm_session, dc_charge_loop_res, "DCChargeLoopRes"
+        )
         return dc_charge_loop_res
 
 
@@ -1968,6 +2063,10 @@ class DCWeldingDetection(StateSECC):
             evse_present_voltage=await self.comm_session.evse_controller.get_evse_present_voltage(  # noqa
                 Protocol.ISO_15118_20_DC
             ),  # noqa
+        )
+
+        apply_personality_tree(
+            self.comm_session, welding_detection_res, "DCWeldingDetectionRes"
         )
 
         self.create_next_message(

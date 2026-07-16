@@ -10,6 +10,13 @@ level tests assert the simulators honour personality values when building
 ISO-20 wire messages (AC + DC charge params, AC + DC BPT discharge,
 ScheduleExchange announcements, AC/DC charge loops, PreCharge/target
 voltage, SECC schedule envelope, ISO-20 meter info).
+
+Note (#98): the ISO-20 *DC SECC* structured reads (`power.evse_dc_v20`,
+`power.evse_schedule_exchange_v20`) are retired — those wire values are now
+sourced from the `message_field_tree`, so the corresponding SECC builders
+return the model-default *skeleton* and the `*_retired_to_skeleton` tests below
+assert that. The AC SECC (`evse_ac_v20`) and every EVCC read are unchanged
+(their slices have not landed).
 """
 
 from __future__ import annotations
@@ -145,7 +152,14 @@ async def test_secc_ac_bpt_v20_discharge_uses_personality():
 
 
 @pytest.mark.asyncio
-async def test_secc_dc_v20_charge_params_use_personality():
+async def test_secc_dc_v20_charge_params_retired_to_skeleton():
+    # #98 retired the structured `power.evse_dc_v20` ISO-20 DC SECC read: the DC
+    # envelope is now tree-sourced at the DCChargeParameterDiscoveryRes build
+    # site, so this builder returns the ISO-20 DC-limit model-default *skeleton*
+    # regardless of the personality's evse_dc_v20 (which no longer reaches the
+    # ISO-20 wire through here).
+    from app.shared.personality.model import EVSEDCLimitsV20
+
     personality = SECCPersonality.model_validate(
         {
             "power": {
@@ -164,15 +178,27 @@ async def test_secc_dc_v20_charge_params_use_personality():
     ctrl = SimEVSEController(personality=personality)
     params = await ctrl.get_dc_charge_params_v20(ServiceV20.DC)
 
-    assert params.evse_max_charge_power.get_decimal_value() == 350000.0
-    assert params.evse_min_charge_power.get_decimal_value() == 250.0
-    assert params.evse_max_charge_current.get_decimal_value() == 500.0
-    assert params.evse_max_voltage.get_decimal_value() == 920.0
-    assert params.evse_power_ramp_limit.get_decimal_value() == 50.0
+    default = EVSEDCLimitsV20()
+    assert params.evse_max_charge_power.get_decimal_value() == default.max_charge_power_w
+    assert params.evse_min_charge_power.get_decimal_value() == default.min_charge_power_w
+    assert (
+        params.evse_max_charge_current.get_decimal_value()
+        == default.max_charge_current_a
+    )
+    assert params.evse_max_voltage.get_decimal_value() == default.max_voltage_v
+    assert (
+        params.evse_power_ramp_limit.get_decimal_value()
+        == default.power_ramp_limit_w_per_s
+    )
 
 
 @pytest.mark.asyncio
-async def test_secc_dc_bpt_v20_discharge_uses_personality():
+async def test_secc_dc_bpt_v20_discharge_retired_to_skeleton():
+    # #98: the DC-BPT discharge envelope is likewise tree-sourced now (the
+    # baseline pins it as BPT_DC_CPDResEnergyTransferMode leaves), so the builder
+    # returns the model-default skeleton, not the personality's evse_dc_v20.
+    from app.shared.personality.model import EVSEDCLimitsV20
+
     personality = SECCPersonality.model_validate(
         {
             "power": {
@@ -186,8 +212,15 @@ async def test_secc_dc_bpt_v20_discharge_uses_personality():
     ctrl = SimEVSEController(personality=personality)
     params = await ctrl.get_dc_charge_params_v20(ServiceV20.DC_BPT)
 
-    assert params.evse_max_discharge_power.get_decimal_value() == 150000.0
-    assert params.evse_max_discharge_current.get_decimal_value() == 250.0
+    default = EVSEDCLimitsV20()
+    assert (
+        params.evse_max_discharge_power.get_decimal_value()
+        == default.bpt_max_discharge_power_w
+    )
+    assert (
+        params.evse_max_discharge_current.get_decimal_value()
+        == default.bpt_max_discharge_current_a
+    )
 
 
 @pytest.mark.asyncio
@@ -202,7 +235,13 @@ async def test_secc_meter_info_v20_uses_personality_reading():
 
 
 @pytest.mark.asyncio
-async def test_secc_scheduled_se_params_use_personality():
+async def test_secc_scheduled_se_params_retired_to_skeleton():
+    # #98 retired the structured `power.evse_schedule_exchange_v20` ISO-20 SECC
+    # read: ScheduleExchangeRes wire values are now tree-sourced at the build
+    # site, so this builder returns the model-default skeleton regardless of the
+    # personality's evse_schedule_exchange_v20.
+    from app.shared.personality.model import EVSEScheduleExchangeV20
+
     personality = SECCPersonality.model_validate(
         {
             "power": {
@@ -220,24 +259,25 @@ async def test_secc_scheduled_se_params_use_personality():
     params = await ctrl.get_scheduled_se_params(
         selected_energy_service=None, schedule_exchange_req=None
     )
+    default = EVSEScheduleExchangeV20()
     [tup] = params.schedule_tuples
     [entry] = tup.charging_schedule.power_schedule.schedule_entry_list.entries
-    assert entry.duration == 2700
-    assert entry.power.get_decimal_value() == 22000.0
+    assert entry.duration == default.schedule_duration_s
+    assert entry.power.get_decimal_value() == default.charge_power_w
     assert (
         tup.charging_schedule.power_schedule.available_energy.get_decimal_value()
-        == 250000.0
-    )
-    assert (
-        tup.charging_schedule.power_schedule.power_tolerance.get_decimal_value()
-        == 1500.0
+        == default.available_energy_wh
     )
     [dis_entry] = tup.discharging_schedule.power_schedule.schedule_entry_list.entries
-    assert dis_entry.power.get_decimal_value() == 8000.0
+    assert dis_entry.power.get_decimal_value() == default.discharge_power_w
 
 
 @pytest.mark.asyncio
-async def test_secc_dynamic_se_params_use_personality():
+async def test_secc_dynamic_se_params_retired_to_skeleton():
+    # #98: the dynamic ScheduleExchangeRes params are likewise builder-skeleton
+    # now, not sourced from the personality's evse_schedule_exchange_v20.
+    from app.shared.personality.model import EVSEScheduleExchangeV20
+
     personality = SECCPersonality.model_validate(
         {
             "power": {
@@ -253,9 +293,10 @@ async def test_secc_dynamic_se_params_use_personality():
     params = await ctrl.get_dynamic_se_params(
         selected_energy_service=None, schedule_exchange_req=None
     )
-    assert params.departure_time == 5400
-    assert params.min_soc == 25
-    assert params.target_soc == 90
+    default = EVSEScheduleExchangeV20()
+    assert params.departure_time == default.dynamic_departure_time_s
+    assert params.min_soc == default.dynamic_min_soc_percent
+    assert params.target_soc == default.dynamic_target_soc_percent
 
 
 # ---------------------------------------------------------------------------

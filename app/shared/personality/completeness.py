@@ -13,10 +13,11 @@ Scope (ADR-0006 #83 + the protocol-keyed amendment):
 
 * **Per supported, tree-backed protocol.** The gate is now per-protocol
   (:func:`is_tree_backed`): a supported protocol whose slice has landed (its
-  values actually flow to the wire from the tree — DIN today) must carry a
-  **present and complete** subtree; a supported protocol still on the builders'
-  pre-tree structured path (ISO-2 / ISO-20 this slice) needs *nothing* in the
-  tree and is exempt. Each protocol slice can therefore land independently — no
+  values actually flow to the wire from the tree — DIN, ISO-2, and ISO-20 DC
+  SECC today) must carry a **present and complete** subtree; a supported
+  protocol still on the builders' pre-tree structured path (ISO-20 AC, and the
+  ISO-20 EVCC side) needs *nothing* in the tree and is exempt. Each protocol
+  slice can therefore land independently — no
   flag-day cutover — while the end state (every supported protocol tree-backed
   and checked) is the strong "a personality cannot claim a protocol it does not
   fully back" guarantee. The caller passes the personality's
@@ -76,12 +77,28 @@ class MessageFieldTreeIncompleteError(ValueError):
 # no-op). ISO-20 joins this set when its slice migrates its wire values.
 _DIN_PROTOCOL = "DIN_SPEC_70121"
 _ISO2_PROTOCOL = "ISO_15118_2"
+_ISO20_DC_PROTOCOL = "ISO_15118_20_DC"
 
 # The protocols whose emitted wire values actually come from the tree today. A
 # supported protocol in this set must carry a complete subtree; a supported
 # protocol outside it is still driven by the builders' pre-tree path and needs
-# nothing in the tree (ADR-0006 protocol-keyed amendment).
-_TREE_BACKED_PROTOCOLS: frozenset = frozenset({_DIN_PROTOCOL, _ISO2_PROTOCOL})
+# nothing in the tree (ADR-0006 protocol-keyed amendment). ISO-20 DC joins for
+# the SECC role as of #98 (ISO_15118_20_AC and the ISO-20 EVCC side add their
+# own entries as those slices land).
+_TREE_BACKED_PROTOCOLS: frozenset = frozenset(
+    {_DIN_PROTOCOL, _ISO2_PROTOCOL, _ISO20_DC_PROTOCOL}
+)
+
+
+# The ISO-20 message models mirror the *full* message, `header` envelope
+# included (SessionID, timestamp, and — for signed messages — the signature),
+# unlike the DIN / ISO-2 body models whose header rides the separate V2G
+# envelope and never reaches ``get_msg_type``. Per ADR-0006 (#83 and the
+# protocol-keyed amendment) the header/envelope stays **compute-only /
+# deferred** — the tree is message-*body* only — so a required header leaf is
+# never demanded of the tree. This exclusion is a no-op for DIN / ISO-2 (their
+# body models carry no ``header`` field) and only bites for ISO-20.
+_ENVELOPE_ROOT_FIELDS: frozenset = frozenset({"header"})
 
 
 def is_tree_backed(protocol: str) -> bool:
@@ -92,7 +109,8 @@ def is_tree_backed(protocol: str) -> bool:
     protocol must carry a present, complete subtree (the completeness gate runs
     for it); a supported protocol that is not yet tree-backed drives its wire
     values through the builders' pre-tree path and is exempt from the gate until
-    its slice lands. DIN is the only tree-backed protocol this slice.
+    its slice lands. Tree-backed today: DIN (both roles), ISO-2 (both roles),
+    and ISO-20 DC (SECC role, #98). See :data:`_TREE_BACKED_PROTOCOLS`.
     """
     return protocol in _TREE_BACKED_PROTOCOLS
 
@@ -173,6 +191,32 @@ ISO2_EVCC_MESSAGES: Tuple[str, ...] = (
     "MeteringReceiptReq",
     "WeldingDetectionReq",
     "SessionStopReq",
+)
+
+
+# The ISO-15118-20 DC SECC-emitted message set (issue #98). Every common ``*Res``
+# (shared with the ISO-20 AC session) plus the DC-specific ``*Res`` the DC state
+# machine emits; the per-message-present rule means an entry the merged tree does
+# not carry is skipped. BPT is a *mode* whose discharge params ride inside these
+# DC messages (``BPTDCChargeParameterDiscoveryResParams`` …), not its own message,
+# so there is no separate BPT message here.
+ISO20_DC_SECC_MESSAGES: Tuple[str, ...] = (
+    # --- common (both AC and DC ISO-20 sessions) ---
+    "SessionSetupRes",
+    "AuthorizationSetupRes",
+    "AuthorizationRes",
+    "ServiceDiscoveryRes",
+    "ServiceDetailRes",
+    "ServiceSelectionRes",
+    "ScheduleExchangeRes",
+    "PowerDeliveryRes",
+    "SessionStopRes",
+    # --- DC-specific ---
+    "DCChargeParameterDiscoveryRes",
+    "DCCableCheckRes",
+    "DCPreChargeRes",
+    "DCChargeLoopRes",
+    "DCWeldingDetectionRes",
 )
 
 
@@ -377,13 +421,71 @@ _ISO2_EVCC_MESSAGE_ALLOWLIST: Dict[str, Set[LeafPath]] = {
 }
 
 
+# The ISO-15118-20 DC SECC allowlist (issue #98). The runtime-produced required
+# leaves, decoded field-for-field from `iso20.pcap` (a real DC-BPT / Dynamic /
+# EIM session, plaintext, SECC source port 53927): the EVSEProcessing
+# ONGOING->FINISHED progression (Authorization / ScheduleExchange / DCCableCheck),
+# the ramping DCChargeLoopRes / DCPreChargeRes / DCWeldingDetectionRes present
+# voltage / current (each a RationalNumber `exponent`+`value` leaf pair), the
+# DCChargeLoopRes limit-achieved flags, the ServiceDiscoveryRes energy-service
+# advertisement (`get_energy_service_list`, single-sourced from
+# `capabilities.supported_energy_services`) and renegotiation flag, and the
+# ServiceDetailRes echoed ServiceID + emulator-built ParameterSet list. The
+# AuthorizationSetupRes auth services / cert-install flag come from
+# `capabilities.supported_auth_modes` and the SECC config. The `header` envelope
+# (SessionID, timestamp) is excluded structurally (`_ENVELOPE_ROOT_FIELDS`), not
+# allowlisted. As on the DIN / ISO-2 side the config-owned identity
+# `SessionSetupRes.EVSEID` is deliberately *not* allowlisted — it is the tree
+# value the baseline pins (`PcLoadLetter`). The BPT DC envelope
+# (`DCChargeParameterDiscoveryRes`) is an Optional sub-model, so it is never
+# completeness-required; the baseline pins it in the tree (the retired
+# `power.evse_dc_v20` values) and it flows on into the session limits that feed
+# the DCChargeLoopRes control-mode envelope.
+_ISO20_DC_SECC_MESSAGE_ALLOWLIST: Dict[str, Set[LeafPath]] = {
+    "AuthorizationSetupRes": {
+        ("auth_services",),
+        ("cert_install_service",),
+    },
+    "AuthorizationRes": {("evse_processing",)},
+    "ServiceDiscoveryRes": {
+        ("service_renegotiation_supported",),
+        ("energy_service_list", "services"),
+    },
+    "ServiceDetailRes": {
+        ("service_id",),
+        ("service_parameter_list", "parameter_sets"),
+    },
+    "ScheduleExchangeRes": {("evse_processing",)},
+    "DCCableCheckRes": {("evse_processing",)},
+    "DCPreChargeRes": {
+        ("evse_present_voltage", "exponent"),
+        ("evse_present_voltage", "value"),
+    },
+    "DCChargeLoopRes": {
+        ("evse_present_current", "exponent"),
+        ("evse_present_current", "value"),
+        ("evse_present_voltage", "exponent"),
+        ("evse_present_voltage", "value"),
+        ("evse_power_limit_achieved",),
+        ("evse_current_limit_achieved",),
+        ("evse_voltage_limit_achieved",),
+    },
+    "DCWeldingDetectionRes": {
+        ("evse_present_voltage", "exponent"),
+        ("evse_present_voltage", "value"),
+    },
+}
+
+
 # Per-protocol, per-role allowlist tables: (emitted message set, per-message
 # allowlist). The SECC base set (ResponseCode) folds into every SECC message of
 # every protocol. ISO-2 is tree-backed for both roles as of #96 (SECC) / #97
-# (EVCC). Keyed protocol -> the table `allowlist_for` folds.
+# (EVCC); ISO-20 DC is tree-backed for the SECC role as of #98. Keyed protocol ->
+# the table `allowlist_for` folds.
 _SECC_ALLOWLIST_TABLES: Dict[str, Tuple[Tuple[str, ...], Dict[str, Set[LeafPath]]]] = {
     _DIN_PROTOCOL: (SECC_MESSAGES, _SECC_MESSAGE_ALLOWLIST),
     _ISO2_PROTOCOL: (ISO2_SECC_MESSAGES, _ISO2_SECC_MESSAGE_ALLOWLIST),
+    _ISO20_DC_PROTOCOL: (ISO20_DC_SECC_MESSAGES, _ISO20_DC_SECC_MESSAGE_ALLOWLIST),
 }
 _EVCC_ALLOWLIST_TABLES: Dict[str, Tuple[Tuple[str, ...], Dict[str, Set[LeafPath]]]] = {
     _DIN_PROTOCOL: (EVCC_MESSAGES, _EVCC_MESSAGE_ALLOWLIST),
@@ -469,6 +571,9 @@ _PROTOCOL_ROLE_MESSAGES: Dict[str, Dict[str, Tuple[str, ...]]] = {
     _DIN_PROTOCOL: {"secc": SECC_MESSAGES, "evcc": EVCC_MESSAGES},
     # ISO-2 is tree-backed for both roles: SECC (#96) and EVCC (#97).
     _ISO2_PROTOCOL: {"secc": ISO2_SECC_MESSAGES, "evcc": ISO2_EVCC_MESSAGES},
+    # ISO-20 DC is tree-backed for the SECC role (#98); the EVCC side has no
+    # entry yet, so an ISO-20 DC EVCC personality carries no required subtree.
+    _ISO20_DC_PROTOCOL: {"secc": ISO20_DC_SECC_MESSAGES},
 }
 
 
@@ -478,7 +583,8 @@ def check_message_field_tree_completeness(
     """Raise if a supported, tree-backed protocol's subtree is incomplete.
 
     Per-protocol (ADR-0006 protocol-keyed amendment): for each protocol the
-    personality both *supports* and that :func:`is_tree_backed` — DIN today — the
+    personality both *supports* and that :func:`is_tree_backed` (DIN, ISO-2, and
+    ISO-20 DC SECC today) — the
     protocol's subtree must carry a value for every mandatory wire field of every
     message the *role* emits, unless the leaf is on the role's allowlist. A
     supported but not-yet-tree-backed protocol is skipped entirely (its wire
@@ -512,6 +618,10 @@ def check_message_field_tree_completeness(
                 continue
             allowed = allowlist.get(message_name, set())
             for path in _required_leaf_paths(model_cls):
+                if path and path[0] in _ENVELOPE_ROOT_FIELDS:
+                    # Header/envelope stays compute-only (ADR-0006); the tree is
+                    # message-body only. No-op for DIN / ISO-2 (no header field).
+                    continue
                 if path in allowed:
                     continue
                 if resolve_tree_leaf(tree, protocol, message_name, path) is UNSET:
