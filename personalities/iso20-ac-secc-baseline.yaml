@@ -1,0 +1,101 @@
+# ISO 15118-20 AC SECC baseline personality (ADR-0006, issue #100).
+#
+# The per-role baseline supplies an ISO-20 AC SECC's full default wire output;
+# device files `extends:` this and override only the leaves that differ. The AC
+# sibling of the ISO-20 DC SECC baseline (#98): every SECC-emitted ISO-20 AC
+# message routes its build through construction-time substitution (ADR-0006
+# protocol-keyed amendment) sourcing its wire values from the `message_field_tree`
+# below, and the structured `power.evse_ac_v20` ISO-20 AC SECC read is retired
+# (its fallback is now the `EVSEACLimitsV20` model-default skeleton).
+#
+# PROVENANCE — capture-seeded, decoded field-for-field from `~/projects/pcaps/
+# HAL+TCP_ISO_20_AC_Example.pcap`, a real charger's ISO-15118-20 **plain-AC /
+# Dynamic control mode / EIM** session. It decodes cleanly as ISO-20 AC with the
+# project EXI codec (payload type 0x8003 AC_MAINSTREAM; SECC source port 63496) —
+# plaintext on the wire (TCP, not TLS). The decodable AC-specific SECC-emitted
+# message that bears a config-owned wire leaf is reproduced exactly:
+#   * ACChargeParameterDiscoveryRes.AC_CPDResEnergyTransferMode — the plain-AC
+#     envelope the retired `power.evse_ac_v20` used to carry, now tree-sourced:
+#     EVSEMaximumChargePower 200000 W (Exponent 1 / Value 20000),
+#     EVSEMinimumChargePower 0 W (Exponent -3 / Value 0), and EVSENominalFrequency
+#     0 Hz (Exponent -3 / Value 0) — the exact values the HAL charger emitted.
+#     The session negotiated plain AC (ServiceID 1), so the capture carries the
+#     `AC_CPDResEnergyTransferMode` sub-model, not the AC-BPT
+#     `BPT_AC_CPDResEnergyTransferMode` variant; an AC-BPT device pins the BPT
+#     envelope under the same message (the tree can address either sub-model,
+#     whichever the negotiated service builds).
+#
+# SYNTHETIC FALLBACK (per missing field, ADR-0006's builder-produced skeleton):
+# the HAL capture's ACChargeParameterDiscoveryRes omits the L2/L3 phase mirrors,
+# MaximumPowerAsymmetry, EVSEPowerRampLimitation, and EVSEPresentActivePower(_L2/
+# _L3). The AcCCS builder always emits those (it replicates a single magnitude to
+# L1/L2/L3 and stubs present-active-power at 0), so they stay at the
+# `EVSEACLimitsV20` model-default skeleton — only the three fields the capture
+# bears are tree-pinned. The ACChargeLoopRes control-mode envelope
+# (`Dynamic_AC_CLResControlMode.EVSETargetActivePower` = 0 in the capture) is
+# runtime-computed and stays builder-produced, so it is not tree-pinned.
+#
+# Builder-computed / runtime fields are NOT in the tree and stay computed
+# (ADR-0006 #83 optional-field allowlist, extended to ISO-20 AC SECC in #100):
+# ResponseCode; the EVSEProcessing ONGOING->FINISHED progression (Authorization /
+# ScheduleExchange); the ServiceDetailRes echoed ServiceID + emulator-built
+# ParameterSet list. The header/envelope (SessionID, timestamp) stays
+# deferred/compute-only (the tree is message-body only). The advertised
+# energy-service list and auth services are single-sourced from the `capabilities`
+# block below (the same ADR-0006 dividing rule the DC slice uses):
+#   * AuthorizationSetupRes.AuthorizationServices = [EIM] <- supported_auth_modes
+#   * ServiceDiscoveryRes.EnergyTransferServiceList = ServiceID 1 (AC) <-
+#     supported_energy_services; matches the capture's advertised AC service.
+#   * AuthorizationSetupRes.CertificateInstallationService = false (EIM, no PnC).
+#
+# ISO-20 common messages are NOT re-decoded here — they are shared via the same
+# `&iso20_common_secc` YAML anchor the DC SECC slice (#98) introduced (ADR-0006
+# protocol-keyed amendment): the charger's common identity (SessionSetupRes.EVSEID
+# = PcLoadLetter) is declared once and merged under this file's ISO_15118_20_AC
+# key, so a combined DC+AC personality aliases the one block under both ISO-20
+# keys. The HAL AC capture's own SessionSetupRes.EVSEID was `ZZ000000` (a
+# different real device); the shared anchor identity deliberately supersedes it,
+# because the anchor's purpose is one common identity across the ISO-20 keys, not
+# a per-capture value.
+#
+# ISO-20 mandates TLS 1.3 regardless of auth mode (`app/secc/secc_settings.py`
+# rejects TLS-off with ISO-20), so this baseline keeps TLS on even though the
+# source capture is plaintext — the reproduced artifact is the message *values*,
+# not the transport. Devices extending this baseline inherit TLS on.
+#
+# `energy_transfer_mode` is a legacy DIN / ISO-2 field; ISO-20 negotiates the
+# energy service via `supported_energy_services`, so it is left at its model
+# default (mirroring the shipped `iso20-eim-ac-secc` conformance personality).
+role: secc
+capabilities:
+  supported_protocols:
+    - ISO_15118_20_AC
+  supported_auth_modes:
+    - EIM
+  # AC (ServiceID 1), matching the capture's advertised EnergyTransferServiceList.
+  supported_energy_services:
+    - AC
+residual:
+  tls:
+    enable_tls_1_3: true
+    enforce_tls: true
+message_field_tree:
+  ISO_15118_20_AC:
+    # The ISO-20 *common* messages (shared by AC and DC sessions) tree block,
+    # declared once via the `&iso20_common_secc` anchor the DC SECC slice (#98)
+    # introduced and merged into this protocol key. A combined DC+AC personality
+    # aliases `*iso20_common_secc` under both its ISO_15118_20_AC and
+    # ISO_15118_20_DC keys so the shared identity is stated once (ADR-0006
+    # protocol-keyed amendment). Only SessionSetupRes carries a configured (non
+    # runtime-produced) common leaf today — the charger's announced EVSEID.
+    <<: &iso20_common_secc
+      SessionSetupRes:
+        EVSEID: PcLoadLetter
+    # AC-specific messages. The plain-AC envelope is the retired
+    # `power.evse_ac_v20` block, now tree-sourced. Values are RationalNumber
+    # (Exponent + Value) leaves reproduced field-for-field from the capture.
+    ACChargeParameterDiscoveryRes:
+      AC_CPDResEnergyTransferMode:
+        EVSEMaximumChargePower: {Exponent: 1, Value: 20000}
+        EVSEMinimumChargePower: {Exponent: -3, Value: 0}
+        EVSENominalFrequency: {Exponent: -3, Value: 0}

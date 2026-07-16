@@ -163,6 +163,7 @@ from app.shared.security import (
 from app.shared.personality.message_field_tree import UNSET, resolve_tree_leaf
 from app.shared.personality.model import (
     EVSEACLimits,
+    EVSEACLimitsV20,
     EVSEDCLimits,
     EVSEDCLimitsV20,
     EVSEScheduleExchangeV20,
@@ -960,11 +961,17 @@ class SimEVSEController(EVSEControllerInterface):
     ]:
         """Overrides EVSEControllerInterface.get_ac_charge_params_v20().
 
-        Per issue #9 / Slice 4 every AC envelope value comes from
-        `personality.power.evse_ac_v20`. The phase-symmetric model holds
-        a single magnitude per concept and the wire echoes it to L1/L2/L3.
+        Retired structured read (ADR-0006 / #100): the ISO-20 AC envelope (and
+        AC-BPT discharge envelope) no longer comes from
+        `personality.power.evse_ac_v20`. The builder now emits a model-default
+        skeleton and the `ACChargeParameterDiscoveryRes` tree leaves
+        (`{BPT_,}AC_CPDResEnergyTransferMode -> ...`) supply the wire values via
+        construction-time substitution at the AC state's build site, mirroring
+        the ISO-2 (#96) and ISO-20 DC (#98) SECC retirements. The phase-symmetric
+        skeleton holds a single magnitude per concept and the wire echoes it to
+        L1/L2/L3.
         """
-        evse_ac_v20 = self.personality.power.evse_ac_v20
+        evse_ac_v20 = EVSEACLimitsV20()
         max_charge_power = evse_ac_v20.max_charge_power_w
         min_charge_power = evse_ac_v20.min_charge_power_w
         nominal_frequency = evse_ac_v20.nominal_frequency_hz

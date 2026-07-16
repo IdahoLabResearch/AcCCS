@@ -281,11 +281,12 @@ def test_unknown_role_rejected():
 
 def test_is_tree_backed_gate():
     assert is_tree_backed("DIN_SPEC_70121") is True
-    # ISO-2 became tree-backed in #96; ISO-20 DC in #98 (SECC). ISO-20 AC is
-    # still on the pre-tree path.
+    # ISO-2 became tree-backed in #96; ISO-20 DC in #98 (SECC); ISO-20 AC in #100
+    # (SECC). WPT / ACDP remain on the pre-tree path.
     assert is_tree_backed("ISO_15118_2") is True
     assert is_tree_backed("ISO_15118_20_DC") is True
-    assert is_tree_backed("ISO_15118_20_AC") is False
+    assert is_tree_backed("ISO_15118_20_AC") is True
+    assert is_tree_backed("ISO_15118_20_WPT") is False
 
 
 def test_incomplete_din_subtree_fails_whenever_din_is_supported():
@@ -335,15 +336,15 @@ def test_multi_protocol_personality_with_absent_din_subtree_loads():
 
 
 def test_supported_but_not_tree_backed_protocol_subtree_is_exempt():
-    # ISO_15118_20_AC is supported and even carries a (deliberately bare)
-    # subtree, but it is not yet tree-backed, so it is never walked — an
-    # incomplete ISO-20 AC subtree cannot trip the completeness gate, and the
-    # absent DIN subtree is a no-op. (ISO-20 DC became tree-backed in #98, so it
-    # is no longer the exempt example.)
+    # ISO_15118_20_WPT is supported and even carries a (deliberately bare)
+    # subtree, but it is not tree-backed, so it is never walked — an incomplete
+    # WPT subtree cannot trip the completeness gate, and the absent DIN subtree is
+    # a no-op. (ISO-20 DC became tree-backed in #98 and ISO-20 AC in #100, so
+    # neither is the exempt example any more.)
     check_message_field_tree_completeness(
-        {"ISO_15118_20_AC": {"SessionSetupRes": {}}},
+        {"ISO_15118_20_WPT": {"SessionSetupRes": {}}},
         "secc",
-        ["DIN_SPEC_70121", "ISO_15118_20_AC"],
+        ["DIN_SPEC_70121", "ISO_15118_20_WPT"],
     )
 
 
@@ -395,6 +396,56 @@ def test_iso20_header_envelope_is_excluded_from_completeness():
             "capabilities": {"supported_protocols": ["ISO_15118_20_DC"]},
             "message_field_tree": {
                 "ISO_15118_20_DC": {"SessionSetupRes": {"EVSEID": "PcLoadLetter"}}
+            },
+        }
+    )
+
+
+def test_shipped_iso20_ac_secc_baseline_passes_completeness():
+    # ISO-20 AC is tree-backed for the SECC as of #100: the shipped baseline must
+    # carry a complete ISO-20 AC subtree. Loading is the check. The only mandatory
+    # AC SECC leaf the tree must supply is the config-owned SessionSetupRes.EVSEID
+    # (shared via the common anchor); every other required leaf is allowlisted
+    # (runtime-produced) or Optional (the AC envelope the baseline pins).
+    load_personality("iso20-ac-secc-baseline", "secc")
+
+
+def test_incomplete_iso20_ac_subtree_fails_now_that_iso20_ac_is_tree_backed():
+    # ISO-20 AC is tree-backed (#100): a present-but-incomplete AC subtree (a
+    # SessionSetupRes missing the required, config-owned EVSEID) trips the gate.
+    # ResponseCode is allowlisted and the header envelope is excluded, so EVSEID
+    # is the leaf that must be present — exactly as on the DC side.
+    with pytest.raises(
+        ValidationError,
+        match="ISO_15118_20_AC -> SessionSetupRes -> evse_id",
+    ):
+        SECCPersonality.model_validate(
+            {
+                "capabilities": {"supported_protocols": ["ISO_15118_20_AC"]},
+                "message_field_tree": {"ISO_15118_20_AC": {"SessionSetupRes": {}}},
+            }
+        )
+
+
+def test_iso20_ac_cpd_envelope_is_optional_not_completeness_required():
+    # The AC-specific ACChargeParameterDiscoveryRes rides its envelope inside the
+    # Optional `{bpt_,}ac_params` sub-models, so no envelope leaf is ever
+    # completeness-required: a subtree that names the message and pins the EVSEID
+    # elsewhere loads even though it supplies only a partial AC envelope. The tree
+    # is message-present for ACChargeParameterDiscoveryRes here, exercising that
+    # its only required leaf (`response_code`) is base-allowlisted.
+    SECCPersonality.model_validate(
+        {
+            "capabilities": {"supported_protocols": ["ISO_15118_20_AC"]},
+            "message_field_tree": {
+                "ISO_15118_20_AC": {
+                    "SessionSetupRes": {"EVSEID": "PcLoadLetter"},
+                    "ACChargeParameterDiscoveryRes": {
+                        "AC_CPDResEnergyTransferMode": {
+                            "EVSEMaximumChargePower": {"Exponent": 1, "Value": 20000},
+                        }
+                    },
+                }
             },
         }
     )

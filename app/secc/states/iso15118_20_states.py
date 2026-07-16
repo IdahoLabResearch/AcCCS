@@ -137,10 +137,12 @@ def apply_personality_tree(comm_session, res, message_name: str, skip_fields=Non
     common messages tree under ``ISO_15118_20_DC`` while an AC session's tree
     under ``ISO_15118_20_AC`` (the same anchor the baseline declares once and a
     combined personality aliases under each key). ISO-20 DC is a *tree-backed*
-    protocol for the SECC role as of #98; the shipped ``iso20-dc-secc-baseline``
-    replicates ``iso20.pcap`` (a real DC-BPT / Dynamic / EIM charger). No-op when
-    no personality is attached, when the negotiated protocol is not a known tree
-    protocol, or when the tree carries nothing for that protocol/message.
+    protocol for the SECC role as of #98 (``iso20-dc-secc-baseline``, a real
+    DC-BPT / Dynamic / EIM charger from ``iso20.pcap``) and ISO-20 AC as of #100
+    (``iso20-ac-secc-baseline``, a real plain-AC / Dynamic / EIM charger from
+    ``HAL+TCP_ISO_20_AC_Example.pcap``). No-op when no personality is attached,
+    when the negotiated protocol is not a known tree protocol, or when the tree
+    carries nothing for that protocol/message.
 
     *skip_fields* forwards to :func:`apply_message_field_tree` to leave named
     top-level fields at the builder's computed value while still applying the
@@ -1451,6 +1453,16 @@ class ACChargeParameterDiscovery(StateSECC):
                 ac_params=params if energy_service == ServiceV20.AC else None,
                 bpt_ac_params=params if energy_service == ServiceV20.AC_BPT else None,
             )
+            # Apply the personality's message field tree onto the built Res
+            # (ADR-0006 #100), mirroring the DC CPDRes site: the tree pokes the
+            # present sub-model (`{bpt_,}ac_params`) so a tree-sourced AC / AC-BPT
+            # envelope reaches the wire; the absent one is left untouched, so a
+            # plain-AC session keeps its `ac_params`. Placed before the data-context
+            # updates for symmetry with the DC path (the AC updates read the *Req*,
+            # not this Res, so ordering is immaterial to internal state here).
+            apply_personality_tree(
+                self.comm_session, ac_cpd_res, "ACChargeParameterDiscoveryRes"
+            )
             # Update EVSE Data Context not needed as comes from cs config
             evse_data_context = self.comm_session.evse_controller.evse_data_context
             evse_data_context.current_type = CurrentType.AC
@@ -1580,6 +1592,9 @@ class ACChargeLoop(StateSECC):
                 else None
             ),
             meter_info=meter_info,
+        )
+        apply_personality_tree(
+            self.comm_session, ac_charge_loop_res, "ACChargeLoopRes"
         )
         await self.comm_session.evse_controller.send_display_params()
         self.create_next_message(

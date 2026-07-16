@@ -15,8 +15,13 @@ Note (#98): the ISO-20 *DC SECC* structured reads (`power.evse_dc_v20`,
 `power.evse_schedule_exchange_v20`) are retired — those wire values are now
 sourced from the `message_field_tree`, so the corresponding SECC builders
 return the model-default *skeleton* and the `*_retired_to_skeleton` tests below
-assert that. The AC SECC (`evse_ac_v20`) read is unchanged (its slice has not
-landed).
+assert that.
+
+Note (#100): the ISO-20 *AC SECC* structured read (`power.evse_ac_v20`) is
+likewise retired — the AC-emitted ISO-20 messages are tree-sourced now, so the
+`get_ac_charge_params_v20` builder returns the `EVSEACLimitsV20` model-default
+skeleton (`test_secc_ac_v20_*_retired_to_skeleton`). The AC EVCC reads
+(`ev_ac_v20` and the AC uses of `schedule_exchange_v20`) are unchanged.
 
 Note (#99): the ISO-20 *DC EVCC* structured reads (`power.ev_dc_v20` and the DC
 uses of `power.schedule_exchange_v20`) are likewise retired — the EVCC-emitted
@@ -115,7 +120,14 @@ def test_evse_schedule_exchange_v20_soc_range_enforced():
 
 
 @pytest.mark.asyncio
-async def test_secc_ac_v20_charge_params_use_personality():
+async def test_secc_ac_v20_charge_params_retired_to_skeleton():
+    # #100 retired the structured `power.evse_ac_v20` ISO-20 AC SECC read: the AC
+    # envelope is now tree-sourced at the ACChargeParameterDiscoveryRes build
+    # site, so this builder returns the `EVSEACLimitsV20` model-default *skeleton*
+    # regardless of the personality's evse_ac_v20 (which no longer reaches the
+    # ISO-20 wire through here).
+    from app.shared.personality.model import EVSEACLimitsV20
+
     personality = SECCPersonality.model_validate(
         {
             "power": {
@@ -132,16 +144,29 @@ async def test_secc_ac_v20_charge_params_use_personality():
     ctrl = SimEVSEController(personality=personality)
     params = await ctrl.get_ac_charge_params_v20(ServiceV20.AC)
 
-    assert params.evse_max_charge_power.get_decimal_value() == 50000.0
-    assert params.evse_max_charge_power_l2.get_decimal_value() == 50000.0
-    assert params.evse_min_charge_power.get_decimal_value() == 250.0
-    assert params.evse_nominal_frequency.get_decimal_value() == 60.0
-    assert params.max_power_asymmetry.get_decimal_value() == 100.0
-    assert params.evse_power_ramp_limit.get_decimal_value() == 300.0
+    default = EVSEACLimitsV20()
+    assert params.evse_max_charge_power.get_decimal_value() == default.max_charge_power_w
+    assert (
+        params.evse_max_charge_power_l2.get_decimal_value() == default.max_charge_power_w
+    )
+    assert params.evse_min_charge_power.get_decimal_value() == default.min_charge_power_w
+    assert (
+        params.evse_nominal_frequency.get_decimal_value() == default.nominal_frequency_hz
+    )
+    assert params.max_power_asymmetry.get_decimal_value() == default.max_power_asymmetry_w
+    assert (
+        params.evse_power_ramp_limit.get_decimal_value()
+        == default.power_ramp_limit_w_per_s
+    )
 
 
 @pytest.mark.asyncio
-async def test_secc_ac_bpt_v20_discharge_uses_personality():
+async def test_secc_ac_bpt_v20_discharge_retired_to_skeleton():
+    # #100: the AC-BPT discharge envelope is likewise tree-sourced now (an AC-BPT
+    # device pins it as BPT_AC_CPDResEnergyTransferMode leaves), so the builder
+    # returns the model-default skeleton, not the personality's evse_ac_v20.
+    from app.shared.personality.model import EVSEACLimitsV20
+
     personality = SECCPersonality.model_validate(
         {
             "power": {
@@ -155,8 +180,15 @@ async def test_secc_ac_bpt_v20_discharge_uses_personality():
     ctrl = SimEVSEController(personality=personality)
     params = await ctrl.get_ac_charge_params_v20(ServiceV20.AC_BPT)
 
-    assert params.evse_max_discharge_power.get_decimal_value() == 15000.0
-    assert params.evse_min_discharge_power_l2.get_decimal_value() == 60.0
+    default = EVSEACLimitsV20()
+    assert (
+        params.evse_max_discharge_power.get_decimal_value()
+        == default.bpt_max_discharge_power_w
+    )
+    assert (
+        params.evse_min_discharge_power_l2.get_decimal_value()
+        == default.bpt_min_discharge_power_w
+    )
 
 
 @pytest.mark.asyncio
