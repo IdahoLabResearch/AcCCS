@@ -111,8 +111,8 @@ COMBOS: list[Combo] = [
 # corpus README.
 DEFERRED: list[dict] = [
     {"protocol": "iso15118-2", "energy_mode": "ac", "reason": "No ISO-2 AC personality in-tree (only DC variants ship today)."},
-    {"protocol": "iso15118-20", "energy_mode": "ac-bpt", "reason": "ISO-20 AC-BPT example personality exists but state machine support is unverified end-to-end."},
-    {"protocol": "iso15118-20", "energy_mode": "dc-bpt", "reason": "ISO-20 DC-BPT example personality exists but state machine support is unverified end-to-end."},
+    {"protocol": "iso15118-20", "energy_mode": "ac-bpt", "reason": "ISO-20 AC-BPT end-to-end path verified (#106); no BPT veth capture shipped yet."},
+    {"protocol": "iso15118-20", "energy_mode": "dc-bpt", "reason": "ISO-20 DC-BPT end-to-end path verified (#106); no BPT veth capture shipped yet."},
     {"protocol": "iso15118-20", "energy_mode": "wpt", "reason": "ISO-20 WPT — only a single codec fixture (WPTPairingReq); no end-to-end session support."},
     {"protocol": "iso15118-20", "energy_mode": "acdp", "reason": "ISO-20 ACDP — only a single codec fixture (ACDPConnectReq); no end-to-end session support."},
 ]

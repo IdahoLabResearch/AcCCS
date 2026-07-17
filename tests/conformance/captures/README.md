@@ -66,8 +66,8 @@ Per ADR-0003:
 | `din-dc`           | din70121     | dc          | `din_dc_extended-{secc,evcc}`     | 116     |
 | `iso2-eim-dc`      | iso15118-2   | dc          | `iso2_eim_dc-{secc,evcc}`         | 122     |
 | `iso2-pnc-dc`      | iso15118-2   | dc          | `iso2_pnc_dc-{secc,evcc}`         | 130     |
-| `iso20-ac`         | iso15118-20  | ac          | `iso20_ac-{secc,evcc}`            | 92      |
-| `iso20-dc`         | iso15118-20  | dc          | `iso20_dc-{secc,evcc}`            | 144     |
+| `iso20-ac`         | iso15118-20  | ac          | `iso20_ac-{secc,evcc}`            | 88      |
+| `iso20-dc`         | iso15118-20  | dc          | `iso20_dc-{secc,evcc}`            | 136     |
 
 Record counts are the JSONL line count per capture. The deduplicated
 replay test count fluctuates by ±a few between re-captures because some
@@ -93,8 +93,8 @@ before the next major release.
 | Protocol     | Energy mode | Reason                                                                                                            |
 |--------------|-------------|-------------------------------------------------------------------------------------------------------------------|
 | iso15118-2   | ac          | No ISO-2 AC personality ships in `personalities/` today (only DC variants).                                       |
-| iso15118-20  | ac-bpt      | Example personality exists; end-to-end state-machine path not verified.                                           |
-| iso15118-20  | dc-bpt      | Example personality exists; end-to-end state-machine path not verified.                                           |
+| iso15118-20  | ac-bpt      | End-to-end path verified (#106); no BPT veth capture shipped yet.                                                 |
+| iso15118-20  | dc-bpt      | End-to-end path verified (#106); no BPT veth capture shipped yet.                                                 |
 | iso15118-20  | wpt         | Codec fixture covers `WPTPairingReq` alone; no end-to-end state-machine path.                                     |
 | iso15118-20  | acdp        | Codec fixture covers `ACDPConnectReq` alone; no end-to-end state-machine path.                                    |
 

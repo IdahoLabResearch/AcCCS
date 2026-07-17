@@ -1,9 +1,9 @@
 source: veth
 protocol: din70121
 energy_mode: dc
-captured_at: 2026-05-27
+captured_at: 2026-07-16
 secc_personality: din_dc_extended-secc
 evcc_personality: din_dc_extended-evcc
 messages: 116
 notes: |
-  DIN 70121 DC happy-path session (per-role din_dc_extended-{secc,evcc}).
+  DIN 70121 DC happy-path session (per-role din_dc_extended-{secc,evcc}, each tree-backed via its DIN baseline).

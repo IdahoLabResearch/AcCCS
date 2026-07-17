@@ -1,9 +1,9 @@
 source: veth
 protocol: iso15118-20
 energy_mode: dc
-captured_at: 2026-05-27
+captured_at: 2026-07-16
 secc_personality: iso20_dc-secc
 evcc_personality: iso20_dc-evcc
-messages: 144
+messages: 136
 notes: |
-  ISO 15118-20 DC happy-path (per-role iso20_dc-{secc,evcc}).
+  ISO 15118-20 DC happy-path (per-role iso20_dc-{secc,evcc}, each tree-backed via its ISO-20 DC baseline).
