@@ -1,8 +1,8 @@
 # Conformance DIN 70121 SECC variant test personality.
 #
-# Mirrors `personalities/din_reference.yaml` so the E2E suite can
-# pin a `din-variant` scenario without dragging the example file into the
-# conformance test directory.
+# A self-contained DIN 70121 variant (TLS off, DC_core energy transfer mode)
+# so the E2E suite can pin a `din-variant` scenario without dragging an example
+# file into the conformance test directory.
 capabilities:
   supported_protocols:
   - DIN_SPEC_70121

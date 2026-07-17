@@ -1,0 +1,28 @@
+# Example ISO 15118-20 AC-BPT EVCC device personality (ADR-0006 / #106).
+#
+# The EVCC half of the tree-migrated `example_iso20_ac_bpt_variant.yaml`. A thin
+# device override that `extends: iso20-ac-evcc-baseline` (the plain-AC
+# HAL-reference tree, #101) and flips the requested energy service to AC_BPT so
+# the vehicle requests bidirectional AC and builds the
+# `BPT_AC_CPDReqEnergyTransferMode` sub-model. It pins the requested BPT
+# charge/discharge envelope that makes this vehicle distinct on the wire; the
+# EVCCID is runtime-derived (NIC MAC), so the envelope is the vehicle's
+# distinction. (The baseline's inherited plain-AC `AC_CPDReqEnergyTransferMode`
+# leaves are inert under an AC_BPT session.)
+#
+# Run an ISO 15118-20 AC-BPT session with the per-role pair on both sides:
+#   python run_secc.py --config iso20_ac_bpt-secc --virtual
+#   python run_evcc.py --config iso20_ac_bpt-evcc --virtual
+extends: iso20-ac-evcc-baseline
+role: evcc
+capabilities:
+  supported_energy_services:
+    - AC_BPT
+message_field_tree:
+  ISO_15118_20_AC:
+    ACChargeParameterDiscoveryReq:
+      # Requested BPT envelope (power-envelope leaves); the remaining required
+      # BPT leaves are builder-produced onto the constructed sub-model.
+      BPT_AC_CPDReqEnergyTransferMode:
+        EVMaximumChargePower: {Exponent: 0, Value: 8000}
+        EVMaximumDischargePower: {Exponent: 0, Value: -8000}

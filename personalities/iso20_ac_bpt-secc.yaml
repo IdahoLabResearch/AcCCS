@@ -1,0 +1,38 @@
+# Example ISO 15118-20 AC-BPT SECC device personality (ADR-0006 / #106).
+#
+# The SECC half of the tree-migrated `example_iso20_ac_bpt_variant.yaml`. A thin
+# device override that `extends: iso20-ac-secc-baseline` (the plain-AC
+# HAL-reference tree, #100) and flips the advertised energy service to AC_BPT so
+# the emulator negotiates bidirectional AC and builds the
+# `BPT_AC_CPDResEnergyTransferMode` sub-model. It then pins the leaves that make
+# this device distinct on the wire: its announced EVSEID, a BPT charge/discharge
+# envelope, and the meter identity it reports in ACChargeLoopRes. (The baseline's
+# inherited plain-AC `AC_CPDResEnergyTransferMode` leaves are inert under an
+# AC_BPT session — the builder constructs the BPT sub-model instead.)
+#
+# Run an ISO 15118-20 AC-BPT session with the per-role pair on both sides:
+#   python run_secc.py --config iso20_ac_bpt-secc --virtual
+#   python run_evcc.py --config iso20_ac_bpt-evcc --virtual
+extends: iso20-ac-secc-baseline
+role: secc
+capabilities:
+  # Flip plain AC -> AC_BPT so the EVCC selects the bidirectional service.
+  supported_energy_services:
+    - AC_BPT
+residual:
+  metering:
+    starting_reading_wh: 412000
+message_field_tree:
+  ISO_15118_20_AC:
+    SessionSetupRes:
+      EVSEID: SwitchACBPT01
+    ACChargeParameterDiscoveryRes:
+      # BPT envelope (power-envelope leaves): charge maximum plus a signed
+      # discharge maximum (the BPT discharge direction). The remaining required
+      # BPT leaves are builder-produced onto the constructed sub-model.
+      BPT_AC_CPDResEnergyTransferMode:
+        EVSEMaximumChargePower: {Exponent: 1, Value: 12000}
+        EVSEMaximumDischargePower: {Exponent: 1, Value: -12000}
+    ACChargeLoopRes:
+      MeterInfo:
+        MeterID: Switch-Meter-ISO20-ACBPT-001

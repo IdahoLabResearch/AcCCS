@@ -17,8 +17,8 @@ source: hw:<device-label>    # captured against a real device (EV or EVSE)
 protocol: din70121           # one of: din70121 | iso15118-2 | iso15118-20
 energy_mode: dc              # ac | dc | bpt | wpt | acdp
 captured_at: 2026-05-27
-secc_personality: din_reference
-evcc_personality: din_reference
+secc_personality: din_dc_extended-secc
+evcc_personality: din_dc_extended-evcc
 messages: 116
 notes: |
   Free-form context. Hardware identity, lab conditions, anything a
@@ -63,11 +63,11 @@ Per ADR-0003:
 
 | Capture            | Protocol     | Energy mode | Personality                       | Records |
 |--------------------|--------------|-------------|-----------------------------------|---------|
-| `din-dc`           | din70121     | dc          | `din_reference`                   | 116     |
+| `din-dc`           | din70121     | dc          | `din_dc_extended-{secc,evcc}`     | 116     |
 | `iso2-eim-dc`      | iso15118-2   | dc          | `iso2_eim_dc-{secc,evcc}`         | 122     |
 | `iso2-pnc-dc`      | iso15118-2   | dc          | `iso2_pnc_dc-{secc,evcc}`         | 130     |
-| `iso20-ac`         | iso15118-20  | ac          | `example_iso20_ac_variant`        | 92      |
-| `iso20-dc`         | iso15118-20  | dc          | `iso20_dc`                        | 144     |
+| `iso20-ac`         | iso15118-20  | ac          | `iso20_ac-{secc,evcc}`            | 92      |
+| `iso20-dc`         | iso15118-20  | dc          | `iso20_dc-{secc,evcc}`            | 144     |
 
 Record counts are the JSONL line count per capture. The deduplicated
 replay test count fluctuates by ±a few between re-captures because some

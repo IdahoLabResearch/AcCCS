@@ -1,0 +1,22 @@
+# Example ISO 15118-20 DC-BPT EVCC device personality (ADR-0006 / #106).
+#
+# The EVCC half of the tree-migrated `example_iso20_dc_bpt_variant.yaml`. A thin
+# device override that `extends: iso20-dc-evcc-baseline` (the DC-BPT-seeded
+# HAL-reference tree, #99) — the baseline already requests DC_BPT, so this only
+# pins the requested BPT charge-power maximum that makes this vehicle distinct on
+# the wire. The EVCCID is runtime-derived (NIC MAC), so the requested envelope is
+# the vehicle's distinction. Every other EVCC wire value is inherited (deep-merge
+# supplies the siblings).
+#
+# Run an ISO 15118-20 DC-BPT session with the per-role pair on both sides:
+#   python run_secc.py --config iso20_dc_bpt-secc --virtual
+#   python run_evcc.py --config iso20_dc_bpt-evcc --virtual
+extends: iso20-dc-evcc-baseline
+role: evcc
+message_field_tree:
+  ISO_15118_20_DC:
+    DCChargeParameterDiscoveryReq:
+      # Lowered requested charge-power maximum vs the baseline's 18 kW
+      # (power-envelope leaf); the remaining BPT envelope leaves are inherited.
+      BPT_DC_CPDReqEnergyTransferMode:
+        EVMaximumChargePower: {Exponent: 0, Value: 15000}

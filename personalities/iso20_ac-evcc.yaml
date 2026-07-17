@@ -1,0 +1,23 @@
+# Example ISO 15118-20 AC EVCC device personality (ADR-0006 / #106).
+#
+# The EVCC half of the tree-migrated `example_iso20_ac_variant.yaml`. A thin
+# device override that `extends: iso20-ac-evcc-baseline` (the HAL-reference AC
+# tree, #101) and pins only the requested plain-AC charge-power envelope that
+# makes this vehicle distinct on the wire. The EVCCID is runtime-derived (the
+# NIC MAC on ISO-20), so — unlike the SECC half — the vehicle has no tree-pinnable
+# identity leaf; its distinction is the requested envelope. Every other EVCC wire
+# value is inherited from the tree-backed baseline (deep-merge supplies the
+# siblings).
+#
+# Run an ISO 15118-20 AC session with the per-role pair on both sides:
+#   python run_secc.py --config iso20_ac-secc --virtual
+#   python run_evcc.py --config iso20_ac-evcc --virtual
+extends: iso20-ac-evcc-baseline
+role: evcc
+message_field_tree:
+  ISO_15118_20_AC:
+    ACChargeParameterDiscoveryReq:
+      # Lowered requested charge-power maximum vs the baseline's 12 kW
+      # (power-envelope leaf); the min-power sibling is inherited.
+      AC_CPDReqEnergyTransferMode:
+        EVMaximumChargePower: {Exponent: 0, Value: 9000}

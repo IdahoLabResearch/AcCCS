@@ -1,9 +1,9 @@
 # Conformance DIN 70121 EVCC variant test personality.
 #
-# Mirrors `personalities/din_reference.yaml` so the E2E suite can
-# pin a `din-variant` scenario without dragging the example file into the
-# conformance test directory. The interface (network/) is the conformance
-# veth pair; everything else matches the variant.
+# A self-contained DIN 70121 variant (TLS off, DC_core energy transfer mode)
+# so the E2E suite can pin a `din-variant` scenario without dragging an example
+# file into the conformance test directory. The interface (network/) is the
+# conformance veth pair; everything else matches the variant.
 capabilities:
   supported_protocols:
   - DIN_SPEC_70121

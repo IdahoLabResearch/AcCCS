@@ -196,15 +196,15 @@ The repository ships a starter library under `personalities/`:
 | `default-evcc.yaml` / `default-secc.yaml` | All | Materialised model defaults — regenerated from the Pydantic model. |
 | `din_dc_extended-evcc.yaml` / `din_dc_extended-secc.yaml` | DIN 70121 | **Default `--config`** (per role). DIN-only, TLS off, `DC_extended` — the mode production vehicles request. Each `extends:` its per-role baseline. |
 | `din-evcc-baseline.yaml` / `din-secc-baseline.yaml` | DIN 70121 | Per-role DIN baselines (ADR-0006). The advertised DC energy transfer mode is single-sourced from the SECC baseline's `message_field_tree`. The full ABB/Cadillac trees land here in #73/#74. |
-| `din_reference.yaml` | DIN 70121 | DIN-only emulator, TLS off, alternate energy transfer mode (DC_core, a tree leaf now — under `ServiceDiscoveryRes` for the SECC and `ChargeParameterDiscoveryReq` for the EVCC, #105) for the personality-swap demo, and a higher `charge_ramp` PreCharge target. |
 | `iso2-secc-baseline.yaml` | ISO 15118-2 DC | Per-role ISO-2 **SECC** baseline (ADR-0006 / #96), seeded field-for-field from `HAL+TCP_ISO_2_DC_Example.pcap`. Every SECC-emitted ISO-2 message is tree-sourced; device files `extends:` this. |
 | `iso2-evcc-baseline.yaml` | ISO 15118-2 DC | Per-role ISO-2 **EVCC** baseline (ADR-0006 / #97), seeded field-for-field from `Mach-E-ISO.pcapng`. Every EVCC-emitted ISO-2 message is tree-sourced; device files `extends:` this. |
 | `iso2_eim_dc-secc.yaml` / `iso2_eim_dc-evcc.yaml` | ISO 15118-2 DC | EIM (External Identification Means) auth — no contract certs, no PnC. Per-role split (#96/#97): the SECC side `extends: iso2-secc-baseline` and pins its EVSEID; the EVCC side `extends: iso2-evcc-baseline` and adds its target start values. |
 | `iso2_pnc_dc-secc.yaml` / `iso2_pnc_dc-evcc.yaml` | ISO 15118-2 DC | PnC (Plug-and-Charge) auth — TLS mandatory, contract cert chain required. Per-role split (#96/#97): the SECC side `extends: iso2-secc-baseline` and the EVCC side `extends: iso2-evcc-baseline`, both selecting the Contract payment option with TLS on. |
-| `iso20_dc.yaml` | ISO 15118-20 DC | DC energy service over ISO 15118-20 (TLS 1.3 mandatory). |
-| `example_iso20_ac_variant.yaml` | ISO 15118-20 AC | AC energy service. |
-| `example_iso20_ac_bpt_variant.yaml` | ISO 15118-20 AC-BPT | Bidirectional AC. |
-| `example_iso20_dc_bpt_variant.yaml` | ISO 15118-20 DC-BPT | Bidirectional DC. |
+| `iso20-{ac,dc}-{secc,evcc}-baseline.yaml` | ISO 15118-20 AC / DC | Per-role ISO-20 baselines (ADR-0006 / #98–#101), seeded field-for-field from the HAL captures. Every role-emitted ISO-20 message is tree-sourced; device files `extends:` these. |
+| `iso20_ac-secc.yaml` / `iso20_ac-evcc.yaml` | ISO 15118-20 AC | AC energy service. Per-role split (#106): each `extends:` its `iso20-ac-*-baseline` and pins a distinct EVSEID (SECC), charge-power envelope, and MeterID. |
+| `iso20_ac_bpt-secc.yaml` / `iso20_ac_bpt-evcc.yaml` | ISO 15118-20 AC-BPT | Bidirectional AC. Per-role split (#106): each `extends:` its `iso20-ac-*-baseline`, flips `supported_energy_services` to `AC_BPT`, and pins a BPT charge/discharge envelope. |
+| `iso20_dc-secc.yaml` / `iso20_dc-evcc.yaml` | ISO 15118-20 DC | DC energy service (TLS 1.3 mandatory). Per-role split (#106): each `extends:` its `iso20-dc-*-baseline`, narrows `supported_energy_services` to plain `DC`, and pins a distinct EVSEID (SECC), plain-DC envelope, and MeterID. |
+| `iso20_dc_bpt-secc.yaml` / `iso20_dc_bpt-evcc.yaml` | ISO 15118-20 DC-BPT | Bidirectional DC. Per-role split (#106): each `extends:` its (already DC-BPT) `iso20-dc-*-baseline` and pins a distinct EVSEID (SECC), lowered BPT envelope leaf, and MeterID. |
 
 Stock defaults are regenerated from the model via
 `python scripts/regen_personality_defaults.py`. The drift test

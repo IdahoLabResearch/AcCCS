@@ -60,11 +60,12 @@ class Combo:
 COMBOS: list[Combo] = [
     Combo(
         name="din-dc",
-        secc_config="din_reference",
-        evcc_config="din_reference",
+        secc_config="din_dc_extended-secc",
+        evcc_config="din_dc_extended-evcc",
         protocol="din70121",
         energy_mode="dc",
-        notes="DIN 70121 DC happy-path session (din_reference personality, both roles).",
+        notes="DIN 70121 DC happy-path session (per-role din_dc_extended-{secc,evcc}, "
+        "each tree-backed via its DIN baseline).",
     ),
     Combo(
         name="iso2-eim-dc",
@@ -86,19 +87,21 @@ COMBOS: list[Combo] = [
     ),
     Combo(
         name="iso20-ac",
-        secc_config="example_iso20_ac_variant",
-        evcc_config="example_iso20_ac_variant",
+        secc_config="iso20_ac-secc",
+        evcc_config="iso20_ac-evcc",
         protocol="iso15118-20",
         energy_mode="ac",
-        notes="ISO 15118-20 AC happy-path (example_iso20_ac_variant personality).",
+        notes="ISO 15118-20 AC happy-path (per-role iso20_ac-{secc,evcc}, each "
+        "tree-backed via its ISO-20 AC baseline).",
     ),
     Combo(
         name="iso20-dc",
-        secc_config="iso20_dc",
-        evcc_config="iso20_dc",
+        secc_config="iso20_dc-secc",
+        evcc_config="iso20_dc-evcc",
         protocol="iso15118-20",
         energy_mode="dc",
-        notes="ISO 15118-20 DC happy-path (iso20_dc personality, both roles).",
+        notes="ISO 15118-20 DC happy-path (per-role iso20_dc-{secc,evcc}, each "
+        "tree-backed via its ISO-20 DC baseline).",
     ),
 ]
 

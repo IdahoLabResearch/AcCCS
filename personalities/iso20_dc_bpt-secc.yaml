@@ -1,0 +1,32 @@
+# Example ISO 15118-20 DC-BPT SECC device personality (ADR-0006 / #106).
+#
+# The SECC half of the tree-migrated `example_iso20_dc_bpt_variant.yaml`. A thin
+# device override that `extends: iso20-dc-secc-baseline` (the DC-BPT-seeded
+# HAL-reference tree, #98) — the baseline already advertises DC_BPT, so this only
+# pins the leaves that make this device distinct on the wire: its announced
+# EVSEID, a lowered BPT charge-power maximum, and the meter identity it reports
+# in DCChargeLoopRes. Every other SECC wire value (the rest of the BPT envelope,
+# the service advertisement, TLS posture) is inherited (deep-merge supplies the
+# siblings, so overriding a single envelope leaf is legal).
+#
+# Run an ISO 15118-20 DC-BPT session with the per-role pair on both sides:
+#   python run_secc.py --config iso20_dc_bpt-secc --virtual
+#   python run_evcc.py --config iso20_dc_bpt-evcc --virtual
+extends: iso20-dc-secc-baseline
+role: secc
+residual:
+  metering:
+    starting_reading_wh: 525000
+message_field_tree:
+  ISO_15118_20_DC:
+    SessionSetupRes:
+      # Distinct from the baseline's `PcLoadLetter` (identity leaf).
+      EVSEID: SwitchDCBPT01
+    DCChargeParameterDiscoveryRes:
+      # Lowered charge-power maximum vs the baseline's 44 kW (power-envelope
+      # leaf); the ten remaining BPT envelope leaves are inherited.
+      BPT_DC_CPDResEnergyTransferMode:
+        EVSEMaximumChargePower: {Exponent: 1, Value: 3500}
+    DCChargeLoopRes:
+      MeterInfo:
+        MeterID: Switch-Meter-ISO20-DCBPT-001

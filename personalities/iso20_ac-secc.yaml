@@ -1,0 +1,34 @@
+# Example ISO 15118-20 AC SECC device personality (ADR-0006 / #106).
+#
+# The SECC half of the tree-migrated `example_iso20_ac_variant.yaml`. A thin
+# device override that `extends: iso20-ac-secc-baseline` (the HAL-reference AC
+# tree, #100) and pins only the leaves that make this device distinct on the
+# wire: its announced EVSEID, a lowered plain-AC charge-power envelope, and the
+# meter identity it reports in ACChargeLoopRes. Every other SECC wire value
+# (the rest of the AC envelope, the service advertisement, TLS posture) is
+# inherited from the tree-backed baseline (deep-merge supplies the siblings, so
+# overriding a single envelope leaf is legal).
+#
+# Run an ISO 15118-20 AC session with the per-role pair on both sides:
+#   python run_secc.py --config iso20_ac-secc --virtual
+#   python run_evcc.py --config iso20_ac-evcc --virtual
+extends: iso20-ac-secc-baseline
+role: secc
+residual:
+  # No static wire form for the meter reading start seed, so it stays residual;
+  # the MeterID it labels is the ACChargeLoopRes tree leaf below.
+  metering:
+    starting_reading_wh: 200000
+message_field_tree:
+  ISO_15118_20_AC:
+    SessionSetupRes:
+      # Distinct from the baseline's `PcLoadLetter` (identity leaf).
+      EVSEID: SwitchAC0001
+    ACChargeParameterDiscoveryRes:
+      # Lowered charge-power maximum vs the baseline's 200 kW (power-envelope
+      # leaf); the min-power / nominal-frequency siblings are inherited.
+      AC_CPDResEnergyTransferMode:
+        EVSEMaximumChargePower: {Exponent: 1, Value: 15000}
+    ACChargeLoopRes:
+      MeterInfo:
+        MeterID: Switch-Meter-ISO20-AC-001

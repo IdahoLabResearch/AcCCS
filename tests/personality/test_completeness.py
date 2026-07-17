@@ -68,7 +68,7 @@ def test_empty_tree_personalities_load():
         ("default-secc", "secc"),
         ("default-evcc", "evcc"),
         ("default-no-tls-secc", "secc"),
-        ("iso20_dc", "secc"),
+        ("iso20_dc-secc", "secc"),
     ],
 )
 def test_non_din_shipped_personalities_load(name, role):

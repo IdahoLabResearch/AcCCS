@@ -1,0 +1,38 @@
+# Example ISO 15118-20 DC SECC device personality (ADR-0006 / #106).
+#
+# The SECC half of the tree-migrated `iso20_dc.yaml`. A thin device override that
+# `extends: iso20-dc-secc-baseline` (the DC-BPT-seeded HAL-reference tree, #98)
+# and narrows the advertised energy service to plain DC, so the emulator
+# negotiates unidirectional DC and builds the `DC_CPDResEnergyTransferMode`
+# sub-model instead of the baseline's BPT one. It then pins the leaves that make
+# this device distinct on the wire: its announced EVSEID, a plain-DC charge-power
+# maximum, and the meter identity it reports in DCChargeLoopRes. (The baseline's
+# inherited `BPT_DC_CPDResEnergyTransferMode` leaves are inert under a plain-DC
+# session — the builder constructs the non-BPT sub-model instead.)
+#
+# Run an ISO 15118-20 DC session with the per-role pair on both sides:
+#   python run_secc.py --config iso20_dc-secc --virtual
+#   python run_evcc.py --config iso20_dc-evcc --virtual
+extends: iso20-dc-secc-baseline
+role: secc
+capabilities:
+  # Narrow to plain DC so the EVCC selects the unidirectional service.
+  supported_energy_services:
+    - DC
+residual:
+  metering:
+    starting_reading_wh: 300000
+message_field_tree:
+  ISO_15118_20_DC:
+    SessionSetupRes:
+      # Distinct from the baseline's `PcLoadLetter` (identity leaf).
+      EVSEID: SwitchDC0001
+    DCChargeParameterDiscoveryRes:
+      # Plain-DC charge-power maximum (power-envelope leaf); the remaining
+      # plain-DC envelope leaves are builder-produced onto the constructed
+      # sub-model.
+      DC_CPDResEnergyTransferMode:
+        EVSEMaximumChargePower: {Exponent: 1, Value: 5000}
+    DCChargeLoopRes:
+      MeterInfo:
+        MeterID: Switch-Meter-ISO20-DC-001
