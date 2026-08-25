@@ -20,7 +20,10 @@ test_*
 !tests/**/test_*.py
 !tests/**/conftest.py
 
-PWM_PCB.kicad_prl
+# Kicad artifacts
+*.kicad_prl
+fp-info-cache
+
 server_keylog.log
 client_keylog.log
 
