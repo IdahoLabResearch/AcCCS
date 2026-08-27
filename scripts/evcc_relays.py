@@ -30,7 +30,9 @@ state A, so a walked-away-from session never leaves the EVSE seeing a
 plugged-in EV.
 
 Needs the real hardware: an SMBus-capable host (the Pi) with the relay board
-on I2C bus 1, run as a user with access to /dev/i2c-1.
+on I2C bus 1, run as a user with access to /dev/i2c-1. Anywhere else - no
+smbus, no bus, or no permission on it - it exits with a one-line explanation
+rather than a traceback.
 """
 
 from __future__ import annotations
@@ -82,17 +84,35 @@ class RelayBoard:
 
     def __init__(self):
         try:
-            import smbus  # noqa: F401 - presence check, EvccRelays opens the bus
+            # The exact import `RelayBank` performs, so this check fails in
+            # every case its own would: no smbus, and an smbus without the
+            # SMBus its bus handle comes from. An ImportError is not an
+            # OSError, so one escaping here would land as a traceback.
+            from smbus import SMBus  # noqa: F401 - presence check only
         except ImportError:
             sys.exit(
                 "smbus is not available - this script only runs on the "
                 "hardware host (the Pi)."
             )
 
-        self.relays = EvccRelays(virtual=False)
-        # Claim only the EV side's pins as outputs; the SECC's and the unused
-        # spares keep their direction.
-        self.relays.initialize()
+        # Opening the bus and claiming our pins are the two operations that
+        # can fail on an otherwise healthy host - no expander wired up, or
+        # /dev/i2c-1 there but not readable by this user. Both are ordinary
+        # bench conditions, so they get the same message-not-traceback
+        # treatment as a missing smbus.
+        self.relays = None
+        try:
+            self.relays = EvccRelays(virtual=False)
+            # Claim only the EV side's pins as outputs; the SECC's and the
+            # unused spares keep their direction.
+            self.relays.initialize()
+        except OSError as exc:
+            self._release()
+            sys.exit(
+                f"Cannot reach the relay board at {I2C_ADDR:#04x} on I2C bus "
+                f"{I2C_BUS}: {exc}. Check the board is wired up and that this "
+                f"user can read /dev/i2c-{I2C_BUS}."
+            )
         self.state = None
         self._closed = False
 
@@ -117,10 +137,17 @@ class RelayBoard:
         except OSError as exc:
             say(f"Failed to open relays: {exc}")
         finally:
-            try:
-                self.relays.close()
-            except OSError:
-                pass
+            self._release()
+
+    def _release(self) -> None:
+        """Drop the bus handle, tolerating one that was never opened or has
+        already gone away - both are ways out of a failed `__init__`."""
+        if self.relays is None:
+            return
+        try:
+            self.relays.close()
+        except OSError:
+            pass
 
 
 def install_exit_hooks(board: RelayBoard) -> None:
