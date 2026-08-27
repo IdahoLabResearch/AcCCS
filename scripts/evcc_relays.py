@@ -2,9 +2,12 @@
 """Interactive control of the EVCC control-pilot relays, no emulator attached.
 
 Bench helper for exercising the I2C relay board and the CP/PP wiring in
-isolation: it writes the same register values `PEV.setState()` writes
-(`app/evcc/controller/pev.py`) but without loading a personality, running
-SLAC, or opening a session. Type a state, watch the EVSE react.
+isolation: it drives the relays through the same shared module the emulator
+uses (`app/shared/relays.py`) but without loading a personality, running SLAC,
+or opening a session. Type a state, watch the EVSE react.
+
+Like the emulator it touches only the EV side's pins (issue #108), so a SECC
+running on the same box keeps its relays while you drive states here.
 
 States (as seen by the EVSE):
 
@@ -35,22 +38,23 @@ from __future__ import annotations
 import atexit
 import signal
 import sys
+from pathlib import Path
 
-# I2C relay board wiring, mirrored from PEV.__init__ so this script stays
-# usable when the emulator itself won't start. Keep the two in sync.
-I2C_BUS = 1
-I2C_ADDR = 0x20
-CONTROL_REG = 0x9
-PEV_CP1 = 0b10
-PEV_CP2 = 0b100
-PEV_PP = 0b10000
-ALL_OFF = 0b0
+# Run straight out of the repo (`python scripts/evcc_relays.py`): only the
+# script's own directory lands on sys.path, so put the repo root there too and
+# the shared relay module imports the same way it does for the emulator.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
 
-STATE_MASKS = {
-    "A": ALL_OFF,
-    "B": PEV_PP | PEV_CP1,
-    "C": PEV_PP | PEV_CP1 | PEV_CP2,
-}
+from app.shared.EmulatorEnum import PEVState  # noqa: E402
+from app.shared.relays import (  # noqa: E402
+    EVCC_MASK,
+    I2C_ADDR,
+    I2C_BUS,
+    EvccRelays,
+)
+
+STATES = {"A": PEVState.A, "B": PEVState.B, "C": PEVState.C}
 
 PROMPT = "state> "
 HELP = "Enter a state (a/b/c), '?' for this help, or 'q' to quit."
@@ -69,43 +73,52 @@ def say(message: str) -> None:
 
 
 class RelayBoard:
-    """The I2C relay board, with a guaranteed open-on-exit."""
+    """The EV side's relays, with a guaranteed open-on-exit.
+
+    A thin bench wrapper over the shared `EvccRelays`: the bus handle, the
+    masks, and the read-modify-write live there, so this script cannot drift
+    from what the emulator actually writes — or clobber the SECC's pins.
+    """
 
     def __init__(self):
         try:
-            from smbus import SMBus
+            import smbus  # noqa: F401 - presence check, EvccRelays opens the bus
         except ImportError:
             sys.exit(
                 "smbus is not available - this script only runs on the "
                 "hardware host (the Pi)."
             )
 
-        self.bus = SMBus(I2C_BUS)
-        # Same initialisation PEV.start() performs before its first write.
-        self.bus.write_byte_data(I2C_ADDR, 0x00, 0x00)
+        self.relays = EvccRelays(virtual=False)
+        # Claim only the EV side's pins as outputs; the SECC's and the unused
+        # spares keep their direction.
+        self.relays.initialize()
         self.state = None
         self._closed = False
 
     def set_state(self, state: str) -> None:
-        mask = STATE_MASKS[state]
-        self.bus.write_byte_data(I2C_ADDR, CONTROL_REG, mask)
+        pev_state = STATES[state]
+        self.relays.set_state(pev_state)
         self.state = state
-        say(f"Going to state {state} (control reg = {mask:#07b})")
+        say(
+            f"Going to state {state} "
+            f"(EV bits = {EvccRelays.STATE_BITS[pev_state]:#07b})"
+        )
 
     def open_all(self) -> None:
-        """Open every relay and close the bus. Safe to call more than once."""
+        """Open our relays and close the bus. Safe to call more than once."""
         if self._closed:
             return
         self._closed = True
         try:
-            self.bus.write_byte_data(I2C_ADDR, CONTROL_REG, ALL_OFF)
+            self.relays.open_proximity()
             self.state = "A"
-            say("All relays open (state A).")
+            say("All EV relays open (state A).")
         except OSError as exc:
             say(f"Failed to open relays: {exc}")
         finally:
             try:
-                self.bus.close()
+                self.relays.close()
             except OSError:
                 pass
 
@@ -132,7 +145,10 @@ def main() -> int:
     board = RelayBoard()
     install_exit_hooks(board)
 
-    say(f"EVCC relay control on I2C bus {I2C_BUS}, address {I2C_ADDR:#04x}.")
+    say(
+        f"EVCC relay control on I2C bus {I2C_BUS}, address {I2C_ADDR:#04x}, "
+        f"driving only the EV side's pins (mask {EVCC_MASK:#010b})."
+    )
     say(HELP)
     # Start from a known line state rather than whatever the board was left in.
     board.set_state("A")
@@ -155,7 +171,7 @@ def main() -> int:
             say(HELP)
             say(f"Current state: {board.state}")
             continue
-        if entry in STATE_MASKS:
+        if entry in STATES:
             try:
                 board.set_state(entry)
             except OSError as exc:

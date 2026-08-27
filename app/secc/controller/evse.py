@@ -35,6 +35,7 @@ from app.shared.personality import (
     load_personality,
     load_runtime,
 )
+from app.shared.relays import SeccRelays
 
 logger = logging.getLogger(__name__)
 
@@ -97,18 +98,12 @@ class EVSE:
 
         self.virtual = self.config.virtual
 
-        if not self.virtual:
-            from smbus import SMBus
-
-            # I2C bus for relays
-            self.bus = SMBus(1)
-
-            # Constants for i2c controlled relays
-            self.I2C_ADDR = 0x20
-            self.CONTROL_REG = 0x9
-            self.EVSE_CP = 0b1
-            self.EVSE_PP = 0b1000
-            self.ALL_OFF = 0b0
+        # Relay wiring lives entirely in `app/shared/relays.py` (issue #108):
+        # the EVSE side touches only the pins it owns, so an EVCC on the same
+        # box keeps its relays.
+        self.relays = SeccRelays(
+            virtual=self.virtual, modified_cordset=self.modified_cordset
+        )
 
     # Start the emulator
     def _teardown_slac(self) -> None:
@@ -150,8 +145,10 @@ class EVSE:
 
     async def start(self):
         if not self.virtual:
-            # Initialize the smbus for I2C commands
-            self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00)
+            # Claim only this role's pins as outputs (the other role's and the
+            # unused spares keep their direction), then assert the startup
+            # present-state edge.
+            self.relays.initialize()
             self.toggleProximity()
 
         self.iface = self.config.iface
@@ -188,9 +185,9 @@ class EVSE:
                     # relay-open state set at the end of the prior cycle
                     # (openProximity below), so the cycle-end open + this re-close
                     # is the edge real hardware needs — without it cycle 2+ SLAC
-                    # never engages (#52). No-op under --virtual (closeProximity
-                    # guards on it); the outer guard keeps the virtual log stream
-                    # unchanged.
+                    # never engages (#52). Under --virtual the relay module
+                    # attempts no bus operation; the guard keeps the log stream
+                    # unchanged too.
                     if not self.virtual:
                         self.closeProximity()  # proximity closed
                     # Console is already live when SLAC begins; re-performed every
@@ -250,27 +247,10 @@ class EVSE:
         logger.info("Done SLAC")
 
     def closeProximity(self):
-        if self.modified_cordset:
-            logger.info("Closing CP/PP relay connections")
-            if not self.virtual:
-                self.bus.write_byte_data(
-                    self.I2C_ADDR, self.CONTROL_REG, self.EVSE_PP | self.EVSE_CP
-                )
-        else:
-            logger.info("Closing CP relay connection")
-            if not self.virtual:
-                self.bus.write_byte_data(
-                    self.I2C_ADDR, self.CONTROL_REG, self.EVSE_CP
-                )
+        self.relays.close_proximity()
 
     def openProximity(self):
-        logger.info("Opening CP/PP relay connections")
-        if not self.virtual:
-            self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.ALL_OFF)
+        self.relays.open_proximity()
 
     def toggleProximity(self, t: int = 5):
-        import time
-
-        self.openProximity()
-        time.sleep(t)
-        self.closeProximity()
+        self.relays.toggle_proximity(t)

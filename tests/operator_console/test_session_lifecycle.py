@@ -393,6 +393,7 @@ from app.evcc.controller.pev import PEV  # noqa: E402
 from app.secc.controller.evse import EVSE  # noqa: E402
 from app.shared.live_control import LiveControl  # noqa: E402
 from app.shared.personality import Runtime  # noqa: E402
+from app.shared.relays import EvccRelays, SeccRelays  # noqa: E402
 
 
 @pytest.mark.parametrize("controller_cls", [PEV, EVSE])
@@ -579,8 +580,13 @@ async def _drive_two_cycles(
         if live_control is not None
         else LiveControl(console_enabled=False, auto_rearm=True)
     )
-    ctrl.bus = types.SimpleNamespace(write_byte_data=lambda *a, **k: None)
-    ctrl.I2C_ADDR = 0x20
+    # The controllers hold no bus wiring of their own since issue #108 — relay
+    # behaviour comes from the shared module — and the proximity methods below
+    # are recorders anyway, so a virtual relay bank (no bus, no bus ops) is all
+    # the loop needs.
+    ctrl.relays = (
+        EvccRelays(virtual=True) if role == "evcc" else SeccRelays(virtual=True)
+    )
     ctrl.toggleProximity = lambda *a, **k: events.append("toggle")
     ctrl.closeProximity = lambda: events.append("close")
 

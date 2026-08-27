@@ -9,7 +9,6 @@
 
 import asyncio
 import logging
-import time
 
 from app.evcc import Config, EVCCHandler
 from app.evcc.controller.simulator import SimEVController
@@ -37,6 +36,7 @@ from app.shared.personality import (
     load_personality,
     load_runtime,
 )
+from app.shared.relays import EvccRelays
 
 logger = logging.getLogger(__name__)
 
@@ -98,19 +98,10 @@ class PEV:
 
         self.virtual = self.config.virtual
 
-        if not self.virtual:
-            from smbus import SMBus
-
-            # I2C bus for relays
-            self.bus = SMBus(1)
-
-            # Constants for i2c controlled relays
-            self.I2C_ADDR = 0x20
-            self.CONTROL_REG = 0x9
-            self.PEV_CP1 = 0b10
-            self.PEV_CP2 = 0b100
-            self.PEV_PP = 0b10000
-            self.ALL_OFF = 0b0
+        # Relay wiring lives entirely in `app/shared/relays.py` (issue #108):
+        # the EV side touches only the pins it owns, so a SECC on the same box
+        # keeps its relays.
+        self.relays = EvccRelays(virtual=self.virtual)
 
     def _teardown_slac(self) -> None:
         """Stop the in-flight SLAC handler on operator quit (issue #40)."""
@@ -150,8 +141,10 @@ class PEV:
 
     async def start(self):
         if not self.virtual:
-            # Initialize the smbus for I2C commands
-            self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00)
+            # Claim only this role's pins as outputs (the other role's and the
+            # unused spares keep their direction), then assert the startup
+            # State A -> B edge.
+            self.relays.initialize()
             self.toggleProximity()
 
         # Reused across cycles: SLAC's `start()` re-initialises its per-cycle
@@ -187,8 +180,8 @@ class PEV:
                     # set at the end of the prior cycle (openProximity below), so
                     # the cycle-end open + this re-close is the unplug→replug edge
                     # real hardware needs — without it cycle 2+ SLAC never engages
-                    # (#52). No-op under --virtual (setState returns early);
-                    # guarded to keep the virtual log stream unchanged.
+                    # (#52). Under --virtual the relay module attempts no bus
+                    # operation; the guard keeps the log stream unchanged too.
                     if not self.virtual:
                         self.closeProximity()  # CP line State B
                     # Console is already live when SLAC begins; re-performed every
@@ -257,32 +250,7 @@ class PEV:
         self.setState(PEVState.A)
 
     def setState(self, state: PEVState):
-        if state == PEVState.A:
-            logger.info("Going to state A")
-            if self.virtual:
-                return
-            else:
-                self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.ALL_OFF)
-        elif state == PEVState.B:
-            logger.info("Going to state B")
-            if self.virtual:
-                return
-            else:
-                self.bus.write_byte_data(
-                    self.I2C_ADDR, self.CONTROL_REG, self.PEV_PP | self.PEV_CP1
-                )
-        elif state == PEVState.C:
-            logger.info("Going to state C")
-            if self.virtual:
-                return
-            else:
-                self.bus.write_byte_data(
-                    self.I2C_ADDR,
-                    self.CONTROL_REG,
-                    self.PEV_PP | self.PEV_CP1 | self.PEV_CP2,
-                )
+        self.relays.set_state(state)
 
     def toggleProximity(self, t: int = 5):
-        self.openProximity()
-        time.sleep(t)
-        self.closeProximity()
+        self.relays.toggle_proximity(t)

@@ -82,6 +82,10 @@ A stalled gate is released only by an explicit operator action on the [[operator
 
 Distinct from [[live-override]] (which changes the *values carried in* loop messages, not whether the loop terminates) and from a [[personality]] (which is immutable and never describes behaviour over time).
 
+## Relay bank
+
+The set of pins on the AcCCS box's shared I2C GPIO expander that *one* role owns and is alone allowed to drive — the [[SECC]]'s control-pilot and proximity-pilot relays, or the [[EVCC]]'s two control-pilot relays and proximity pilot. The two banks are disjoint bit masks on one register, because both roles routinely run on the same box (an [[SECC]] must be listening before an [[EVCC]] initiates). A role changes only the bits inside its own bank and preserves every other bit, so the other role's relays survive its startup, state changes, and return to [[idle]]. Distinct from the *electrical state* a bank expresses (EVCC: CP line State A/B/C; SECC: proximity open/closed), which is what the rest of the glossary names.
+
 ## Live override
 
 An operator action that replaces, in real time, the current/voltage values an emulated device puts on the wire during the charge loop. Role-aware: on an [[EVCC]] it overrides the EV's *requested target* current/voltage (and present voltage in ISO 15118-20); on an [[SECC]] it overrides the EVSE's *reported present* (delivered) current/voltage. An override takes effect on subsequent loop messages and persists until the operator changes or clears it.
