@@ -12,7 +12,6 @@ import logging
 from time import time
 from typing import Any, List, Union
 
-from app.evcc import evcc_settings
 from app.evcc.comm_session_handler import EVCCCommunicationSession
 from app.evcc.states.evcc_state import StateEVCC
 from app.shared.messages.app_protocol import (
@@ -234,27 +233,12 @@ class ServiceDiscovery(StateEVCC):
         )
 
     async def select_energy_transfer_mode(self):
-        """
-        Check if an energy transfer mode was saved from a previously paused
-        communication session and reuse for resumed session, otherwise request
-        from EV controller.
-        """
-        if evcc_settings.RESUME_REQUESTED_ENERGY_MODE:
-            logger.debug(
-                "Reusing energy transfer mode "
-                f"{evcc_settings.RESUME_REQUESTED_ENERGY_MODE} "
-                "from previously paused session"
+        """Request the energy transfer mode from the EV controller."""
+        self.comm_session.selected_energy_mode = (
+            await self.comm_session.ev_controller.get_energy_transfer_mode(
+                Protocol.DIN_SPEC_70121
             )
-            self.comm_session.selected_energy_mode = (
-                evcc_settings.RESUME_REQUESTED_ENERGY_MODE
-            )
-            evcc_settings.RESUME_REQUESTED_ENERGY_MODE = None
-        else:
-            self.comm_session.selected_energy_mode = (
-                await self.comm_session.ev_controller.get_energy_transfer_mode(
-                    Protocol.DIN_SPEC_70121
-                )
-            )
+        )
 
     def select_auth_mode(self, auth_option_list: List[AuthEnum]):
         self.comm_session.selected_auth_option = None

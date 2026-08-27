@@ -211,7 +211,8 @@ class EVCCCommunicationSession(V2GCommunicationSession):
             # increase the counter by 1 for each following entry.
             #
             # To enforce a specific priority of protocols, make sure to list
-            # them in descending order in evcc_settings.SUPPORTED_PROTOCOLS
+            # them in descending order in the personality's
+            # `capabilities.supported_protocols`.
             schema_id += 1
             priority += 1
             app_protocol_entry = AppProtocol(
@@ -267,21 +268,6 @@ class EVCCCommunicationSession(V2GCommunicationSession):
             "Writing session variables to settings for use when "
             "resuming the communication session later"
         )
-
-        # === PAUSING RELATED INFORMATION ===
-        # If a charging session needs to be paused, the EVCC needs to persist certain
-        # information that must be provided again once the communication session
-        # resumes. This information includes:
-        # - Session ID: int or None
-        # - Selected authorization option: must be a member of AuthEnum enum or None
-        # - Requested energy transfer mode: must be a member of EnergyTransferModeEnum
-        #                                   or None
-        # TODO Check what ISO 15118-20 demands for pausing
-
-        # TODO: save the settings into redis
-        # RESUME_SESSION_ID = self.session_id
-        # RESUME_SELECTED_AUTH_OPTION = self.selected_auth_option
-        # RESUME_REQUESTED_ENERGY_MODE = self.selected_energy_mode
 
 
 class CommunicationSessionHandler:

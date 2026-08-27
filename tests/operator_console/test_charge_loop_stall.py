@@ -10,7 +10,6 @@ so the gate logic is fully verifiable headless.
 
 from __future__ import annotations
 
-import pytest
 
 from app.evcc.controller.simulator import SimEVController
 from app.evcc.evcc_config import EVCCConfig

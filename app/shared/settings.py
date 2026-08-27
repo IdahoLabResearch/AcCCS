@@ -3,7 +3,6 @@
     Copyright 2022, Switch
 """
 
-import os
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -21,10 +20,6 @@ class SettingKey:
 
 
 shared_settings: dict = {}
-SHARED_CWD = os.path.dirname(os.path.abspath(__file__))
-
-WORK_DIR = os.getcwd()
-
 
 def init_shared_settings(personality: "_PersonalityBase", runtime: "Runtime") -> None:
     """Populate the shared-settings dict from a personality + runtime.

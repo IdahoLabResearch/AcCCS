@@ -12,7 +12,6 @@ import logging
 from time import time
 from typing import Any, List, Union
 
-from app.evcc import evcc_settings
 from app.evcc.comm_session_handler import EVCCCommunicationSession
 from app.evcc.states.evcc_state import StateEVCC
 from app.shared.exceptions import DecryptionError, PrivateKeyReadError
@@ -276,68 +275,37 @@ class ServiceDiscovery(StateEVCC):
             )
 
     async def select_energy_transfer_mode(self):
-        """
-        Check if an energy transfer mode was saved from a previously paused
-        communication session and reuse for resumed session, otherwise request
-        from EV controller.
-        """
-        if evcc_settings.RESUME_REQUESTED_ENERGY_MODE:
-            logger.debug(
-                "Reusing energy transfer mode "
-                f"{evcc_settings.RESUME_REQUESTED_ENERGY_MODE} "
-                "from previously paused session"
+        """Request the energy transfer mode from the EV controller."""
+        self.comm_session.selected_energy_mode = (
+            await self.comm_session.ev_controller.get_energy_transfer_mode(
+                Protocol.ISO_15118_2
             )
-            self.comm_session.selected_energy_mode = (
-                evcc_settings.RESUME_REQUESTED_ENERGY_MODE
-            )
-            evcc_settings.RESUME_REQUESTED_ENERGY_MODE = None
-        else:
-            self.comm_session.selected_energy_mode = (
-                await self.comm_session.ev_controller.get_energy_transfer_mode(
-                    Protocol.ISO_15118_2
-                )
-            )
-            self.comm_session.selected_charging_type_is_ac = (
-                self.comm_session.selected_energy_mode.value.startswith("AC")
-            )
+        )
+        self.comm_session.selected_charging_type_is_ac = (
+            self.comm_session.selected_energy_mode.value.startswith("AC")
+        )
 
     def select_auth_mode(self, auth_option_list: List[AuthEnum]):
         """
-        Check if an authorization mode (aka payment option in ISO 15118-2) was
-        saved from a previously paused communication session and reuse for
-        resumed session, otherwise request from EV controller.
+        Choose Plug & Charge (pnc) or External Identification Means (eim) as
+        the selected authorization option. The car manufacturer might have a
+        mechanism to determine a user-defined or default authorization option.
+        This implementation favors pnc, but feel free to change if need be.
         """
-        if evcc_settings.RESUME_SELECTED_AUTH_OPTION:
-            logger.debug(
-                "Reusing authorization option "
-                f"{evcc_settings.RESUME_SELECTED_AUTH_OPTION} "
-                "from previously paused session"
+        auth_modes = self.comm_session.config.supported_auth_modes
+        for auth_mode in auth_modes:
+            if auth_mode == AuthEnum.PNC and AuthEnum.PNC_V2 in auth_option_list and self.comm_session.is_tls:
+                self.comm_session.selected_auth_option = AuthEnum.PNC_V2
+                return
+            elif auth_mode == AuthEnum.EIM and AuthEnum.EIM_V2 in auth_option_list:
+                self.comm_session.selected_auth_option = AuthEnum.EIM_V2
+                return
+
+        if self.comm_session.selected_auth_option is None:
+            self.stop_state_machine(
+                "No compatible authorization option found "
+                f"in offered options: {auth_option_list}"
             )
-            self.comm_session.selected_auth_option = (
-                evcc_settings.RESUME_SELECTED_AUTH_OPTION
-            )
-            evcc_settings.RESUME_SELECTED_AUTH_OPTION = None
-        else:
-            # Choose Plug & Charge (pnc) or External Identification Means (eim)
-            # as the selected authorization option. The car manufacturer might
-            # have a mechanism to determine a user-defined or default
-            # authorization option. This implementation favors pnc, but
-            # feel free to change if need be.
-            auth_modes = self.comm_session.config.supported_auth_modes
-            for auth_mode in auth_modes:
-                if auth_mode == AuthEnum.PNC and AuthEnum.PNC_V2 in auth_option_list and self.comm_session.is_tls:
-                    self.comm_session.selected_auth_option = AuthEnum.PNC_V2
-                    return
-                elif auth_mode == AuthEnum.EIM and AuthEnum.EIM_V2 in auth_option_list:
-                    self.comm_session.selected_auth_option = AuthEnum.EIM_V2
-                    return
-                
-            if self.comm_session.selected_auth_option is None:
-                self.stop_state_machine(
-                    "No compatible authorization option found "
-                    f"in offered options: {auth_option_list}"
-                )
-            
 
     async def select_services(self, service_discovery_res: ServiceDiscoveryRes):
         """

@@ -8,10 +8,10 @@ All of the AcCCS hardware is mounted to a backing plate inside a plastic enclosu
 
 ![Alt text](/docs/Images/Enclosure-Top.png?raw=true "AcCCS Box Top View")
 
-A full list of the hardware components is found in the [README](/README) file.
+A full list of the hardware components is found in the [README](/README.md) file.
 
 # PWM Generation Circuit 
-To emulate an EVSE, it is necessary to generate a +/-12vdc Pulse-Width Modulated signal for the embedded HomePlug GreenPHY CCS communications. We were unable to locate an off the shelf component to generate this signal, so we created a custom circuit board (PCB) to accomplish this task. Using the PCB is much easier (and more reliable) than using the basic circuit outlined in the [README](/README) file.  But it certainly usable to create the PWM generator circuit on a bread-board if you want to avoid printing a custom circuit board.
+To emulate an EVSE, it is necessary to generate a +/-12vdc Pulse-Width Modulated signal for the embedded HomePlug GreenPHY CCS communications. We were unable to locate an off the shelf component to generate this signal, so we created a custom circuit board (PCB) to accomplish this task. Using the PCB is much easier (and more reliable) than using the basic circuit outlined in the [README](/README.md) file.  But it certainly usable to create the PWM generator circuit on a bread-board if you want to avoid printing a custom circuit board.
 
 This is the full schematic of the PWM signal generation:
 
@@ -123,7 +123,7 @@ You can now emulate either an EVSE or an EV by running the proper script found i
 ```
 pi@raspberry:~$ cd src/AcCCS/
 
-pi@raspberry:~/src/AcCCS/$ sudo python3 EVSE.py
+pi@raspberry:~/src/AcCCS/$ sudo python3 run_secc.py --config default-secc
 
 ```
 
@@ -137,7 +137,7 @@ You can monitor all of the traffic between the Raspberry Pi and the EVSE or EV D
 On the research laptop, configure Wireshark to connect to the Raspberry Pi in the AcCCS enclosure and sniff the network traffic to/from the EVSE (```eth1```) or to/from the EV (```eth2```).
 
 ## Port Scanning
-The emulator scripts [EVSE.py](/emulator/EVSE.py) and [PEV.py](/emulator/PEV.py) include some basic functionality for port scanning the EVSE SECC or the EV EVCC. This option can be selected as a command-line argument.  Results of the port scan are displayed along with the progress of the scan.
+The emulator scripts [run_secc.py](/run_secc.py) and [run_evcc.py](/run_evcc.py) include some basic functionality for port scanning the EVSE SECC or the EV EVCC. This option can be selected as a command-line argument.  Results of the port scan are displayed along with the progress of the scan.
 
 ## EXI Codec
 EXI encode/decode of the V2G communications between the EV and EVSE is handled

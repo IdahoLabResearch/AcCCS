@@ -9,7 +9,6 @@ EVControllerInterface.
 
 import logging
 import random
-import os
 from types import SimpleNamespace
 from typing import List, Optional, Tuple, Union
 

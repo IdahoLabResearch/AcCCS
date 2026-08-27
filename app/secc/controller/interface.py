@@ -124,15 +124,6 @@ class EVSEControllerInterface(ABC):
     def reset_ev_data_context(self):
         self.ev_data_context = EVDataContext()
 
-    def get_ev_data_context(self) -> EVDataContext:
-        return self.ev_data_context
-
-    def set_evse_data_context(self, evse_data_context: EVSEDataContext) -> None:
-        self.evse_data_context = evse_data_context
-
-    def get_evse_data_context(self) -> EVSEDataContext:
-        return self.evse_data_context
-
     # ============================================================================
     # |             COMMON FUNCTIONS (FOR ALL ENERGY TRANSFER MODES)             |
     # ============================================================================

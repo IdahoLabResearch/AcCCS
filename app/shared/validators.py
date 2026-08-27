@@ -7,33 +7,6 @@ messages. Saves duplicated code.
 from typing import List
 
 
-def validate_bytes_value_range(
-    var_name: str, var_bytes: bytes, min_val: int, max_val: int
-) -> bool:
-    """
-    Checks whether the provided integer value represented with the bytes object
-    is within the allowed value range.
-
-    var_name
-        Name of the field being checked
-    var_bytes
-        The bytes object that holds the integer value
-    min_val
-        The lower bound (inclusive) of the allowed value range for the value
-        represented by the given bytes object
-    max_val
-        The upper bound (inclusive) of the allowed value range for the value
-        represented by the given bytes object
-    """
-    int_value = int.from_bytes(var_bytes, byteorder="big", signed=True)
-    if not min_val <= int_value <= max_val:
-        raise ValueError(
-            f"The value {int_value} is outside the allowed value "
-            f"range [{min_val}..{max_val}] for {var_name}"
-        )
-    return True
-
-
 def one_field_must_be_set(
     field_options: List[str], values: dict, mutually_exclusive: bool = False
 ) -> bool:

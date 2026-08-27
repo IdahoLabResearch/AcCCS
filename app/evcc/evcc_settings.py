@@ -46,8 +46,3 @@ class Config:
         for key, value in shared_settings.items():
             logger.info(f"{key:30}: {value}")
         return cfg
-
-
-RESUME_SELECTED_AUTH_OPTION = None
-RESUME_SESSION_ID = None
-RESUME_REQUESTED_ENERGY_MODE = None

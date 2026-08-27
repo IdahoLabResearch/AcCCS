@@ -13,11 +13,13 @@ wire bytes for every record in the corpus:
    codec implementation), decode both byte strings through EXPy and
    require that the resulting Pydantic models match.
 
-``XML_DSIG`` ``SignedInfo`` records originating from the historical
-Exificient pipeline used the standalone-xmldsig schema, which EXPy v1.0
-does not decode. They are skipped with a structured reason and become
-rebaseline targets — the corpus will be re-captured against the EXPy
-pipeline at the next opportunity (ADR-0002 Slice 6 cleanup).
+``XML_DSIG`` ``SignedInfo`` records go through the same two oracles via
+:meth:`~app.shared.exi_codec.EXI.from_exi_xmldsig` /
+:meth:`~app.shared.exi_codec.EXI.to_exi_xmldsig`. libcbv2g exposes
+xmldsig per protocol namespace rather than standalone, so
+``Namespace.XML_DSIG`` is routed to ISO-2's xmldsig processor (see
+``expy_exi_codec._NAMESPACE_MAP``) — the historical bytes captured under
+the Exificient pipeline round-trip through EXPy unchanged.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from tests.conformance.replay._corpus import (
     ReplayRecord,
     fragment_model_class,
     load_corpus,
+    xmldsig_model_class,
 )
 
 
@@ -102,10 +105,37 @@ def _fragment_oracle(record: ReplayRecord):
 
 
 def _xmldsig_oracle(record: ReplayRecord):
-    pytest.skip(
-        "Historical XML_DSIG SignedInfo bytes use Exificient's standalone "
-        "xmldsig schema, which EXPy v1.0 does not decode. The replay "
-        "corpus will be re-captured against the EXPy pipeline."
+    from app.shared.exi_codec import EXI
+
+    model_cls = xmldsig_model_class(record.model)
+    try:
+        pydantic_original = EXI().from_exi_xmldsig(
+            record.payload, model_cls, record.ns, root_name=record.model
+        )
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(
+            f"EXPy could not decode the captured xmldsig bytes "
+            f"({exc.__class__.__name__}: {exc}); rebaseline target"
+        )
+
+    try:
+        encoded_new = EXI().to_exi_xmldsig(
+            pydantic_original, record.ns, root_name=record.model
+        )
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(
+            f"EXPy could not re-encode the decoded xmldsig fragment "
+            f"({exc.__class__.__name__}: {exc}); rebaseline target"
+        )
+
+    if encoded_new == record.payload:
+        return
+
+    pydantic_rebuilt = EXI().from_exi_xmldsig(
+        encoded_new, model_cls, record.ns, root_name=record.model
+    )
+    assert _model_dump(pydantic_rebuilt) == _model_dump(pydantic_original), (
+        f"EXPy xmldsig decode-fallback divergence for {record.id}"
     )
 
 

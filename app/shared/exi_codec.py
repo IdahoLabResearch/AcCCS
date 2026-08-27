@@ -49,11 +49,9 @@ from app.shared.messages.app_protocol import (
     SupportedAppProtocolReq,
     SupportedAppProtocolRes,
 )
-from app.shared.messages.din_spec.body import BodyBase as BodyBaseDINSPEC
 from app.shared.messages.din_spec.body import get_msg_type as get_msg_type_dinspec
 from app.shared.messages.din_spec.msgdef import V2GMessage as V2GMessageDINSPEC
 from app.shared.messages.enums import Namespace
-from app.shared.messages.iso15118_2.body import BodyBase as BodyBaseV2
 from app.shared.messages.iso15118_2.body import get_msg_type
 from app.shared.messages.iso15118_2.datatypes import ResponseCode
 from app.shared.messages.iso15118_2.msgdef import V2GMessage as V2GMessageV2

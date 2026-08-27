@@ -25,8 +25,6 @@ produced and consumed, decoded back through the same EXPy codec.
 from __future__ import annotations
 
 import json
-import os
-import signal
 import subprocess
 import time
 from dataclasses import dataclass
@@ -77,12 +75,6 @@ class SessionCapture:
         if namespace is not None:
             out = [r for r in out if r.namespace == namespace]
         return out
-
-    def with_namespace_prefix(self, prefix: str) -> list[CaptureRecord]:
-        return [r for r in self.records if r.namespace.startswith(prefix)]
-
-    def encoded_model_names(self) -> set[str]:
-        return {r.model for r in self.records if r.direction == "encode"}
 
     def model_names(self, *, root: Optional[str] = None) -> set[str]:
         out = self.records

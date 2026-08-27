@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import List, Tuple, Optional
 
-from pydantic import Field, model_validator, ValidationInfo
+from pydantic import Field, model_validator
 
 from app.shared.messages import BaseModel
 from app.shared.messages.enums import (

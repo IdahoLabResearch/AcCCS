@@ -16,7 +16,6 @@ from app.evcc.evcc_config import EVCCConfig
 from app.evcc.evcc_settings import Config
 from app.shared.expy_exi_codec import EXPyEXICodec
 from app.shared.live_control import LiveControl
-from app.shared.logging import _init_logger
 
 logger = logging.getLogger(__name__)
 

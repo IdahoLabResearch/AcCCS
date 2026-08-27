@@ -28,15 +28,6 @@ class MACAddressNotFound(Exception):
     """
 
 
-class InvalidMessageError(Exception):
-    """
-    Is thrown when validating whether or not an incoming message is a valid
-    SupportedAppProtocolReq, SupportedAppProtocolRes, ISO 15118-2 message, or
-    ISO 15118-20 message and whether or not the session ID is correct (in case
-    of a V2GMessage). See is_message_valid() function of a State.
-    """
-
-
 class InvalidV2GTPMessageError(Exception):
     """Is thrown when trying to create a V2GTP message from a bytes object"""
 

@@ -1,7 +1,7 @@
 # AcCCS
 Access Capabilities for CCS (AcCCS - pronounced "access" /ˈakˌses/) provides a flexible and inexpensive solution to enable communications testing of various Electric Vehicle (EV) technologies that use the CCS charging standard(s).  This codebase is an example of tools and scripts capable of communicating with and emulating an Electric Vehicle Communications Controller (EVCC) and/or a Supply Equipment Communications Controller (SECC).
 
-This project is the result of our efforts to find COTS hardware and existing open source software capable of communicating via HomePlug GreenPHY (HPGP) with CCS enabled vehicles and charging stations.  We are providing some basic scripts to emulate an EV (see [PEV.py](PEV.py)) or an EVSE (see [EVSE.py](EVSE.py)).  These two scripts utilize a third-party open source project that provide Scapy packet definitions for Layer 2 (HPGP - [layerscapy](https://github.com/FlUxIuS/HomePlugPWN/tree/master/layerscapy)). Our goal was to establish a persistent network connection with a target device so that we can test the device for network vulnerabilities.
+This project is the result of our efforts to find COTS hardware and existing open source software capable of communicating via HomePlug GreenPHY (HPGP) with CCS enabled vehicles and charging stations.  We are providing some basic scripts to emulate an EV (see [run_evcc.py](run_evcc.py)) or an EVSE (see [run_secc.py](run_secc.py)).  These two scripts utilize a third-party open source project that provide Scapy packet definitions for Layer 2 (HPGP - [layerscapy](https://github.com/FlUxIuS/HomePlugPWN/tree/master/layerscapy)). Our goal was to establish a persistent network connection with a target device so that we can test the device for network vulnerabilities.
 
 To enable some testing of the IPv6 endpoints, the emulator scripts provide the ability to perform some basic port scans of the target.  This functionality is available using command-line options of the emulator.  The emulators can be further enhanced for additional port scanning activities or even fuzz testing of the selected CCS protocol.
 
@@ -81,16 +81,13 @@ Install these *before* `pip install` — [Project Setup](#project-setup) step 2
 covers the Debian / Raspberry Pi OS one-liner.
 
 ### EVSE and EV Python Scripts
-Below is a brief description of the scripts in this project. These scripts are provided as examples of how you might utilize this hardware in your own testing environment. This is not intended to be a finished product with all desired functionality. Some functionality is still a work in progress.
+Below is a brief description of the entry-point scripts in this project. These scripts are provided as examples of how you might utilize this hardware in your own testing environment. This is not intended to be a finished product with all desired functionality. Some functionality is still a work in progress.
 
-**EVSE.py:** This script emulates an EVSE when run. When the AcCCS's EVSE CP and SIG GND are connected to the PEV's CP and GND, the script follows the J1772 spec by going through layer 2 HomePlug GreenPHY SLAC negotiations, layer 3 UDP SECC Discovery Protocol, and then layer 3 TCP/IPv6 communications. Currently, the TCP/IPv6 communications only support the DIN spec, but future work includes implementing the ISO-2 and ISO-20 specs which are required for TLS encrypted sessions, Plug-n-charge, and 2-way power transfer.
+**run_secc.py:** Emulates an EVSE (SECC). When the AcCCS's EVSE CP and SIG GND are connected to the PEV's CP and GND, the script follows the J1772 spec by going through layer 2 HomePlug GreenPHY SLAC negotiations, layer 3 UDP SECC Discovery Protocol, and then layer 3 TCP/IPv6 communications. DIN SPEC 70121, ISO 15118-2, and ISO 15118-20 (AC and DC) are all supported, including TLS sessions, Plug & Charge, and bidirectional power transfer; which one a run speaks is chosen by the personality's `capabilities.supported_protocols` (see [Running the emulators](#running-the-emulators)).
 
-**PEV.py:** Same as EVSE.py, but AcCCS's PEV CP and SIG GND should be connected to the EVSE's CP and GND pins.
+**run_evcc.py:** Same as run_secc.py but for the EV side (EVCC); AcCCS's PEV CP and SIG GND should be connected to the EVSE's CP and GND pins.
 
-**MIM.py:** **NOT IMPLEMENTED** | Forms two separate connections to a PEV and EVSE simultaneously. Will forward packets from one conversation to the other, changing the contents if specified by the user. Cannot form a simple bridge between the two because of high amounts of cross-talk between CP lines. This protocol is very susceptible to RF interference.
-
-### Current TODOs:
-* Complete and test a full MITM script
+A man-in-the-middle mode — two simultaneous connections to a PEV and an EVSE with packets forwarded (and optionally modified) between them — remains unimplemented. A simple bridge between the two is not workable because of the high cross-talk between CP lines, and the signalling is very susceptible to RF interference.
 
 ## Project Setup
 

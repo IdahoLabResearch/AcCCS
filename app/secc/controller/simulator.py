@@ -9,7 +9,6 @@ This module contains the code to retrieve (hardware-related) data from the EVSE
 import base64
 import logging
 import time
-import os
 from types import SimpleNamespace
 from typing import Dict, List, Optional, Union
 
@@ -360,15 +359,6 @@ class SimEVSEController(EVSEControllerInterface):
     # ============================================================================
     async def set_status(self, status: ServiceStatus) -> None:
         logger.debug(f"New Status: {status}")
-
-    async def is_valid_evse_id(self, evse_id: str) -> bool:
-        # A DIN 70121 EVSE ID is a string of hexadecimal
-        # format (each byte represented by two hexadecimal digits).
-        try:
-            bytes.fromhex(evse_id)
-            return True
-        except ValueError:
-            return False
 
     async def get_evse_id(self, protocol: Protocol) -> str:
         #  To transform a string-based DIN SPEC 91286 EVSE ID to hexBinary

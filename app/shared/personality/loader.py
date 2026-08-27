@@ -18,7 +18,6 @@ the CLI builder simply never constructs flags for them.
 from __future__ import annotations
 
 import argparse
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, List, Mapping, Optional, Set, Type, TypeVar

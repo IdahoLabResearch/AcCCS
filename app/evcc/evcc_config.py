@@ -31,13 +31,8 @@ class EVCCConfig(BaseModel):
     # The order in which the protocols are listed here determines the
     # priority (i.e. first list entry has higher priority than second
     # list entry).
-    raw_supported_protocols: Optional[List[str]] = None
     supported_protocols: Optional[List[Protocol]] = None
-
-    raw_supported_energy_services: Optional[List[str]] = None
     supported_energy_services: Optional[List[ServiceV20]] = None
-
-    raw_supported_auth_modes: Optional[List[str]] = None
     supported_auth_modes: Optional[List[AuthEnum]] = None
 
     is_cert_install_needed: bool = False
@@ -83,11 +78,8 @@ class EVCCConfig(BaseModel):
         ramp = personality.residual.charge_ramp
 
         ev_config = cls(
-            raw_supported_protocols=list(caps.supported_protocols),
             supported_protocols=caps.resolved_protocols(),
-            raw_supported_energy_services=list(caps.supported_energy_services),
             supported_energy_services=caps.resolved_energy_services(),
-            raw_supported_auth_modes=list(caps.supported_auth_modes),
             supported_auth_modes=caps.resolved_auth_modes(),
             is_cert_install_needed=caps.is_cert_install_needed,
             use_tls=tls.use_tls,
@@ -117,7 +109,7 @@ class EVCCConfig(BaseModel):
                 # log only its message keys, not every leaf, to keep the
                 # startup summary readable.
                 logger.info(f"{key:30}: {sorted(value)}")
-            elif not key.startswith("raw"):
+            else:
                 logger.info(f"{key:30}: {value}")
 
         return ev_config

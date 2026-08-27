@@ -7,8 +7,6 @@ from app.shared.security import get_ssl_context
 
 logger = logging.getLogger(__name__)
 
-SLEEP = 10
-
 
 class TCPClient(asyncio.Protocol):
     # pylint: disable=too-many-instance-attributes

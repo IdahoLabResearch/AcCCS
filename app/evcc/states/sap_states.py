@@ -12,7 +12,6 @@ import logging
 import time
 from typing import Type, Union
 
-from app.evcc import evcc_settings
 from app.evcc.comm_session_handler import EVCCCommunicationSession
 from app.evcc.states.din_spec_states import SessionSetup as SessionSetupDINSPEC
 from app.evcc.states.din_spec_states import apply_personality_tree
@@ -211,17 +210,8 @@ class SupportedAppProtocol(StateEVCC):
 
     def get_session_id(self, length=6) -> str:
         """
-        Check if there's a saved session ID from a previously paused charging
-        session and applies that for the now resumed charging session.
-        If there's no stored session ID, we'll set the session ID equal to zero
-        with the specified length in bytes.
+        Set the session ID equal to zero with the specified length in bytes.
         The session ID is also stored as a comm session variable.
         """
-        # TODO: get the session id from Redis
-        if evcc_settings.RESUME_SESSION_ID:
-            self.comm_session.session_id = evcc_settings.RESUME_SESSION_ID
-            evcc_settings.RESUME_SESSION_ID = None
-        else:
-            self.comm_session.session_id = bytes(length).hex().upper()
-
+        self.comm_session.session_id = bytes(length).hex().upper()
         return self.comm_session.session_id

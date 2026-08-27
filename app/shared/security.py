@@ -7,7 +7,6 @@ import logging
 import os
 import secrets
 import ssl
-import sslkeylog
 from base64 import urlsafe_b64encode
 from datetime import datetime, timezone
 from enum import Enum, auto

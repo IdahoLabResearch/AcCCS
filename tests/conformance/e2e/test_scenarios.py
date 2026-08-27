@@ -22,15 +22,12 @@ yet landed (ADR-0003 F0 ships the iso2/iso20 smoke YAMLs as `xfail`).
 
 from __future__ import annotations
 
-import os
-import signal
 import subprocess
-import sys
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Optional
 
 import pytest
 import yaml

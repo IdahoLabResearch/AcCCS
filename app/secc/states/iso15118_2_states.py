@@ -2738,26 +2738,3 @@ class WeldingDetection(StateSECC):
         )
 
         self.expecting_welding_detection_req = False
-
-
-def get_state_by_msg_type(message_type: Type[BodyBase]) -> Optional[Type[State]]:
-    states_dict = {
-        SessionSetupReq: SessionSetup,
-        ServiceDiscoveryReq: ServiceDiscovery,
-        ServiceDetailReq: ServiceDetail,
-        PaymentServiceSelectionReq: PaymentServiceSelection,
-        CertificateInstallationReq: CertificateInstallation,
-        PaymentDetailsReq: PaymentDetails,
-        AuthorizationReq: Authorization,
-        CableCheckReq: CableCheck,
-        PreChargeReq: PreCharge,
-        ChargeParameterDiscoveryReq: ChargeParameterDiscovery,
-        PowerDeliveryReq: PowerDelivery,
-        ChargingStatusReq: ChargingStatus,
-        CurrentDemandReq: CurrentDemand,
-        MeteringReceiptReq: MeteringReceipt,
-        WeldingDetectionReq: WeldingDetection,
-        SessionStopReq: SessionStop,
-    }
-
-    return states_dict.get(message_type, None)

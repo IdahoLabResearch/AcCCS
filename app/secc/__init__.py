@@ -11,7 +11,6 @@ from app.secc.comm_session_handler import CommunicationSessionHandler
 from app.secc.controller.interface import EVSEControllerInterface
 from app.secc.secc_settings import Config
 from app.shared.expy_exi_codec import EXPyEXICodec
-from app.shared.logging import _init_logger
 
 logger = logging.getLogger(__name__)
 

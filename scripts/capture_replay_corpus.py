@@ -33,9 +33,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import datetime
-import os
 import shutil
-import signal
 import subprocess
 import sys
 import time

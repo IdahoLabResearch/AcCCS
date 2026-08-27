@@ -48,8 +48,12 @@ and [ADR-0006](docs/adr/0006-message-field-tree-personality.md):
   concern-first wire sections (`identity`, `power`, `meter`, and the wire-bearing
   `capabilities.energy_transfer_mode`) are all retired (#102, #105) — every
   emitted field is tree-sourced. The one top-level section left beside the tree
-  is `capabilities`, holding only the non-wire negotiation inputs
-  (`supported_protocols`, `supported_auth_modes`, `supported_energy_services`).
+  is `capabilities`, holding the non-wire negotiation inputs
+  (`supported_protocols`, `supported_auth_modes`, `supported_energy_services`)
+  plus the session-policy booleans the SECC states read when composing a
+  response (`free_charging_service`, `free_cert_install_service`,
+  `allow_cert_install_service`, `standby_allowed`, `is_cert_install_needed`,
+  `max_supporting_points`).
 - **Layering:** a personality may `extends: <baseline-name>` a per-role
   baseline; the loader deep-merges the device's sparse values over the
   baseline (device leaves win), including individual `message_field_tree`
