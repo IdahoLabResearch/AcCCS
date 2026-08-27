@@ -52,6 +52,15 @@ spinning on the bus would only make that harder to see.
 Under `--virtual` no bus is opened and no bus operation is attempted; the
 relay log lines are still emitted so the virtual demo's log stream is
 identical to the hardware one.
+
+The one sanctioned exception
+----------------------------
+`reset_all_relays` is the single write in the codebase that ignores the
+ownership rule and drives the whole register off at once, to recover a board
+whose relays a hard-killed process left latched. It is deliberately the only
+such write, and `scripts/reset_relays.py` is the operator tool that invokes
+it; both say plainly that running it against a live emulator will clear that
+session's relays.
 """
 
 from __future__ import annotations
@@ -97,6 +106,53 @@ EVCC_MASK = PEV_CP1 | PEV_CP2 | PEV_PP
 _BYTE = 0xFF
 
 
+def open_bus():
+    """Open the shared expander's I2C bus.
+
+    The single place `SMBus(I2C_BUS)` is called: `RelayBank` opens its handle
+    through here, and the standalone reset tool (`scripts/reset_relays.py`)
+    borrows it to reach the bus without taking on a role. Keeping the one bus
+    constructor here is what lets the module docstring's claim — the bus handle,
+    the address, and the register numbers live here and nowhere else — stay
+    true even for a tool that owns no `RelayBank`.
+
+    The `smbus` import is deferred to the call so importing this module off the
+    hardware host (where the dependency is absent) does not fail.
+    """
+    from smbus import SMBus
+
+    return SMBus(I2C_BUS)
+
+
+def reset_all_relays(bus) -> int:
+    """Turn every relay off in one deliberate whole-register write.
+
+    THE ONE SANCTIONED EXCEPTION to the ownership rule the rest of this module
+    enforces. Every other write is masked to a single role's [[relay bank]]
+    (see the module docstring); this one drives all eight output bits to zero,
+    so it clears relays no matter which role — or which now-dead process that
+    left them latched — set them. That is exactly what recovers a board
+    orphaned by a hard-killed emulator, and exactly why running it against a
+    *live* emulator clears that session's relays out from under it. Nothing
+    else in the codebase may write outside a role's mask: the per-role writes
+    are deliberately narrow, so the recovery that undoes them has to be
+    deliberately wide, and lives in exactly one named place.
+
+    Returns the bits that were actually driving relays — the prior latch
+    masked to the pins currently configured as outputs — so the caller can
+    tell a real reset (some relay was on) from a no-op (nothing was). A bit
+    latched high on a pin still configured as an *input* drives no relay, so it
+    is not counted; that is why the direction register is read. It is only
+    read, never written — turning relays off is not the same as reconfiguring
+    the expander.
+    """
+    latch = bus.read_byte_data(I2C_ADDR, LATCH_REG)
+    direction = bus.read_byte_data(I2C_ADDR, DIRECTION_REG)
+    driven = latch & ~direction & _BYTE
+    bus.write_byte_data(I2C_ADDR, OUTPUT_REG, 0x00)
+    return driven
+
+
 class RelayBank:
     """The bits of the shared expander that one role owns.
 
@@ -117,9 +173,7 @@ class RelayBank:
         elif bus is not None:
             self.bus = bus
         else:
-            from smbus import SMBus
-
-            self.bus = SMBus(I2C_BUS)
+            self.bus = open_bus()
 
     def configure(self) -> None:
         """Claim this role's pins as outputs, leaving every other pin alone."""

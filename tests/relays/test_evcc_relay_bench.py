@@ -17,45 +17,27 @@ these run off the hardware and never touch a real bus.
 from __future__ import annotations
 
 import builtins
-import importlib.util
 import signal
-import sys
 import types
 from pathlib import Path
 
 import pytest
 
 from app.shared.relays import EVCC_MASK, EvccRelays
-from tests.relays.fakes import FOREIGN_TO_EVCC, FakeBus
+from tests.relays.fakes import (
+    FOREIGN_TO_EVCC,
+    FakeBus,
+    fake_smbus,
+    load_bench_script,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "evcc_relays.py"
 
 
-def _fake_smbus(open_bus):
-    """A stand-in `smbus` module whose `SMBus(bus)` calls `open_bus`."""
-    module = types.ModuleType("smbus")
-    module.SMBus = open_bus
-    return module
-
-
 def _load_bench(monkeypatch, smbus_module):
-    """Import `scripts/evcc_relays.py` by path with `smbus` stubbed out.
-
-    Loaded under its own module name so the import does not run `main()` and
-    does not collide with anything already imported.
-    """
-    if smbus_module is None:
-        # A None entry in sys.modules is what makes `import smbus` raise
-        # ImportError on a host that has never had it installed.
-        monkeypatch.setitem(sys.modules, "smbus", None)
-    else:
-        monkeypatch.setitem(sys.modules, "smbus", smbus_module)
-
-    spec = importlib.util.spec_from_file_location("evcc_relays_bench", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    """Import `scripts/evcc_relays.py` by path with `smbus` stubbed out."""
+    return load_bench_script(monkeypatch, SCRIPT, "evcc_relays_bench", smbus_module)
 
 
 class Bench:
@@ -87,7 +69,7 @@ def bench(monkeypatch):
     write of ours that fails to preserve one shows up immediately.
     """
     bus = FakeBus(output=FOREIGN_TO_EVCC)
-    module = _load_bench(monkeypatch, _fake_smbus(lambda _bus_number: bus))
+    module = _load_bench(monkeypatch, fake_smbus(lambda _bus_number: bus))
     return Bench(module, bus)
 
 
@@ -253,7 +235,7 @@ def test_a_host_without_the_relay_board_exits_with_a_message(monkeypatch):
     def no_such_bus(_bus_number):
         raise FileNotFoundError(2, "No such file or directory")
 
-    module = _load_bench(monkeypatch, _fake_smbus(no_such_bus))
+    module = _load_bench(monkeypatch, fake_smbus(no_such_bus))
 
     with pytest.raises(SystemExit) as raised:
         module.RelayBoard()
@@ -269,7 +251,7 @@ def test_an_unreadable_relay_board_exits_with_a_message(monkeypatch):
         def read_byte_data(self, addr, reg):
             raise PermissionError(13, "Permission denied")
 
-    module = _load_bench(monkeypatch, _fake_smbus(lambda _n: Unreadable()))
+    module = _load_bench(monkeypatch, fake_smbus(lambda _n: Unreadable()))
 
     with pytest.raises(SystemExit) as raised:
         module.RelayBoard()

@@ -89,6 +89,14 @@ Below is a brief description of the entry-point scripts in this project. These s
 
 A man-in-the-middle mode — two simultaneous connections to a PEV and an EVSE with packets forwarded (and optionally modified) between them — remains unimplemented. A simple bridge between the two is not workable because of the high cross-talk between CP lines, and the signalling is very susceptible to RF interference.
 
+### Hardware bench tools
+
+These helper scripts drive the I2C relay board directly, without loading a personality or opening a V2G session. They run only on the hardware host (the Pi, with the relay board on I2C bus 1); off the hardware — no `smbus`, no bus, or no permission on `/dev/i2c-1` — each exits with a one-line explanation rather than a traceback.
+
+**scripts/evcc_relays.py:** Interactive control of the EV side's control-pilot relays for exercising the CP/PP wiring in isolation. Type a J1772 state (`a`/`b`/`c`) and watch the EVSE react; the relays are always opened again on exit. Like the emulator it touches only the EV side's pins, so a SECC running on the same box keeps its relays.
+
+**scripts/reset_relays.py:** Turns *every* relay off in one deliberate whole-register write, regardless of which role set the bits. This recovers a board whose relays a hard-killed emulator left latched closed — the one case the per-role writes cannot clean up, since the owner is no longer around to clear them. It is the single sanctioned exception to the role-ownership rule (see [ADR-0007](docs/adr/0007-role-scoped-relay-ownership.md)); the pin-direction configuration is left untouched. **Do not run it while an emulator is live** — the same broad write that recovers an orphaned board will clear a healthy session's relays out from under it. It reports whether it cleared anything or found the board already off.
+
 ## Project Setup
 
 This is the single, linear path from a fresh clone to a green virtual demo
