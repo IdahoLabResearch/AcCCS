@@ -91,3 +91,17 @@ The set of pins on the AcCCS box's shared I2C GPIO expander that *one* role owns
 An operator action that replaces, in real time, the current/voltage values an emulated device puts on the wire during the charge loop. Role-aware: on an [[EVCC]] it overrides the EV's *requested target* current/voltage (and present voltage in ISO 15118-20); on an [[SECC]] it overrides the EVSE's *reported present* (delivered) current/voltage. An override takes effect on subsequent loop messages and persists until the operator changes or clears it.
 
 Distinct from a [[personality]]'s [[message field tree]]: the tree supplies the device's *declared / starting* wire value for a field (immutable, per message type), whereas a live override injects the *instantaneous loop value* at runtime. When both set the same field the live override wins; the tree is the start value it overrides. Issued through the [[operator-console]]. Distinct from [[stall]] (which controls loop termination, not loop values).
+
+## MIM
+
+Man-in-the-middle: a mode in which one AcCCS box sits between a *real* [[EVCC]] and a *real* [[SECC]], terminating **two** V2G sessions at once — playing the [[SECC]] toward the real vehicle and the [[EVCC]] toward the real charger — and forwarding the application layer between them, optionally substituting individual fields in flight. Distinct from an emulator run, which terminates a *single* session and *generates* its own replies from a [[personality]]; the MIM *forwards* the real peer's reply instead. Realized by the [[MIM session]] and [[MIM core]], launched via `run_mim.py`.
+
+The name is deliberately **not** "relay" — that word is reserved for the physical hardware ([[relay bank]]); the MIM is a software session-bridging mechanism, unrelated to the I2C relays. Related: [[MIM session]], [[MIM core]], [[EVCC]], [[SECC]].
+
+## MIM session
+
+The orchestrator object of a [[MIM]] run. Owns both role-facing legs (the [[SECC]]-facing leg toward the vehicle and the [[EVCC]]-facing leg toward the charger) plus the [[MIM core]], pairs them into one bridged session, enforces **ordered link bring-up** (one side's SLAC handshake completes before the other's begins), and owns unit teardown (either leg ending tears down both). Distinct from the [[MIM core]], which carries individual messages across; the MIM session governs lifecycle and pairing.
+
+## MIM core
+
+The central hand-off object of a [[MIM]] run that both legs share. A message decoded on the receiving leg is handed to the MIM core as `{raw bytes, decoded message, protocol, direction}`; by default the core forwards the **original bytes** unchanged, re-encoding only when a field is actually being rewritten or substituted (so cryptographically-signed fragments relay bit-exact). It is the single place field substitution, per-hop envelope rewrites, and message holds attach — keeping the two legs as dumb pipes. Distinct from the [[MIM session]] (lifecycle/pairing) and from a [[live override]] (which edits loop values on an emulator, not a forwarded message).
