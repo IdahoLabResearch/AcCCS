@@ -64,7 +64,7 @@ from app.shared.messages.iso15118_20.common_types import (
 from app.shared.messages.timeouts import Timeouts as TimeoutsShared
 from app.shared.states import State, Terminate
 
-from app.shared.settings import SettingKey, shared_settings
+from app.shared.settings import current_enable_tls_1_3
 
 logger = logging.getLogger(__name__)
 
@@ -184,12 +184,13 @@ class SupportedAppProtocol(StateEVCC):
         if match:
             logger.info(f"Chosen protocol: {self.comm_session.protocol}")
             
-            if not shared_settings[SettingKey.ENABLE_TLS_1_3]:
+            if not current_enable_tls_1_3():
                 if self.comm_session.protocol.ns.startswith(Namespace.ISO_V20_BASE):
                     self.stop_state_machine(
                         "ISO 15118-20 does not allow TLS version lower than 1.3. "
-                        "Either set ENABLE_TLS_1_3 to True or select ISO 15118-2 "
-                        "or DIN SPEC 70121 as the protocol."
+                        "Either set residual.tls.enable_tls_1_3 to true in the "
+                        "personality or select ISO 15118-2 or DIN SPEC 70121 as "
+                        "the protocol."
                     )
                     return
              

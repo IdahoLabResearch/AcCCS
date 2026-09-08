@@ -87,7 +87,11 @@ from app.shared.messages.xmldsig import (
     Transform,
     Transforms,
 )
-from app.shared.settings import SettingKey, shared_settings
+from app.shared.settings import (
+    current_enable_tls_1_3,
+    current_pki_path,
+    set_tls_pki_config,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +109,11 @@ def get_random_bytes(nbytes: int) -> bytes:
     return secrets.token_bytes(nbytes)
 
 
-def get_ssl_context(server_side: bool) -> Optional[SSLContext]:
+def get_ssl_context(
+    server_side: bool,
+    pki_path: Optional[str] = None,
+    enable_tls_1_3: Optional[bool] = None,
+) -> Optional[SSLContext]:
     """
     Creates an SSLContext object for the TCP client or TCP server.
     An SSL context holds various data longer-lived than single SSL
@@ -126,6 +134,13 @@ def get_ssl_context(server_side: bool) -> Optional[SSLContext]:
     Args:
         server_side: Whether this SSLContext object is for the TLS server (True)
                      or TLS client (False)
+        pki_path: The leg's PKI root and enable_tls_1_3 its TLS-1.3 posture.
+        enable_tls_1_3: See above. When either is given, both are applied to
+                     the current task's `TlsPkiConfig` so that this call — and
+                     the `CertPath`/`KeyPath` reads it makes — resolve against
+                     *this* leg's personality rather than the process default.
+                     Omitted (the single-role case) leaves the config already
+                     set at startup untouched.
 
     Returns:
         An SSLContext object
@@ -134,10 +149,12 @@ def get_ssl_context(server_side: bool) -> Optional[SSLContext]:
          Need to figure out a way to securely store those certs and keys
          as well as read the password.
     """
+    if pki_path is not None and enable_tls_1_3 is not None:
+        set_tls_pki_config(pki_path=pki_path, enable_tls_1_3=enable_tls_1_3)
     if server_side:
         ssl_context = ssl.create_default_context(purpose=ssl.Purpose.CLIENT_AUTH)
         ssl_context.keylog_filename = 'server_keylog.log'
-        if shared_settings[SettingKey.ENABLE_TLS_1_3]:
+        if current_enable_tls_1_3():
             ssl_context.minimum_version = ssl.TLSVersion.TLSv1_3
             ssl_context.maximum_version = ssl.TLSVersion.TLSv1_3
             ssl_context.load_verify_locations(cafile=CertPath.OEM_ROOT_PEM)
@@ -199,7 +216,7 @@ def get_ssl_context(server_side: bool) -> Optional[SSLContext]:
             "ECDHE-ECDSA-AES128-SHA256"
         )
 
-        if shared_settings[SettingKey.ENABLE_TLS_1_3]:
+        if current_enable_tls_1_3():
             ssl_context.minimum_version = ssl.TLSVersion.TLSv1_3
             ssl_context.maximum_version = ssl.TLSVersion.TLSv1_3
             try:
@@ -1492,7 +1509,7 @@ class CertPath(str, Enum):
 
     def __get__(self, instance, owner):
         return os.path.join(
-            str(shared_settings[SettingKey.PKI_PATH]), "iso15118_2/certs/", self.value
+            current_pki_path(), "iso15118_2/certs/", self.value
         )
 
 
@@ -1531,7 +1548,7 @@ class KeyPath(str, Enum):
 
     def __get__(self, instance, owner):
         return os.path.join(
-            str(shared_settings[SettingKey.PKI_PATH]),
+            current_pki_path(),
             "iso15118_2/private_keys/",
             self.value,
         )
@@ -1554,7 +1571,7 @@ class KeyPasswordPath(str, Enum):
 
     def __get__(self, instance, owner):
         return os.path.join(
-            str(shared_settings[SettingKey.PKI_PATH]),
+            current_pki_path(),
             "iso15118_2/private_keys/",
             self.value,
         )
