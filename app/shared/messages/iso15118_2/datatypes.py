@@ -152,7 +152,15 @@ class ServiceCategory(str, Enum):
 
 
 class ServiceName(str, Enum):
-    """See section 8.6.3.6, Table 105 in ISO 15118-2"""
+    """Service names the standard assigns to ServiceIDs 1-4.
+
+    See section 8.6.3.6, Table 105 in ISO 15118-2. These are the values the
+    SECC emits; they are *not* the closed set of what may arrive on the wire.
+    Annex C.6 defines ``serviceNameType`` as ``xs:string`` (max length 32),
+    so :class:`ServiceDetails` accepts any string — fielded chargers send
+    e.g. ``DC_CHARGING`` for ServiceID 1, and ServiceIDs 60001-65535 carry
+    implementation-specific names.
+    """
 
     CHARGING = "AC_DC_Charging"
     CERTIFICATE = "Certificate"
@@ -165,7 +173,9 @@ class ServiceDetails(BaseModel):
 
     # XSD type unsignedShort (16 bit integer) with value range [0..65535]
     service_id: ServiceID = Field(..., ge=0, le=65535, alias="ServiceID")
-    service_name: Optional[ServiceName] = Field(None, max_length=32, alias="ServiceName")
+    # XSD type serviceNameType: xs:string with maxLength 32 (Annex C.6). A
+    # free-form "human readable service name" — see the ServiceName docstring.
+    service_name: Optional[str] = Field(None, max_length=32, alias="ServiceName")
     service_category: ServiceCategory = Field(..., alias="ServiceCategory")
     service_scope: Optional[str] = Field(None, max_length=64, alias="ServiceScope")
     free_service: bool = Field(..., alias="FreeService")
