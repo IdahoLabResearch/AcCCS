@@ -80,7 +80,7 @@ one personality slip; none is a charger fault except cosmetically:
    request instead of waiting up to 1.5 s per [V2G2-920]); our contribution is a ~3 ms
    relay→request gap and `EVReady=true` while stopping (SC-066). Not the State-C bug.
 5. **PreCharge:** we end pre-charge after a fixed 5 polls against a 20 kV comparator (SC-067)
-   and, as SECC, report a constant 1 V present voltage (SC-030) — the "real vehicles fail at
+   and, as SECC, report a constant 1 V present voltage (SC-029) — the "real vehicles fail at
    PreCharge" ceiling on the SECC side.
 6. **Charger C DIN 800 V target vs 410 V EV maximum** is a device-personality inconsistency (SC-068).
 
@@ -92,12 +92,12 @@ one personality slip; none is a charger fault except cosmetically:
 | 2 | SC-031 | S2 | Any decodable-but-out-of-model peer value ends the session silently (5 s FIN, no FAILED, no SessionStopReq) — the umbrella behind SC-002/032/033/034/035/036. |
 | 3 | SC-002 | S1/S2 | `NotificationMaxDelay le=65535` on the DIN model although DIN's XSD is `unsignedInt` (schema-legal value rejected); ISO-2 twin should log-and-continue. |
 | 4 | SC-003 | S1 | `ChargingComplete` is filled from `continue_charging()` — inverted on the wire (TRUE on PowerDeliveryReq Start) and burns loop cycles / the operator gate as a side effect. |
-| 5 | SC-030 | S1 | SECC PreChargeRes/CurrentDemandRes/DC_ChargeLoopRes report a constant 1 V / 1 A; EVSEPresentVoltage never tracks the EV target (all three protocols). |
+| 5 | SC-029 | S1 | SECC PreChargeRes/CurrentDemandRes/DC_ChargeLoopRes report a constant 1 V / 1 A; EVSEPresentVoltage never tracks the EV target (all three protocols). |
 | 6 | SC-004 | S1 | SECC answers CableCheckRes/PreChargeRes FAILED on any `EVErrorCode != NO_ERROR` — an explicit "shall not influence" in DIN and ISO-2. |
 | 7 | SC-005/006 | S1 | ISO-20 WARNING_StandbyNotAllowed terminates the session (SECC); EVSENotification Pause/ExitStandby/MeteringConfirmation/ScheduleRenegotiation raise `NotImplementedError` (EVCC). |
-| 8 | SC-025 | S1 | TLS generation is pinned by a flag (1.3-only with client cert, or 1.2-only); ISO-20 offered/selectable over TCP/TLS 1.2; TLS 1.3 curve is P-256 only. Emulator-vs-emulator hides all of it. |
+| 8 | SC-024 | S1 | TLS generation is pinned by a flag (1.3-only with client cert, or 1.2-only); ISO-20 offered/selectable over TCP/TLS 1.2; TLS 1.3 curve is P-256 only. Emulator-vs-emulator hides all of it. |
 | 9 | SC-060/061 | S3 | Several FAILED templates cannot be EXI-encoded (`evse_id="1234567"`, empty ISO-20 lists) and every FAILED carries a `Notification(ParsingError)` DIN forbids — the SECC goes silent exactly when the spec wants a FAILED. |
-| 10 | SC-029 | S1 | SECC SLAC latches the first RunID for the whole cycle and leaves SLAC for good after MATCH.CNF — one lost frame parks the SECC until the operator quits. |
+| 10 | SC-028 | S1 | SECC SLAC latches the first RunID for the whole cycle and leaves SLAC for good after MATCH.CNF — one lost frame parks the SECC until the operator quits. |
 
 Counts after merge: **S1 30 · S2 19 · S3 33 · S4 3** (85 merged findings from 263 raw).
 
@@ -277,7 +277,7 @@ Reviewer sections are cited as `[slice F-n]`.
 - **S1** · confirmed (repro case C) · ISO-20 DC SECC.
 - Req: [V2G20-2644]/[2645] p413 (SessionStopReq(Terminate) allowed any time before PowerDeliveryReq(Start)), [V2G20-2005]/[2006] p436-437.
 - Where: `app/secc/states/iso15118_20_states.py:1839-1843` (`check_msg_v20(message, [DCPreChargeReq, PowerDeliveryReq])`); every other pre-Start state accepts it.
-- Failure: EV cannot match voltage within 10 s (which is what happens against us, SC-030) and stops gracefully → we answer FAILED.
+- Failure: EV cannot match voltage within 10 s (which is what happens against us, SC-029) and stops gracefully → we answer FAILED.
 - `[iso20-dc-secc F-3]`. Fix: add `SessionStopReq` to the accepted list.
 
 #### SC-017 · ISO-2 SECC DC next-allowed-request gaps (PowerDeliveryReq after Start; CPDReq after Stop; renegotiation forces CableCheck)
@@ -692,7 +692,7 @@ Reviewer sections are cited as `[slice F-n]`.
 - Where: `app/shared/EmulatorEnum.py` (`PEVState` A/B/C only), no CP read on the EV side; `pev.py:186-190` (SLAC the instant the B relay closes). `[iso2-evcc F-22] [timers §2.1] [slac F-17] [din-evcc F-8 S4 aspect]`.
 
 #### SC-085 · Physical DC stage absent: pre-charge match, welding detection, contactor/isolation behaviour cannot be real (ceiling for real vehicles at PreCharge / CableCheck)
-- **S4** · confirmed · both roles. Memory notes `acccs_real_vehicle_cablecheck_ceiling`, `acccs_mache_din_cpdres_ceiling`. The software-fixable parts are SC-029 (report the target) and SC-067 (compare against the right target). `[din-secc §PreCharge triage] [iso2-secc F-1 S4 part] [iso20-dc-secc F-20]`.
+- **S4** · confirmed · both roles. The software-fixable parts are SC-029 (report the target) and SC-067 (compare against the right target). `[din-secc §PreCharge triage] [iso2-secc F-1 S4 part] [iso20-dc-secc F-20]`.
 
 ---
 
