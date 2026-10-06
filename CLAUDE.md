@@ -1,5 +1,9 @@
 # CLAUDE.md
 
+## User notes
+
+Never write the name of a specific unit, brand, or entity. Always refer to them as an anonymized entity in comments, issues, or otherwise.
+
 ## Agent skills
 
 ### Issue tracker
