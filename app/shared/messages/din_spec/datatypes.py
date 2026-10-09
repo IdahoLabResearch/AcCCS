@@ -14,10 +14,12 @@ element names by using the 'alias' attribute.
 from enum import Enum, IntEnum
 from typing import List, Any, Optional
 
-from pydantic import Field, conbytes, model_validator
+from pydantic import Field, conbytes, field_validator, model_validator
 
 from app.shared.messages import BaseModel
+from app.shared.messages.out_of_spec import accept_out_of_spec
 from app.shared.messages.datatypes import (
+    EVSEStatus as SharedEVSEStatus,
     PhysicalValue,
     PVEVEnergyCapacityDin,
     PVEVEnergyRequestDin,
@@ -73,15 +75,22 @@ class ServiceCategory(str, Enum):
 
 
 class ServiceName(str, Enum):
-    """
-    In the scope of DIN SPEC 70121, the optional element “ServiceName”
-    shall not be used.
+    """Service names ISO 15118-2 Table 105 assigns to ServiceIDs 1-4.
+
+    In the scope of DIN SPEC 70121 the optional element “ServiceName” shall
+    not be used ([V2G-DC-628]), so this enum only names what the SECC may
+    emit. It is *not* the closed set of what may arrive: the XSD type is
+    ``xs:string`` (max length 32), and a fielded charger sends ``DC_CHARGING``,
+    so :class:`ServiceDetails` accepts any string (issue #124).
     """
 
     CHARGING = "AC_DC_Charging"
     CERTIFICATE = "Certificate"
     INTERNET = "InternetAccess"
     CUSTOM = "UseCaseInformation"
+
+
+_STANDARD_SERVICE_NAMES = frozenset(name.value for name in ServiceName)
 
 
 class ServiceDetails(BaseModel):
@@ -99,9 +108,26 @@ class ServiceDetails(BaseModel):
     # third-party DIN charger uses 4660 / 0x1234). Restricting to the enum made
     # ServiceDiscoveryRes undecodable against such chargers.
     service_id: int = Field(..., ge=0, le=65535, alias="ServiceID")
-    service_name: Optional[ServiceName] = Field(None, max_length=32, alias="ServiceName")
+    # XSD type xs:string with maxLength 32. A free string, not the ServiceName
+    # enum: DIN forbids the element, so whatever a charger puts here is its
+    # own choice; a name outside the standard's is accepted with an
+    # out-of-spec warning (issue #124).
+    service_name: Optional[str] = Field(None, max_length=32, alias="ServiceName")
     service_category: ServiceCategory = Field(..., alias="ServiceCategory")
     service_scope: Optional[str] = Field(None, max_length=64, alias="ServiceScope")
+
+    @field_validator("service_name")
+    @classmethod
+    def _accept_non_standard_service_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and value not in _STANDARD_SERVICE_NAMES:
+            accept_out_of_spec(
+                cls.__name__,
+                "ServiceName",
+                value,
+                "one of " + "/".join(sorted(_STANDARD_SERVICE_NAMES))
+                + " (ISO 15118-2 Table 105); DIN forbids the element per [V2G-DC-628]",
+            )
+        return value
 
 
 class ChargeService(BaseModel):
@@ -130,13 +156,14 @@ class EVSENotification(str, Enum):
     RE_NEGOTIATION = "ReNegotiation"
 
 
-class EVSEStatus(BaseModel):
-    """Annex A.1.1.6 in DIN SPEC 70121"""
+class EVSEStatus(SharedEVSEStatus):
+    """Annex A.1.1.6 in DIN SPEC 70121
 
-    # XSD type unsignedShort (16 bit integer) with value range [0..65535]
-    notification_max_delay: int = Field(
-        ..., ge=0, le=65535, alias="NotificationMaxDelay"
-    )
+    DIN types NotificationMaxDelay as xs:unsignedInt and tells the EVCC to
+    ignore it ([V2G-DC-636]); the bound and the out-of-spec warning past the
+    ISO 15118-2 unsignedShort range come from the shared base (issue #124).
+    """
+
     evse_notification: EVSENotification = Field(..., alias="EVSENotification")
 
 

@@ -2,7 +2,7 @@ from enum import Enum
 from typing import List, Literal, Tuple, Union, Optional
 from typing_extensions import Self
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from app.shared.messages import BaseModel
 from app.shared.messages.enums import (
@@ -11,6 +11,11 @@ from app.shared.messages.enums import (
     IsolationLevel,
     UnitSymbol,
 )
+from app.shared.messages.out_of_spec import accept_out_of_spec
+
+# NotificationMaxDelay: xs:unsignedShort in ISO 15118-2, xs:unsignedInt in DIN.
+NOTIFICATION_MAX_DELAY_UNSIGNED_SHORT_MAX = 65535
+NOTIFICATION_MAX_DELAY_UNSIGNED_INT_MAX = 4294967295
 
 
 class PhysicalValue(BaseModel):
@@ -575,11 +580,29 @@ class EVSENotification(str, Enum):
 class EVSEStatus(BaseModel):
     """See sections 8.5.3.1 and 8.5.4.1 in ISO 15118-2"""
 
-    # XSD type unsignedShort (16 bit integer) with value range [0..65535]
+    # ISO 15118-2 types this xs:unsignedShort [0..65535]; DIN SPEC 70121 types
+    # it xs:unsignedInt [0..4294967295] and tells the EVCC to ignore the value
+    # ([V2G-DC-636]). This class serves both protocols (din_spec/body.py reuses
+    # DCEVSEStatus), and a real DIN charger sends 3 << 24 here, so the model
+    # bound is the wider one and a value past the ISO-2 bound is accepted with
+    # an out-of-spec warning (issue #124).
     notification_max_delay: int = Field(
-        ..., ge=0, le=65535, alias="NotificationMaxDelay"
+        ..., ge=0, le=NOTIFICATION_MAX_DELAY_UNSIGNED_INT_MAX, alias="NotificationMaxDelay"
     )
     evse_notification: EVSENotification = Field(..., alias="EVSENotification")
+
+    @field_validator("notification_max_delay")
+    @classmethod
+    def _accept_delay_past_unsigned_short(cls, value: int) -> int:
+        if value > NOTIFICATION_MAX_DELAY_UNSIGNED_SHORT_MAX:
+            accept_out_of_spec(
+                cls.__name__,
+                "NotificationMaxDelay",
+                value,
+                f"unsignedShort 0..{NOTIFICATION_MAX_DELAY_UNSIGNED_SHORT_MAX} "
+                "(ISO 15118-2); DIN unsignedInt, ignored per [V2G-DC-636]",
+            )
+        return value
 
 
 class DCEVSEStatus(EVSEStatus):

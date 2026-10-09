@@ -179,8 +179,9 @@ def test_illegal_enum_value_accepted_at_load():
 
 
 def test_out_of_range_numeric_leaf_accepted_at_load():
-    # NotificationMaxDelay is xs:unsignedShort (le=65535) on the model; the tree
-    # layer accepts an out-of-range value (bounded only by codec serializability).
+    # The model bounds NotificationMaxDelay at DIN's unsignedInt maximum (#124);
+    # the tree layer accepts a value past the ISO-2 unsignedShort range without
+    # range-checking it (bounded only by codec serializability).
     tree = {
         "DIN_SPEC_70121": {
             "ChargeParameterDiscoveryRes": {

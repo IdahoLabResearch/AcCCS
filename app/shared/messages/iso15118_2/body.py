@@ -18,6 +18,7 @@ from pydantic import Field, model_validator, field_validator
 
 from app.shared.exceptions import V2GMessageValidationError
 from app.shared.messages import BaseModel
+from app.shared.messages.out_of_spec import accept_out_of_spec
 from app.shared.messages.datatypes import (
     DCEVSEChargeParameter,
     DCEVSEStatus,
@@ -69,6 +70,27 @@ from app.shared.messages.iso15118_2.datatypes import (
 from app.shared.validators import one_field_must_be_set
 
 logger = logging.getLogger(__name__)
+
+# Annex C.6 evseIDType: xs:string, minLength 7, maxLength 37.
+EVSE_ID_MIN_LENGTH = 7
+EVSE_ID_MAX_LENGTH = 37
+
+
+def _accept_short_evse_id(cls, value: str) -> str:
+    """Keep an EVSEID shorter than Annex C.6's minimum, with a warning.
+
+    A real charger answers SessionSetupReq with a single NUL byte. That is
+    non-conformant, but closing the socket over it loses the session; only
+    the upper bound is still enforced by the field (issue #124).
+    """
+    if len(value) < EVSE_ID_MIN_LENGTH:
+        accept_out_of_spec(
+            cls.__name__,
+            "EVSEID",
+            value,
+            f"evseIDType minLength {EVSE_ID_MIN_LENGTH} (ISO 15118-2 Annex C.6)",
+        )
+    return value
 
 
 class BodyBase(BaseModel, ABC):
@@ -331,7 +353,8 @@ class ChargingStatusReq(BodyBase):
 class ChargingStatusRes(Response):
     """See section 8.4.4.2.3 in ISO 15118-2"""
 
-    evse_id: str = Field(..., min_length=7, max_length=37, alias="EVSEID")
+    evse_id: str = Field(..., max_length=EVSE_ID_MAX_LENGTH, alias="EVSEID")
+    _validate_short_evse_id = field_validator("evse_id")(_accept_short_evse_id)
     # XSD type unsignedByte with value range [1..255]
     sa_schedule_tuple_id: int = Field(..., ge=1, le=255, alias="SAScheduleTupleID")
     evse_max_current: Optional[PVEVSEMaxCurrent] = Field(None, alias="EVSEMaxCurrent")
@@ -382,7 +405,8 @@ class CurrentDemandRes(Response):
         None, alias="EVSEMaximumPowerLimit"
     )
     # Note: Table 56 denotes the EVSEID type falsely as hexBinary
-    evse_id: str = Field(..., min_length=7, max_length=37, alias="EVSEID")
+    evse_id: str = Field(..., max_length=EVSE_ID_MAX_LENGTH, alias="EVSEID")
+    _validate_short_evse_id = field_validator("evse_id")(_accept_short_evse_id)
     # XSD type unsignedByte with value range [1..255]
     sa_schedule_tuple_id: int = Field(..., ge=1, le=255, alias="SAScheduleTupleID")
     meter_info: Optional[MeterInfo] = Field(None, alias="MeterInfo")
@@ -604,7 +628,8 @@ class SessionSetupReq(BodyBase):
 class SessionSetupRes(Response):
     """See section 8.4.3.2.2 in ISO 15118-2"""
 
-    evse_id: str = Field(..., min_length=7, max_length=37, alias="EVSEID")
+    evse_id: str = Field(..., max_length=EVSE_ID_MAX_LENGTH, alias="EVSEID")
+    _validate_short_evse_id = field_validator("evse_id")(_accept_short_evse_id)
     evse_timestamp: Optional[int] = Field(None, alias="EVSETimeStamp")
 
 

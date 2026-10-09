@@ -22,6 +22,7 @@ from pydantic import (
 from typing_extensions import TypeAlias
 
 from app.shared.messages import BaseModel
+from app.shared.messages.out_of_spec import accept_out_of_spec
 from app.shared.messages.datatypes import (
     EVSEStatus,
     PhysicalValue,
@@ -168,17 +169,38 @@ class ServiceName(str, Enum):
     CUSTOM = "UseCaseInformation"
 
 
+_STANDARD_SERVICE_IDS = frozenset(int(member) for member in ServiceID)
+
+
 class ServiceDetails(BaseModel):
     """See section 8.5.2.1 in ISO 15118-2"""
 
-    # XSD type unsignedShort (16 bit integer) with value range [0..65535]
-    service_id: ServiceID = Field(..., ge=0, le=65535, alias="ServiceID")
+    # XSD type unsignedShort (16 bit integer) with value range [0..65535].
+    # Modeled as a plain int, NOT the ServiceID enum: the enum only names the
+    # values the standard assigns (1-4) and is what the SECC emits, but
+    # 8.6.3.6 reserves 60001-65535 for implementation-specific services and a
+    # third-party charger advertises 4660. A value outside 1-4 is accepted with
+    # an out-of-spec warning (issue #124).
+    service_id: int = Field(..., ge=0, le=65535, alias="ServiceID")
     # XSD type serviceNameType: xs:string with maxLength 32 (Annex C.6). A
     # free-form "human readable service name" — see the ServiceName docstring.
     service_name: Optional[str] = Field(None, max_length=32, alias="ServiceName")
     service_category: ServiceCategory = Field(..., alias="ServiceCategory")
     service_scope: Optional[str] = Field(None, max_length=64, alias="ServiceScope")
     free_service: bool = Field(..., alias="FreeService")
+
+    @field_validator("service_id")
+    @classmethod
+    def _accept_non_standard_service_id(cls, value: int) -> int:
+        if value not in _STANDARD_SERVICE_IDS:
+            accept_out_of_spec(
+                cls.__name__,
+                "ServiceID",
+                value,
+                "1..4 assigned by ISO 15118-2 Table 105; serviceIDType is "
+                "unsignedShort, 60001..65535 implementation-specific (8.6.3.6)",
+            )
+        return value
 
 
 class ChargeService(ServiceDetails):
