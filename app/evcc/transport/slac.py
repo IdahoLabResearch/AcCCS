@@ -15,7 +15,23 @@ from external_libs.HomePlugPWN.layerscapy.HomePlugGP import *
 if TYPE_CHECKING:
     from app.evcc.controller.pev import PEV
 
+from app.shared.messages.out_of_spec import accept_out_of_spec, discard_out_of_spec
+
 logger = logging.getLogger("SLAC")
+
+# Cadence of the EV's batched SLAC frames (TP_EV_batch_msg_interval, 20-50 ms).
+SOUND_INTERVAL_MS = 20
+# ISO 15118-3 Table A.1 fixes the M-sound count at C_EV_match_MNBC = 10. A
+# CM_SLAC_PARM.CNF that deviates is tolerated and logged, except where the
+# count cannot work at all: zero (nothing to send, the Countdown underflows)
+# or more than the personality's sound timeout lets us send at this cadence
+# (the timeout thread would restart SLAC mid-sound-phase). Those frames are
+# ignored as deviating content ([V2G3-A09-09] / DIN [V2G-DC-591]; issue #137).
+SPEC_NUM_SOUNDS = 10
+MIN_NUM_SOUNDS = 1
+# Upper bound on the end-of-cycle join, so a wedged timer thread degrades to a
+# logged leak rather than hanging the run (mirrors the SECC handler).
+TIMEOUT_JOIN_TIMEOUT = 2.0
 
 # This class handles the level 2 SLAC protocol communications
 class SLACHandler:
@@ -184,11 +200,24 @@ class SLACHandler:
         )
         self.neighborSolicitationThread.start()
         
-        self.create_socket()
-        self.handleSLAC()
-        
-        if self.neighborSolicitationThread.running:
-            self.neighborSolicitationThread.stop()
+        try:
+            self.create_socket()
+            self.handleSLAC()
+        finally:
+            # However handleSLAC ended — matched, operator quit, socket
+            # failure, or an exception on a peer frame — this cycle's SLAC is
+            # over, so the timer must not outlive it. Without this a failed
+            # run left checkForTimeout re-sending CM_SLAC_PARM.REQ forever and
+            # stacked a second timer onto the next cycle (issue #137). `stop`
+            # ends the current cycle only; the sticky `quit` is untouched.
+            self.stop = True
+            self.timeoutThread.join(TIMEOUT_JOIN_TIMEOUT)
+            if self.timeoutThread.is_alive():
+                logger.error(
+                    "SLAC timeout thread did not exit within %ss", TIMEOUT_JOIN_TIMEOUT
+                )
+            if self.neighborSolicitationThread.running:
+                self.neighborSolicitationThread.stop()
 
     # The EVSE sometimes fails the SLAC process, so this automatically restarts it from the beginning
     def checkForTimeout(self):
@@ -233,11 +262,36 @@ class SLACHandler:
             elif packet.haslayer("CM_SLAC_MATCH_CNF"):
                 self.handle_CM_SLAC_MATCH_CNF(packet)
         
+    def max_num_sounds(self) -> int:
+        """Most M-sounds the sound phase can send before the sound timeout."""
+        return self.pev.slacSoundTimeout // SOUND_INTERVAL_MS
+
     def handle_CM_SLAC_PARM_CNF(self, packet: Packet):
         logger.info("Recieved CM_SLAC_PARM_CNF")
+        num_sounds = packet[CM_SLAC_PARM_CNF].NumberMSounds
+        max_sounds = self.max_num_sounds()
+        if not MIN_NUM_SOUNDS <= num_sounds <= max_sounds:
+            # Deviating content: ignore the frame as if it never arrived and
+            # keep waiting; the timeout thread re-sends CM_SLAC_PARM.REQ.
+            discard_out_of_spec(
+                "CM_SLAC_PARM_CNF",
+                "NUM_SOUNDS",
+                num_sounds,
+                f"{MIN_NUM_SOUNDS}..{max_sounds} (sendable within the "
+                f"{self.pev.slacSoundTimeout} ms sound timeout at "
+                f"{SOUND_INTERVAL_MS} ms per sound)",
+            )
+            return
+        if num_sounds != SPEC_NUM_SOUNDS:
+            accept_out_of_spec(
+                "CM_SLAC_PARM_CNF",
+                "NUM_SOUNDS",
+                num_sounds,
+                f"{SPEC_NUM_SOUNDS} (ISO 15118-3 Table A.1, C_EV_match_MNBC)",
+            )
         self.destinationMAC = packet[Ether].src
         self.pev.destinationMAC = packet[Ether].src
-        self.numSounds = packet[CM_SLAC_PARM_CNF].NumberMSounds
+        self.numSounds = num_sounds
         self.numRemainingSounds = self.numSounds
         
         logger.info("Sending 3 CM_START_ATTEN_CHAR_IND")
@@ -245,13 +299,13 @@ class SLACHandler:
         self.CM_START_ATTEN_CHAR_IND_sent = True
         self._send(self.buildStartAttenCharInd())
         for i in range(2):
-            time.sleep(0.02)
+            time.sleep(SOUND_INTERVAL_MS / 1000)
             self._send(self.buildStartAttenCharInd())
 
         logger.info(f"Sending {self.numSounds} CM_MNBC_SOUND_IND")
         self._send(self.buildMNBCSoundInd())
         for i in range(self.numSounds - 1):
-            time.sleep(0.02)
+            time.sleep(SOUND_INTERVAL_MS / 1000)
             self._send(self.buildMNBCSoundInd())
         return
 

@@ -67,6 +67,7 @@ from app.shared.messages.iso15118_2.msgdef import V2GMessage as V2GMessageV2
 from app.shared.messages.iso15118_20.common_types import (
     V2GMessage as V2GMessageV20,
 )
+from app.shared.messages.out_of_spec import accept_out_of_spec
 from app.shared.messages.timeouts import Timeouts as TimeoutsShared
 from app.shared.live_control import override_skip_fields
 from app.shared.notifications import StopNotification
@@ -74,6 +75,10 @@ from app.shared.personality.message_field_tree import apply_message_field_tree
 from app.shared.states import Terminate
 
 logger = logging.getLogger(__name__)
+
+# SAScheduleTupleID the EVCC falls back to when the SECC sends no schedule list
+# with a Finished ChargeParameterDiscoveryRes (issue #137, SC-040).
+DEFAULT_SA_SCHEDULE_TUPLE_ID = 1
 
 
 def apply_personality_tree(
@@ -437,9 +442,22 @@ class ChargeParameterDiscovery(StateEVCC):
         if charge_parameter_discovery_res.evse_processing == EVSEProcessing.FINISHED:
             # Reset the Ongoing timer
             self.comm_session.ongoing_timer = -1
-            schedule_id = await ev_controller.process_sa_schedules_dinspec(
-                charge_parameter_discovery_res.sa_schedule_list.values
-            )
+            if charge_parameter_discovery_res.sa_schedule_list is None:
+                # DIN Table 39 requires the SAScheduleList once Finished, but
+                # the EVCC only needs it for the SAScheduleTupleID of an
+                # optional charging profile, so a charger that omits it is
+                # survivable: log the gap and default the tuple ID (issue #137).
+                accept_out_of_spec(
+                    "ChargeParameterDiscoveryRes",
+                    "SAScheduleList",
+                    None,
+                    "present when EVSEProcessing=Finished (DIN Table 39)",
+                )
+                schedule_id = DEFAULT_SA_SCHEDULE_TUPLE_ID
+            else:
+                schedule_id = await ev_controller.process_sa_schedules_dinspec(
+                    charge_parameter_discovery_res.sa_schedule_list.values
+                )
 
             cable_check_req = CableCheckReq(
                 dc_ev_status=await ev_controller.get_dc_ev_status_dinspec(),

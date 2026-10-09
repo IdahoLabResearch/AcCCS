@@ -1,7 +1,7 @@
 import logging
 from enum import IntEnum
 from ipaddress import IPv6Address
-from typing import Union
+from typing import Optional, Tuple, Union
 
 from app.shared.exceptions import InvalidSDPRequestError, InvalidSDPResponseError
 from app.shared.messages.enums import (
@@ -9,6 +9,7 @@ from app.shared.messages.enums import (
     ISOV2PayloadTypes,
     ISOV20PayloadTypes,
 )
+from app.shared.messages.out_of_spec import discard_out_of_spec
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +139,28 @@ class SDPRequest:
         )
 
 
+def _out_of_spec_response_field(
+    port: int, security: int, transport_protocol: int
+) -> Optional[Tuple[str, int, str]]:
+    """The first SDP response field outside [V2G2-078] Table 8, as
+    ``(field, value, bound)``, or ``None`` when all three are legal."""
+    if port < MIN_TCP_PORT or port > MAX_TCP_PORT:
+        return "Port", port, f"{MIN_TCP_PORT}..{MAX_TCP_PORT} ([V2G2-078] Table 8)"
+    if security not in Security.options():
+        return (
+            "Security",
+            security,
+            "0x00 (TLS) or 0x10 (no TLS); other values reserved ([V2G2-078])",
+        )
+    if transport_protocol not in Transport.options():
+        return (
+            "Transport",
+            transport_protocol,
+            "0x00 (TCP) or 0x10 (UDP); other values reserved ([V2G2-078])",
+        )
+    return None
+
+
 class SDPResponse:
     """
     The SECC Discovery Protocol Request message, which the SECC uses to
@@ -153,46 +176,25 @@ class SDPResponse:
         security: Security,
         transport_protocol: Transport,
     ):
-        """
-        TODO: Docstrings
+        """Build a response the SECC will send; a bad value raises ``ValueError``.
 
         TODO: We may want to use here the related package or something like pydantic
               which adds some better validations (but also depends if it makes sense
               given the criteria of having a small image)
-
-        Also raise Exceptions
         """
 
+        # Never leave a half-built object behind (conformance review SC-046):
+        # a caller that passes a bad value gets an exception, not an instance
+        # whose attributes are missing.
         if len(ip_address) != 16:
-            logger.error(
+            raise ValueError(
                 f"Please provide a valid IPv6 address with 16 bytes. "
-                f"Provided: {len(ip_address)} bytes "
-                f"({ip_address.hex()})"
+                f"Provided: {len(ip_address)} bytes ({ip_address.hex()})"
             )
-            return
-
-        if port < MIN_TCP_PORT or port > MAX_TCP_PORT:
-            logger.error(
-                f"The port {port} does not match the mandatory "
-                f"UDP server port 15118."
-            )
-            return
-
-        if security not in Security.options():
-            logger.error(
-                f"'{security}' is not a valid value for the "
-                f"field 'security'."
-                f"Allowed: {Security.options()} "
-            )
-            return
-
-        if transport_protocol not in Transport.options():
-            logger.error(
-                f"'{transport_protocol}' is not a valid value for "
-                f"the field 'transport_protocol'."
-                f"Allowed: {Transport.options()} "
-            )
-            return
+        out_of_spec = _out_of_spec_response_field(port, security, transport_protocol)
+        if out_of_spec is not None:
+            field, value, bound = out_of_spec
+            raise ValueError(f"SDPResponse {field}={value!r} is outside {bound}")
 
         self.ip_address = ip_address
         self.port = port
@@ -211,17 +213,39 @@ class SDPResponse:
 
     @staticmethod
     def from_payload(payload) -> "SDPResponse":
+        """Decode a received SDP response, discarding one that cannot be used.
+
+        A payload of the wrong length, a port outside the dynamic range or a
+        reserved Security / Transport byte ([V2G2-078] Table 8) is logged once
+        as out-of-spec and raised as :class:`InvalidSDPResponseError`, so the
+        discovery loop treats the datagram as if it had never arrived instead
+        of crashing on it (issue #137).
+        """
         if len(payload) != 20:
+            discard_out_of_spec(
+                "SDPResponse", "payload", payload, "20 bytes ([V2G2-078] Table 8)"
+            )
             raise InvalidSDPResponseError(
                 f"Payload must be of 20 bytes length. "
                 f"Provided: {len(payload)} bytes ({payload})"
             )
 
+        port = int.from_bytes(payload[16:18], "big")
+        security_byte = int.from_bytes(payload[18:19], "big")
+        transport_byte = int.from_bytes(payload[19:20], "big")
+        out_of_spec = _out_of_spec_response_field(port, security_byte, transport_byte)
+        if out_of_spec is not None:
+            field, value, bound = out_of_spec
+            discard_out_of_spec("SDPResponse", field, value, bound)
+            raise InvalidSDPResponseError(
+                f"SDP response discarded: {field}={value!r} is outside {bound}"
+            )
+
         return SDPResponse(
             payload[:16],  # IPv6 address
-            int.from_bytes(payload[16:18], "big"),  # Port
-            Security(int.from_bytes(payload[18:19], "big")),  # Security
-            Transport(int.from_bytes(payload[19:20], "big")),  # Transport protocol
+            port,
+            Security(security_byte),
+            Transport(transport_byte),
         )
 
     def __len__(self):

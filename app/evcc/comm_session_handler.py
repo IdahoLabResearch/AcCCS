@@ -524,8 +524,14 @@ class CommunicationSessionHandler:
             try:
                 sdp_response = SDPResponse.from_payload(v2gtp_msg.payload)
             except InvalidSDPResponseError as exc:
-                logger.error(exc)
-                await self.restart_sdp(True)
+                # A response we cannot use is no response (the decoder already
+                # logged it as out-of-spec): go back to listening for the rest
+                # of this request's window, so a usable answer can still be
+                # taken and otherwise the receive timeout sends the next
+                # SDPRequest within the 50-request budget of [V2G2-160]
+                # (issue #137).
+                logger.debug(exc)
+                await self.udp_client.receive()
                 return
 
             logger.info(f"SDPResponse received: {sdp_response}")

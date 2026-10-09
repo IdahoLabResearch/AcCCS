@@ -85,6 +85,7 @@ from app.shared.messages.iso15118_2.timeouts import Timeouts
 from app.shared.messages.iso15118_20.common_types import (
     V2GMessage as V2GMessageV20,
 )
+from app.shared.messages.out_of_spec import accept_out_of_spec
 from app.shared.messages.timeouts import Timeouts as TimeoutsShared
 from app.shared.messages.xmldsig import X509IssuerSerial
 from app.shared.live_control import override_skip_fields
@@ -108,6 +109,10 @@ from app.shared.security import (
 from app.shared.states import Terminate
 
 logger = logging.getLogger(__name__)
+
+# SAScheduleTupleID the EVCC falls back to when the SECC sends no schedule list
+# with a Finished ChargeParameterDiscoveryRes (issue #137, SC-040).
+DEFAULT_SA_SCHEDULE_TUPLE_ID = 1
 
 
 def apply_personality_tree(
@@ -833,13 +838,29 @@ class ChargeParameterDiscovery(StateEVCC):
             #      if e.g. EVSENotification is set to STOP_CHARGING or if RCD
             #      is True. But let's do that after the testival
 
-            (
-                charge_progress,
-                schedule_id,
-                charging_profile,
-            ) = await ev_controller.process_sa_schedules_v2(
-                charge_params_res.sa_schedule_list.schedule_tuples
-            )
+            if charge_params_res.sa_schedule_list is None:
+                # [V2G2-688] lets the SECC omit the SAScheduleList only while
+                # Ongoing, but the EVCC only needs it for the SAScheduleTupleID
+                # of an optional ChargingProfile, so a charger that omits it is
+                # survivable: log the gap, default the tuple ID and start
+                # without a profile (issue #137).
+                accept_out_of_spec(
+                    "ChargeParameterDiscoveryRes",
+                    "SAScheduleList",
+                    None,
+                    "present when EVSEProcessing=Finished ([V2G2-688])",
+                )
+                charge_progress = ChargeProgress.START
+                schedule_id = DEFAULT_SA_SCHEDULE_TUPLE_ID
+                charging_profile = None
+            else:
+                (
+                    charge_progress,
+                    schedule_id,
+                    charging_profile,
+                ) = await ev_controller.process_sa_schedules_v2(
+                    charge_params_res.sa_schedule_list.schedule_tuples
+                )
             await self.comm_session.ev_controller.enable_charging(True)
             if self.comm_session.selected_charging_type_is_ac:
                 power_delivery_req = PowerDeliveryReq(
