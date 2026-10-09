@@ -2,7 +2,7 @@
 #
 # The EVCC half of the tree-migrated `example_iso20_dc_bpt_variant.yaml`. A thin
 # device override that `extends: iso20-dc-evcc-baseline` (the DC-BPT-seeded
-# HAL-reference tree, #99) — the baseline already requests DC_BPT, so this only
+# reference-charger tree, #99) — the baseline already requests DC_BPT, so this only
 # pins the requested BPT charge-power maximum that makes this vehicle distinct on
 # the wire. The EVCCID is runtime-derived (NIC MAC), so the requested envelope is
 # the vehicle's distinction. Every other EVCC wire value is inherited (deep-merge

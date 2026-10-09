@@ -1,5 +1,5 @@
-# Conformance ISO 15118-2 EVCC personality, tree-backed via the shipped Mach-E
-# baseline (ADR-0006 / #97). Extends the repo `iso2-evcc-baseline` (resolved
+# Conformance ISO 15118-2 EVCC personality, tree-backed via the shipped
+# reference-vehicle baseline (ADR-0006 / #97). Extends the repo `iso2-evcc-baseline` (resolved
 # through the personality search path) and only adds the veth interface plus a
 # target start voltage under the baseline's 422 V envelope, so the E2E asserts the
 # baseline wire values the EVCC actually emits. Mirrors `iso2-baseline-secc.yaml`.

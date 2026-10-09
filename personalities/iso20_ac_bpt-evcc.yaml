@@ -2,7 +2,7 @@
 #
 # The EVCC half of the tree-migrated `example_iso20_ac_bpt_variant.yaml`. A thin
 # device override that `extends: iso20-ac-evcc-baseline` (the plain-AC
-# HAL-reference tree, #101) and flips the requested energy service to AC_BPT so
+# reference-charger tree, #101) and flips the requested energy service to AC_BPT so
 # the vehicle requests bidirectional AC and builds the
 # `BPT_AC_CPDReqEnergyTransferMode` sub-model. It pins the requested BPT
 # charge/discharge envelope that makes this vehicle distinct on the wire; the

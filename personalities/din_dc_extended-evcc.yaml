@@ -1,8 +1,9 @@
 # Default DIN 70121 EVCC personality — DC_extended energy transfer mode.
 #
 # This is the default `--config` for run_evcc.py. It `extends:` the DIN EVCC
-# baseline (ADR-0006), which now carries the full Cadillac Lyriq wire tree (#74),
-# so this file overrides only the EV's target-voltage/current start values.
+# baseline (ADR-0006), which now carries the full DIN reference-vehicle wire
+# tree (#74), so this file overrides only the EV's target-voltage/current start
+# values.
 #
 # The announced maxima, battery capacity, and remaining-time estimates that used
 # to live here as `power.ev_dc` fields are retired from the DIN path (ADR-0006 /

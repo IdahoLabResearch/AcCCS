@@ -140,7 +140,7 @@ def apply_personality_tree(comm_session, res, message_name: str, skip_fields=Non
     protocol for the SECC role as of #98 (``iso20-dc-secc-baseline``, a real
     DC-BPT / Dynamic / EIM charger from ``iso20.pcap``) and ISO-20 AC as of #100
     (``iso20-ac-secc-baseline``, a real plain-AC / Dynamic / EIM charger from
-    ``HAL+TCP_ISO_20_AC_Example.pcap``). No-op when no personality is attached,
+    the ISO-20 AC reference capture). No-op when no personality is attached,
     when the negotiated protocol is not a known tree protocol, or when the tree
     carries nothing for that protocol/message.
 

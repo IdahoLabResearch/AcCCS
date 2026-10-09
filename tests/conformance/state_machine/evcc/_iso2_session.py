@@ -3,7 +3,7 @@
 Drives the real EVCC ISO-2 states through `process_message()` at the ADR-0003
 seam, feeding scripted SECC ``*Res`` messages for a full DC/EIM session and
 returning the ``*Req`` the EVCC actually put on the wire for each step, decoded
-back through the EXI codec. Both the Mach-E baseline-reproduction test and the
+back through the EXI codec. Both the reference-vehicle baseline-reproduction test and the
 allowlist-fallback guard drive the same sequence — the first with the shipped
 `iso2-evcc-baseline`, the second with an empty-tree personality.
 """

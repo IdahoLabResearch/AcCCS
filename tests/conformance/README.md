@@ -101,7 +101,7 @@ personality slice is responsible for updating scenarios as it lands."
 The hosted `conformance.yml` job runs on every PR but is veth-only on
 GitHub-hosted Ubuntu, with `smbus` stripped and the SMBus path stubbed. It
 cannot catch Pi-specific breakage — the real `smbus` build/import on ARM, PWM
-PCB I/O, or scapy on the Devolo NICs.
+PCB I/O, or scapy on the GreenPHY eval board NICs.
 
 The **AcCCS-box Pi** closes that gap. It is registered as a self-hosted runner
 and runs the same suite against real Pi hardware via

@@ -1,7 +1,7 @@
 # Example ISO 15118-20 AC SECC device personality (ADR-0006 / #106).
 #
 # The SECC half of the tree-migrated `example_iso20_ac_variant.yaml`. A thin
-# device override that `extends: iso20-ac-secc-baseline` (the HAL-reference AC
+# device override that `extends: iso20-ac-secc-baseline` (the reference-charger AC
 # tree, #100) and pins only the leaves that make this device distinct on the
 # wire: its announced EVSEID, a lowered plain-AC charge-power envelope, and the
 # meter identity it reports in ACChargeLoopRes. Every other SECC wire value

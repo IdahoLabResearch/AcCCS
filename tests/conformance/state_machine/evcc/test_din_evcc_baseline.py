@@ -1,16 +1,16 @@
-"""The shipped `din-evcc-baseline` reproduces the Cadillac Lyriq field-for-field.
+"""The shipped `din-evcc-baseline` reproduces the DIN reference vehicle field-for-field.
 
-Issue #74 / ADR-0006: the DIN EVCC baseline replicates the Cadillac Lyriq from
-`ABB_Cadillac_Lyric.pcapng` — the vehicle-side mirror of the ABB
+Issue #74 / ADR-0006: the DIN EVCC baseline replicates the DIN reference vehicle
+from the DIN reference capture — the vehicle-side mirror of the reference-charger
 `din-secc-baseline` (#73). This drives the real EVCC through a full DIN session
 with the shipped `personalities/din-evcc-baseline.yaml`, feeding scripted SECC
 `*Res` messages, decodes the bytes the EVCC actually put on the wire for each
-`*Req`, and asserts every Cadillac baseline field — proving the message field
-tree reaches the wire for the whole EVCC DIN path.
+`*Req`, and asserts every reference-vehicle baseline field — proving the message
+field tree reaches the wire for the whole EVCC DIN path.
 
 Runtime/computed fields (EVCCID, SessionID, EVReady, ChargingComplete, and the
 present/target voltage & current that ramp) are deliberately NOT asserted — the
-baseline leaves them computed. The Cadillac's static 88% SOC, its announced
+baseline leaves them computed. The reference vehicle's static 88% SOC, its announced
 500 A / 410 V envelope, FullSOC/BulkSOC targets, BulkChargingComplete, and the
 omitted EVMaximumPowerLimit on CurrentDemandReq are the headline behaviours.
 """
@@ -117,7 +117,7 @@ def _decode(result):
 
 
 @pytest.mark.asyncio
-async def test_din_evcc_baseline_reproduces_cadillac_capture(exi_codec):
+async def test_din_evcc_baseline_reproduces_reference_capture(exi_codec):
     session = _baseline_session()
     hdr = lambda: MessageHeader(session_id=session.session_id)  # noqa: E731
     peer = ScriptedPeer(session, SessionSetup)
@@ -136,7 +136,7 @@ async def test_din_evcc_baseline_reproduces_cadillac_capture(exi_codec):
     assert res.service_category == ServiceCategory.CHARGING
 
     # --- ServiceDiscoveryRes -> ServicePaymentSelectionReq -------------------
-    # Offer exactly what the ABB advertises (ServiceID 1). SelectedPaymentOption
+    # Offer exactly what the DIN reference charger advertises (ServiceID 1). SelectedPaymentOption
     # is the tree pin (ExternalPayment); the selected ServiceID is echoed from
     # this ServiceDiscoveryRes, so advertising 1 yields a selected 1.
     res = _decode(
@@ -200,7 +200,7 @@ async def test_din_evcc_baseline_reproduces_cadillac_capture(exi_codec):
     assert dcp.ev_maximum_voltage_limit.get_decimal_value() == 410
     assert dcp.full_soc == 100
     assert dcp.bulk_soc == 80
-    # The Cadillac omits EVMaximumPowerLimit / EVEnergyCapacity here.
+    # The reference vehicle omits EVMaximumPowerLimit / EVEnergyCapacity here.
     assert dcp.ev_maximum_power_limit is None
     assert dcp.ev_energy_capacity is None
     assert res.requested_energy_mode == EnergyTransferModeEnum.DC_EXTENDED
@@ -278,7 +278,7 @@ async def test_din_evcc_baseline_reproduces_cadillac_capture(exi_codec):
     assert res.dc_ev_power_delivery_parameter.bulk_charging_complete is True
     assert res.dc_ev_power_delivery_parameter.dc_ev_status.ev_ress_soc == 88
 
-    # --- PowerDeliveryRes -> CurrentDemandReq (full Cadillac envelope) -------
+    # --- PowerDeliveryRes -> CurrentDemandReq (full reference-vehicle envelope)
     res = _decode(
         await peer.feed(
             V2GMessageDINSPEC(
@@ -298,7 +298,7 @@ async def test_din_evcc_baseline_reproduces_cadillac_capture(exi_codec):
     assert res.bulk_charging_complete is True
     assert res.remaining_time_to_full_soc.get_decimal_value() == 2111
     assert res.remaining_time_to_bulk_soc.get_decimal_value() == 0
-    # The Cadillac omits EVMaximumPowerLimit from CurrentDemandReq.
+    # The reference vehicle omits EVMaximumPowerLimit from CurrentDemandReq.
     assert res.ev_max_power_limit is None
 
 

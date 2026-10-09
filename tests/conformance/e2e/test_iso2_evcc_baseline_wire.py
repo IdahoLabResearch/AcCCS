@@ -1,17 +1,18 @@
 """Risk-based E2E test: the ISO-2 EVCC message field tree reaches the wire (#97).
 
 Every ISO-15118-2 EVCC-emitted message is sourced from the [[message field
-tree]] as of #97, with the shipped ``iso2-evcc-baseline`` replicating the Ford
-Mach-E ``Mach-E-ISO.pcapng`` field-for-field. This drives a full ISO-2 DC/EIM
+tree]] as of #97, with the shipped ``iso2-evcc-baseline`` replicating the ISO-2
+reference-vehicle capture field-for-field. This drives a full ISO-2 DC/EIM
 session over veth with the EXI capture tap on, using an EVCC personality
-tree-backed by that baseline (against the tree-backed HAL SECC baseline), then
+tree-backed by that baseline (against the tree-backed reference-charger SECC
+baseline), then
 decodes the ``*Req`` messages the EVCC actually put on the wire and asserts the
 baseline values reached it:
 
-* the ``ChargeParameterDiscoveryReq`` DC envelope is the Mach-E 500 A / 422 V /
-  211000 W (the retired structured read would have emitted the model defaults),
-  and the Mach-E-omitted Optional fields (EVEnergyRequest / FullSOC / BulkSOC)
-  are absent;
+* the ``ChargeParameterDiscoveryReq`` DC envelope is the reference vehicle's
+  500 A / 422 V / 211000 W (the retired structured read would have emitted the
+  model defaults), and the Optional fields the reference vehicle omits
+  (EVEnergyRequest / FullSOC / BulkSOC) are absent;
 * every ``CurrentDemandReq`` resends that same envelope and omits the
   RemainingTime* / BulkChargingComplete Optional fields;
 * the pinned 24 % EVRESSSOC reaches the wire.
@@ -87,7 +88,7 @@ def test_iso2_evcc_baseline_values_from_message_field_tree(
                 )
             )
 
-    # ChargeParameterDiscoveryReq: the Mach-E DC envelope on the wire.
+    # ChargeParameterDiscoveryReq: the reference-vehicle DC envelope on the wire.
     assert cpd_envelope, "no ChargeParameterDiscoveryReq captured on the wire"
     assert all(e == (500, 422, 211000) for e in cpd_envelope), (
         "baseline DC envelope did not reach the wire (retired structured read "
@@ -97,7 +98,7 @@ def test_iso2_evcc_baseline_values_from_message_field_tree(
         f"baseline EVRESSSOC (24) did not reach the wire: {cpd_soc}"
     )
     assert all(o == (None, None, None) for o in cpd_omitted), (
-        "Mach-E-omitted ChargeParameterDiscoveryReq fields (EVEnergyRequest / "
+        "Reference-vehicle-omitted ChargeParameterDiscoveryReq fields (EVEnergyRequest / "
         f"FullSOC / BulkSOC) unexpectedly reached the wire: {cpd_omitted}"
     )
 
@@ -107,6 +108,6 @@ def test_iso2_evcc_baseline_values_from_message_field_tree(
         f"baseline envelope did not reach every CurrentDemandReq: {cd_envelope}"
     )
     assert all(o == (None, None, None) for o in cd_omitted), (
-        "Mach-E-omitted CurrentDemandReq fields (RemainingTime* / "
+        "Reference-vehicle-omitted CurrentDemandReq fields (RemainingTime* / "
         f"BulkChargingComplete) unexpectedly reached the wire: {cd_omitted}"
     )

@@ -1,7 +1,7 @@
 # Example ISO 15118-2 EIM (External Identification Means) EVCC device.
 #
 # The EVCC half of the retired symmetric `iso2_eim_dc.yaml`. A thin device
-# override that `extends: iso2-evcc-baseline` (the Mach-E-reference tree) — the
+# override that `extends: iso2-evcc-baseline` (the reference-vehicle tree) — the
 # baseline is already EIM / no-TLS, so this only supplies the vehicle's
 # target-voltage/current start values (the config-driven carve-out that seeds the
 # first PreCharge / CurrentDemand before the runtime charge controller ramps real
@@ -18,8 +18,8 @@ extends: iso2-evcc-baseline
 role: evcc
 residual:
   charge_ramp:
-    # The Mach-E envelope pins EVMaximumVoltageLimit to 422 V (in the baseline
-    # tree), so the target start voltage stays under it. PreCharge also requires
+    # The reference-vehicle envelope pins EVMaximumVoltageLimit to 422 V (in the
+    # baseline tree), so the target start voltage stays under it. PreCharge also requires
     # target_current < 2 A (IEC 61851-23 CC.5.2 inrush limit).
     target_voltage_v: 400.0
     target_current_a: 1.5

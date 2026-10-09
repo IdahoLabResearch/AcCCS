@@ -9,5 +9,5 @@ notes: |
   ISO 15118-2 DC, EIM auth. Recorded against the (now-retired) symmetric
   iso2_eim_dc personality; the ADR-0006 / #96 per-role split replaced it with
   iso2_eim_dc-{secc,evcc} (SECC side tree-backed via iso2-secc-baseline). A
-  re-capture would differ where the SECC now emits the HAL baseline envelope
+  re-capture would differ where the SECC now emits the reference-charger baseline envelope
   rather than the old structured evse_dc values.

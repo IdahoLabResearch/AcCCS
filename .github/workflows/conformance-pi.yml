@@ -8,7 +8,7 @@ name: Conformance suite (Pi)
 # Why a Pi job at all: the GitHub-hosted `conformance.yml` job runs on
 # ubuntu-latest with `smbus` stripped from requirements.txt and the SMBus
 # path stubbed (VIRTUAL=True). That can never catch Pi-specific breakage —
-# the real `smbus` build/import on ARM, PWM PCB I/O, or scapy on the Devolo
+# the real `smbus` build/import on ARM, PWM PCB I/O, or scapy on the GreenPHY eval board
 # NICs. This job installs the *full* requirements.txt (smbus included) on
 # real Pi hardware so those paths are exercised.
 #

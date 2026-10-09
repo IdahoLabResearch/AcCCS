@@ -91,8 +91,9 @@ def test_shipped_iso2_secc_personalities_pass_completeness(name):
     ["iso2-evcc-baseline", "iso2_eim_dc-evcc", "iso2_pnc_dc-evcc"],
 )
 def test_shipped_iso2_evcc_personalities_pass_completeness(name):
-    # ISO-2 is tree-backed for the EVCC as of #97: the shipped Mach-E baseline and
-    # the device files that `extends` it must carry a complete ISO-2 subtree.
+    # ISO-2 is tree-backed for the EVCC as of #97: the shipped reference-vehicle
+    # baseline and the device files that `extends` it must carry a complete ISO-2
+    # subtree.
     # Loading is the check — it raises on an incomplete tree.
     load_personality(name, "evcc")
 
@@ -117,7 +118,7 @@ def test_missing_required_secc_leaf_fails_at_load():
 
 def test_missing_required_evcc_leaf_fails_at_load():
     data = _merged_tree_data("din-evcc-baseline.yaml")
-    # EVRESSSOC is required and config-only (the Cadillac pins 88%), not allowlisted.
+    # EVRESSSOC is required and config-only (the reference vehicle pins 88%), not allowlisted.
     tree = data["message_field_tree"]["DIN_SPEC_70121"]
     del tree["CableCheckReq"]["DC_EVStatus"]["EVRESSSOC"]
     with pytest.raises(

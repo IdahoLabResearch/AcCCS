@@ -1,7 +1,7 @@
 # Example ISO 15118-20 DC SECC device personality (ADR-0006 / #106).
 #
 # The SECC half of the tree-migrated `iso20_dc.yaml`. A thin device override that
-# `extends: iso20-dc-secc-baseline` (the DC-BPT-seeded HAL-reference tree, #98)
+# `extends: iso20-dc-secc-baseline` (the DC-BPT-seeded reference-charger tree, #98)
 # and narrows the advertised energy service to plain DC, so the emulator
 # negotiates unidirectional DC and builds the `DC_CPDResEnergyTransferMode`
 # sub-model instead of the baseline's BPT one. It then pins the leaves that make

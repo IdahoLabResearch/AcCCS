@@ -12,8 +12,8 @@
 # iso20.pcap`, a real charger's ISO-15118-20 **DC-BPT / Dynamic control mode /
 # EIM** session. `iso20.pcap` decodes cleanly as ISO-20 DC with the project EXI
 # codec (payload type 0x8004 DC_MAINSTREAM; SECC source port 53927) — plaintext
-# on the wire, unlike the TLS-encrypted `HAL+TLS*+ISO20_DC_BPT_Example.pcap`
-# captures. (The two HAL DC-BPT captures are TLS-encrypted, so the synthetic
+# on the wire, unlike the TLS-encrypted ISO-20 DC-BPT reference captures. (Those
+# two DC-BPT captures are TLS-encrypted, so the synthetic
 # `EVSEDCLimitsV20` / `EVSEScheduleExchangeV20` fallback the issue reserves for
 # an undecodable capture is not needed here.) The decodable SECC-emitted
 # messages are reproduced exactly:

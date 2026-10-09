@@ -7,9 +7,9 @@
 # `message_field_tree` below via construction-time substitution (ADR-0006); the
 # structured `power.evse_dc` / `power.evse_ac` ISO-2 SECC reads are retired.
 #
-# PROVENANCE — decoded field-for-field from `~/projects/pcaps/
-# HAL+TCP_ISO_2_DC_Example.pcap` (a real HAL charger, plaintext TCP/EIM, SECC
-# source port 51111) via tshark + the project EXI codec. The decodable
+# PROVENANCE — decoded field-for-field from the ISO-2 DC reference capture (a
+# real charger, plaintext TCP/EIM, SECC source port 51111) via tshark + the
+# project EXI codec. The decodable
 # SECC-emitted messages are reproduced exactly:
 #   * SessionSetupRes.EVSEID = DE*AB7*E8406487
 #   * ServiceDiscoveryRes: ExternalPayment; ChargeService ServiceID 1 /
@@ -25,26 +25,26 @@
 #     EVSEID.
 #
 # Synthetic-fallback fields (the capture cannot supply them, ADR-0006 option B):
-#   * ChargeParameterDiscoveryRes.SAScheduleList — the HAL Finished CPDRes frame
-#     is undecodable by the project EXI codec (libcbv2g rc=-110), so the schedule
-#     falls back to the SECC state's builder default (one tuple, PMax from the DC
-#     envelope, TupleID 1 — consistent with the CurrentDemandRes SAScheduleTupleID
-#     the capture does show). Left out of the tree, builder-computed.
-#   * ChargeParameterDiscoveryRes.EVSEEnergyToBeDelivered — HAL emits it with a
-#     nonconformant Unit=W (the model requires Wh); it is Optional, so it is
-#     omitted rather than reproduced.
-#   * ChargeParameterDiscoveryRes.EVSECurrentRegulationTolerance (HAL: 2 A) — an
-#     Optional sub-model the pre-tree builder never constructs; the tree can
+#   * ChargeParameterDiscoveryRes.SAScheduleList — the capture's Finished CPDRes
+#     frame is undecodable by the project EXI codec (libcbv2g rc=-110), so the
+#     schedule falls back to the SECC state's builder default (one tuple, PMax
+#     from the DC envelope, TupleID 1 — consistent with the CurrentDemandRes
+#     SAScheduleTupleID the capture does show). Left out of the tree, builder-computed.
+#   * ChargeParameterDiscoveryRes.EVSEEnergyToBeDelivered — the reference charger
+#     emits it with a nonconformant Unit=W (the model requires Wh); it is
+#     Optional, so it is omitted rather than reproduced.
+#   * ChargeParameterDiscoveryRes.EVSECurrentRegulationTolerance (capture: 2 A) —
+#     an Optional sub-model the pre-tree builder never constructs; the tree can
 #     override a present sub-model but cannot materialise an absent one, so it is
 #     left unset.
-#   * MeterInfo (CurrentDemandRes / ChargingStatusRes) — the HAL CurrentDemandRes
-#     carries a populated MeterInfo, but the ISO-2 SECC path ships meter_info=None
+#   * MeterInfo (CurrentDemandRes / ChargingStatusRes) — the captured
+#     CurrentDemandRes carries a populated MeterInfo, but the ISO-2 SECC path ships meter_info=None
 #     today (the get_meter_info_v2 call is disabled) and this slice does not
 #     activate it, so it is not reproduced.
-#   * Optional ServiceList (the HAL InternetAccess VAS) — omitted; the pre-tree
-#     builder emits no VAS for EIM/no-TLS and advertising one would pull in a
-#     ServiceDetail exchange out of scope here. The mandatory ChargeService is
-#     reproduced.
+#   * Optional ServiceList (the reference charger's InternetAccess VAS) —
+#     omitted; the pre-tree builder emits no VAS for EIM/no-TLS and advertising
+#     one would pull in a ServiceDetail exchange out of scope here. The mandatory
+#     ChargeService is reproduced.
 #
 # Runtime/computed fields are NOT in the tree and stay computed (ADR-0006 #83
 # optional-field allowlist): ResponseCode, the EVSEProcessing ONGOING->FINISHED
@@ -64,7 +64,7 @@ capabilities:
     - DC
 residual:
   tls:
-    # ISO-2 EIM does not require TLS (matches the plaintext HAL capture).
+    # ISO-2 EIM does not require TLS (matches the plaintext reference capture).
     enable_tls_1_3: false
     use_tls: false
     enforce_tls: false
@@ -129,8 +129,8 @@ message_field_tree:
         EVSENotification: None
         EVSEIsolationStatus: Valid
         EVSEStatusCode: EVSE_Ready
-      # The HAL charger echoes its max V/A/W envelope and its EVSEID in every
-      # CurrentDemandRes.
+      # The reference charger echoes its max V/A/W envelope and its EVSEID in
+      # every CurrentDemandRes.
       EVSEMaximumVoltageLimit: {Value: 1000, Multiplier: 0, Unit: V}
       EVSEMaximumCurrentLimit: {Value: 400, Multiplier: 0, Unit: A}
       EVSEMaximumPowerLimit: {Value: 20000, Multiplier: 1, Unit: W}

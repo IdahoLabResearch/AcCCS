@@ -127,10 +127,11 @@ def apply_personality_tree(
 
     ISO-2 is a *tree-backed* protocol for the EVCC as of #97: every EVCC-emitted
     ISO-2 message routes its build through here, and the shipped
-    ``iso2-evcc-baseline`` replicates the Mach-E ``Mach-E-ISO.pcapng`` field-for-
-    field. The tree rides on ``EVCCConfig`` (the EVCC is config-driven), so this is
-    a no-op when the session carries no config, the config carries no tree
-    (bare-controller unit tests), or the tree sets nothing for this message.
+    ``iso2-evcc-baseline`` replicates the ISO-2 reference-vehicle capture
+    field-for-field. The tree rides on ``EVCCConfig`` (the EVCC is
+    config-driven), so this is a no-op when the session carries no config, the
+    config carries no tree (bare-controller unit tests), or the tree sets
+    nothing for this message.
 
     For the signed PnC messages (CertificateInstallationReq, the signed
     AuthorizationReq, MeteringReceiptReq) the caller applies this **before**
@@ -1019,10 +1020,11 @@ class PowerDelivery(StateEVCC):
             ev_max_voltage_limit=dc_ev_charge_params.dc_max_voltage_limit,
             ev_max_current_limit=dc_ev_charge_params.dc_max_current_limit,
             ev_max_power_limit=dc_ev_charge_params.dc_max_power_limit,
-            # The Mach-E omits BulkChargingComplete / RemainingTimeToFullSoC /
-            # RemainingTimeToBulkSoC from CurrentDemandReq (Mach-E-ISO.pcapng),
-            # so they are left unset to match the capture field-for-field (#97);
-            # they are Optional and the tree cannot remove a field it emits.
+            # The ISO-2 reference vehicle omits BulkChargingComplete /
+            # RemainingTimeToFullSoC / RemainingTimeToBulkSoC from
+            # CurrentDemandReq (see its reference capture), so they are left
+            # unset to match the capture field-for-field (#97); they are
+            # Optional and the tree cannot remove a field it emits.
             bulk_charging_complete=None,
             charging_complete=(
                 await self.comm_session.ev_controller.is_charging_complete()
@@ -1133,12 +1135,13 @@ class MeteringReceipt(StateEVCC):
             ev_max_voltage_limit=dc_charge_params.dc_max_voltage_limit,
             ev_max_current_limit=dc_charge_params.dc_max_current_limit,
             ev_max_power_limit=dc_charge_params.dc_max_power_limit,
-            # The Mach-E omits BulkChargingComplete / RemainingTimeToFullSoC /
-            # RemainingTimeToBulkSoC from CurrentDemandReq (Mach-E-ISO.pcapng),
-            # so the ISO-2 builder leaves them unset to match the capture
-            # field-for-field (#97) — the per-message tree can override a field
-            # but not remove one, and these are Optional. EVMaximum*Limit above
-            # are tree-owned (500 A / 422 V / 211000 W).
+            # The ISO-2 reference vehicle omits BulkChargingComplete /
+            # RemainingTimeToFullSoC / RemainingTimeToBulkSoC from
+            # CurrentDemandReq (see its reference capture), so the ISO-2 builder
+            # leaves them unset to match the capture field-for-field (#97) — the
+            # per-message tree can override a field but not remove one, and these
+            # are Optional. EVMaximum*Limit above are tree-owned (500 A / 422 V /
+            # 211000 W).
             bulk_charging_complete=None,
             charging_complete=(
                 await self.comm_session.ev_controller.is_charging_complete()
@@ -1570,10 +1573,11 @@ class CurrentDemand(StateEVCC):
             ev_max_voltage_limit=dc_ev_charge_params.dc_max_voltage_limit,
             ev_max_current_limit=dc_ev_charge_params.dc_max_current_limit,
             ev_max_power_limit=dc_ev_charge_params.dc_max_power_limit,
-            # The Mach-E omits BulkChargingComplete / RemainingTimeToFullSoC /
-            # RemainingTimeToBulkSoC from CurrentDemandReq (Mach-E-ISO.pcapng),
-            # so they are left unset to match the capture field-for-field (#97);
-            # they are Optional and the tree cannot remove a field it emits.
+            # The ISO-2 reference vehicle omits BulkChargingComplete /
+            # RemainingTimeToFullSoC / RemainingTimeToBulkSoC from
+            # CurrentDemandReq (see its reference capture), so they are left
+            # unset to match the capture field-for-field (#97); they are
+            # Optional and the tree cannot remove a field it emits.
             bulk_charging_complete=None,
             charging_complete=await ev_controller.is_charging_complete(),
             remaining_time_to_full_soc=None,

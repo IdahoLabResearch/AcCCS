@@ -440,12 +440,12 @@ class SimEVController(EVControllerInterface):
         values are sourced from the message field tree at the build site, so the
         structured reads are retired here. The DC envelope maxima come from the
         `EVDCLimits` model-default skeleton in `self.dc_ev_charge_params` (the
-        tree overrides them to the Mach-E 500 A / 422 V / 211000 W). The Mach-E
-        (`Mach-E-ISO.pcapng`) omits DepartureTime, EVEnergyCapacity,
-        EVEnergyRequest, FullSOC and BulkSOC, so they are left unset to match the
-        capture field-for-field — this also retires the structured
-        `iso2_energy_request_wh` / `iso2_full_soc_percent` /
-        `iso2_bulk_soc_percent` reads. The AC envelope is retired to the
+        tree overrides them to the reference vehicle's 500 A / 422 V / 211000 W).
+        The ISO-2 reference vehicle (per its reference capture) omits
+        DepartureTime, EVEnergyCapacity, EVEnergyRequest, FullSOC and BulkSOC, so
+        they are left unset to match the capture field-for-field — this also
+        retires the structured `iso2_energy_request_wh` /
+        `iso2_full_soc_percent` / `iso2_bulk_soc_percent` reads. The AC envelope is retired to the
         `EVACLimits` model defaults (no AC capture serves the baseline; the tree
         overrides it, synthetic-fallback per ADR-0006 option B).
         """
@@ -516,7 +516,7 @@ class SimEVController(EVControllerInterface):
         * AC retirement (ADR-0006 / #101): the ISO-20 AC / AC-BPT requested
           envelope comes from the tree (`{BPT_,}AC_CPDReqEnergyTransferMode → …`);
           the AC branch reads the `EVACLimitsV20` skeleton (the baseline pins the
-          plain-AC envelope decoded from `HAL+TCP_ISO_20_AC_Example.pcap`).
+          plain-AC envelope decoded from the ISO-20 AC reference capture).
         """
         ev_ac_v20 = _EV_AC_V20_SKELETON
         ev_dc_v20 = _EV_DC_V20_SKELETON
@@ -920,9 +920,10 @@ class SimEVController(EVControllerInterface):
         )
 
     async def get_dc_ev_power_delivery_parameter(self) -> DCEVPowerDeliveryParameter:
-        # The Mach-E omits BulkChargingComplete from PowerDeliveryReq's
-        # DC_EVPowerDeliveryParameter (Mach-E-ISO.pcapng), so it is left unset to
-        # match the capture field-for-field (#97); it is Optional.
+        # The ISO-2 reference vehicle omits BulkChargingComplete from
+        # PowerDeliveryReq's DC_EVPowerDeliveryParameter (see its reference
+        # capture), so it is left unset to match the capture field-for-field
+        # (#97); it is Optional.
         return DCEVPowerDeliveryParameter(
             dc_ev_status=await self.get_dc_ev_status(),
             bulk_charging_complete=None,

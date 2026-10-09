@@ -1,13 +1,14 @@
-"""E2E acceptance: the Cadillac Lyriq EVCC baseline reaches the wire (issue #74).
+"""E2E acceptance: the DIN reference-vehicle EVCC baseline reaches the wire (issue #74).
 
 Drives a real two-subprocess DIN session over the veth pair with the shipped
-DIN defaults — `din_dc_extended-evcc` (the Cadillac Lyriq, which `extends:` the
-`din-evcc-baseline` message field tree) against `din_dc_extended-secc` (the ABB
-charger) — with the EXI capture tap on. After the session terminates cleanly it
-decodes the `ChargeParameterDiscoveryReq` and `CurrentDemandReq` the EVCC
-actually put on the wire and asserts the Cadillac baseline fields from
-`ABB_Cadillac_Lyric.pcapng`, proving the EVCC-side message field tree reaches
-the wire through the production codec path (acceptance criteria #2 and #3).
+DIN defaults — `din_dc_extended-evcc` (the DIN reference vehicle, which
+`extends:` the `din-evcc-baseline` message field tree) against
+`din_dc_extended-secc` (the DIN reference charger) — with the EXI capture tap
+on. After the session terminates cleanly it decodes the
+`ChargeParameterDiscoveryReq` and `CurrentDemandReq` the EVCC actually put on
+the wire and asserts the DIN reference-vehicle baseline fields from the DIN
+reference capture, proving the EVCC-side message field tree reaches the wire
+through the production codec path (acceptance criteria #2 and #3).
 """
 
 from __future__ import annotations
@@ -25,8 +26,8 @@ REPO_PERSONALITIES_DIR = Path(__file__).resolve().parents[3] / "personalities"
 DIN_NS = Namespace.DIN_MSG_DEF.value
 
 
-def test_din_cadillac_baseline_reaches_the_wire(launch_emulator, exi_codec, tmp_path):
-    capture_path = tmp_path / "din_cadillac.jsonl"
+def test_din_evcc_baseline_reaches_the_wire(launch_emulator, exi_codec, tmp_path):
+    capture_path = tmp_path / "din_evcc.jsonl"
     result = drive_session(
         launch_emulator,
         evcc_personality=REPO_PERSONALITIES_DIR / "din_dc_extended-evcc.yaml",
@@ -60,7 +61,7 @@ def test_din_cadillac_baseline_reaches_the_wire(launch_emulator, exi_codec, tmp_
     assert dcp.ev_maximum_voltage_limit.get_decimal_value() == 410
     assert dcp.full_soc == 100
     assert dcp.bulk_soc == 80
-    assert dcp.ev_maximum_power_limit is None  # Cadillac omits it here
+    assert dcp.ev_maximum_power_limit is None  # the reference vehicle omits it here
 
     assert current_demand_reqs, "no CurrentDemandReq captured on the wire"
     cdr = current_demand_reqs[0]
@@ -70,4 +71,4 @@ def test_din_cadillac_baseline_reaches_the_wire(launch_emulator, exi_codec, tmp_
     assert cdr.bulk_charging_complete is True
     assert cdr.remaining_time_to_full_soc.get_decimal_value() == 2111
     assert cdr.remaining_time_to_bulk_soc.get_decimal_value() == 0
-    assert cdr.ev_max_power_limit is None  # Cadillac omits it from CurrentDemandReq
+    assert cdr.ev_max_power_limit is None  # the reference vehicle omits it from CurrentDemandReq

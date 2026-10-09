@@ -740,11 +740,11 @@ class PowerDelivery(StateEVCC):
             ev_target_current=dc_charge_params.dc_target_current,
             ev_max_voltage_limit=dc_charge_params.dc_max_voltage_limit,
             ev_max_current_limit=dc_charge_params.dc_max_current_limit,
-            # The Cadillac Lyriq omits EVMaximumPowerLimit from CurrentDemandReq
-            # (ABB_Cadillac_Lyric.pcapng), so the DIN builder leaves it unset —
-            # the per-message tree can override a field but not remove one, and
-            # a real device announces its power ceiling only in
-            # ChargeParameterDiscoveryReq. EVMaximumVoltageLimit /
+            # The DIN reference vehicle omits EVMaximumPowerLimit from
+            # CurrentDemandReq (see the DIN reference capture), so the DIN
+            # builder leaves it unset — the per-message tree can override a
+            # field but not remove one, and a real device announces its power
+            # ceiling only in ChargeParameterDiscoveryReq. EVMaximumVoltageLimit /
             # EVMaximumCurrentLimit below are tree-owned (500 A / 410 V).
             ev_max_power_limit=None,
             bulk_charging_complete=(await ev_controller.is_bulk_charging_complete()),
@@ -861,11 +861,11 @@ class CurrentDemand(StateEVCC):
             ev_target_current=dc_charge_params.dc_target_current,
             ev_max_voltage_limit=dc_charge_params.dc_max_voltage_limit,
             ev_max_current_limit=dc_charge_params.dc_max_current_limit,
-            # The Cadillac Lyriq omits EVMaximumPowerLimit from CurrentDemandReq
-            # (ABB_Cadillac_Lyric.pcapng), so the DIN builder leaves it unset —
-            # the per-message tree can override a field but not remove one, and
-            # a real device announces its power ceiling only in
-            # ChargeParameterDiscoveryReq. EVMaximumVoltageLimit /
+            # The DIN reference vehicle omits EVMaximumPowerLimit from
+            # CurrentDemandReq (see the DIN reference capture), so the DIN
+            # builder leaves it unset — the per-message tree can override a
+            # field but not remove one, and a real device announces its power
+            # ceiling only in ChargeParameterDiscoveryReq. EVMaximumVoltageLimit /
             # EVMaximumCurrentLimit below are tree-owned (500 A / 410 V).
             ev_max_power_limit=None,
             bulk_charging_complete=(await ev_controller.is_bulk_charging_complete()),
@@ -887,7 +887,8 @@ class CurrentDemand(StateEVCC):
         logger.info(f"EV Target Voltage: {voltage.value * (10 ** voltage.multiplier)} {voltage.unit.value}")
         logger.info(f"EV Target Current: {current.value * (10 ** current.multiplier)} {current.unit.value}")
         # EVMaximumPowerLimit is deliberately omitted from the DIN CurrentDemandReq
-        # (the Cadillac baseline; see the builder above), so it is not logged here.
+        # (the DIN reference-vehicle baseline; see the builder above), so it is not
+        # logged here.
         # Live-override precedence (ADR-0006, issue #75): get_dc_charge_params
         # has already applied any operator override onto the built target V/I, so
         # skip those leaves — the tree is the pre-override start value and must

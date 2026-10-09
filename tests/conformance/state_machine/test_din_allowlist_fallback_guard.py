@@ -396,7 +396,7 @@ async def test_evcc_allowlist_entries_populate_from_empty_tree(exi_codec):
     )
 
     # ServiceDiscoveryRes -> ServicePaymentSelectionReq. Advertise a ServiceID
-    # the well-known enum does NOT name (4660 / 0x1234, as the Tellus Power
+    # the well-known enum does NOT name (4660 / 0x1234, as a third-party DIN
     # charger does) so the capture proves the EVCC echoes the advertised value
     # rather than a static tree pin — the builder fallback the allowlist claims.
     captured["ServicePaymentSelectionReq"] = _decode(

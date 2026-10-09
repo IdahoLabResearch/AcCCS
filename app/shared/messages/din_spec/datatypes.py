@@ -47,7 +47,7 @@ class ServiceID(IntEnum):
 
     These are the *well-known* service identifiers the standard names. The XSD
     type is ``xs:unsignedShort`` [0..65535], however, so a real SECC may
-    legitimately advertise any value in that range (e.g. the Tellus Power
+    legitimately advertise any value in that range (e.g. a third-party DIN
     charger uses ``0x1234`` / 4660). Use these members as constants when
     *building* our own messages; do not restrict a decoded ``ServiceID`` to
     them — see ``ServiceDetails.service_id``.
@@ -95,8 +95,8 @@ class ServiceDetails(BaseModel):
 
     # XSD type unsignedShort (16 bit integer) with value range [0..65535].
     # Modeled as a plain int, NOT the ServiceID enum: the enum only names the
-    # well-known values, but a real SECC may advertise any unsignedShort (the
-    # Tellus Power charger uses 4660 / 0x1234). Restricting to the enum made
+    # well-known values, but a real SECC may advertise any unsignedShort (a
+    # third-party DIN charger uses 4660 / 0x1234). Restricting to the enum made
     # ServiceDiscoveryRes undecodable against such chargers.
     service_id: int = Field(..., ge=0, le=65535, alias="ServiceID")
     service_name: Optional[ServiceName] = Field(None, max_length=32, alias="ServiceName")

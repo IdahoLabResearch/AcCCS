@@ -2,7 +2,7 @@
 # #96).
 #
 # The SECC half of the retired symmetric `iso2_pnc_dc.yaml`. A device override
-# that `extends: iso2-secc-baseline` (the HAL-reference EIM tree) and overrides
+# that `extends: iso2-secc-baseline` (the reference-charger EIM tree) and overrides
 # the leaves a PnC charger differs on: it advertises the Contract (PnC) payment
 # option instead of the baseline's ExternalPayment (EIM), turns TLS on, points at
 # the contract-cert PKI, and pins its own EVSEID. The DC envelope and isolation

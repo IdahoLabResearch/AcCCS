@@ -164,7 +164,7 @@ def apply_personality_tree(comm_session, res, message_name: str, skip_fields=Non
     the ``DC_EVSEStatus`` isolation progression, the service advertisement, the
     EVSEID, ...) from the tree rather than the retired structured
     ``power.evse_dc`` / ``power.evse_ac`` reads. The shipped ``iso2-secc-baseline``
-    replicates ``HAL+TCP_ISO_2_DC_Example.pcap`` field-for-field. No-op when no
+    replicates the ISO-2 DC reference capture field-for-field. No-op when no
     personality is attached (the conformance harness may instantiate a bare
     controller) or the tree carries nothing for ``ISO_15118_2 -> message_name``.
 
@@ -2399,7 +2399,7 @@ class CableCheck(StateSECC):
 
         # While isolation monitoring is ONGOING the baseline pins DC_EVSEStatus to
         # Invalid / IsolationMonitoringActive (from the tree); on the completing
-        # FINISHED frame the real HAL charger flips to Valid / EVSE_Ready — a
+        # FINISHED frame the real reference charger flips to Valid / EVSE_Ready — a
         # transition the per-message tree cannot script — so the dc_evse_status
         # sub-tree is skipped there while every other CableCheckRes leaf still
         # applies (mirrors the DIN CableCheck seam, #82).
@@ -2633,13 +2633,13 @@ class CurrentDemand(StateSECC):
             #     self.comm_session.protocol),
             receipt_required=False,
         )
-        # The HAL baseline echoes the DC max V/A/W envelope and Valid / EVSE_Ready
-        # here; both come from the tree now, not the retired evse_dc reads. Present
-        # V/I stay runtime (allowlisted). Live-override precedence (ADR-0006 #75):
-        # get_evse_present_* already applied any operator override onto the built
-        # present V/I, so skip those leaves — the tree is the pre-override start
-        # value and must not clobber the override back. A cleared override skips
-        # nothing.
+        # The reference-charger baseline echoes the DC max V/A/W envelope and
+        # Valid / EVSE_Ready here; both come from the tree now, not the retired
+        # evse_dc reads. Present V/I stay runtime (allowlisted). Live-override
+        # precedence (ADR-0006 #75): get_evse_present_* already applied any
+        # operator override onto the built present V/I, so skip those leaves —
+        # the tree is the pre-override start value and must not clobber the
+        # override back. A cleared override skips nothing.
         skip = override_skip_fields(
             getattr(self.comm_session.evse_controller, "live_control", None),
             voltage_field="evse_present_voltage",

@@ -124,7 +124,7 @@ def _default_din_sa_schedule_list() -> SAScheduleList:
     ``default-*``, the DIN-exclusive conformance/smoke personalities) sources
     its DIN wire values from the builders' pre-tree path; a personality that
     carries a ``ChargeParameterDiscoveryRes -> SAScheduleList`` tree (the
-    shipped ``din-secc-baseline``, byte-exact to ``ABB_Cadillac_Lyric.pcapng``)
+    shipped ``din-secc-baseline``, byte-exact to the DIN reference capture)
     overrides this wholesale in :func:`apply_personality_tree`.
 
     It is built **non-empty** — a single one-tuple, one-entry schedule — because
@@ -610,7 +610,7 @@ class ChargeParameterDiscovery(StateSECC):
         # Construction-time substitution (ADR-0006): apply the personality's
         # message field tree so configured leaves — the whole DC envelope plus
         # DC_EVSEChargeParameter -> DC_EVSEStatus -> {EVSEIsolationStatus,
-        # EVSEStatusCode}, which the ABB baseline pins to Invalid /
+        # EVSEStatusCode}, which the reference-charger baseline pins to Invalid /
         # IsolationMonitoringActive here — replace the values the builder just
         # computed from the retired structured reads. A leaf set nowhere leaves
         # the built message untouched.
@@ -751,9 +751,9 @@ class CableCheck(StateSECC):
             dc_evse_status=await self.comm_session.evse_controller.get_dc_evse_status(),
             evse_processing=evse_processing,
         )
-        # The ABB baseline pins CableCheckRes -> DC_EVSEStatus to Invalid /
-        # IsolationMonitoringActive *while isolation monitoring is ongoing*
-        # (ABB_Cadillac_Lyric.pcapng frames 316-465). On the completing response
+        # The reference-charger baseline pins CableCheckRes -> DC_EVSEStatus to
+        # Invalid / IsolationMonitoringActive *while isolation monitoring is
+        # ongoing* (DIN reference capture frames 316-465). On the completing response
         # the real charger flips to Valid / EVSE_Ready (frame 469) — the signal a
         # conformant EVCC waits for before advancing to PreCharge. The per-message
         # tree cannot script that transition (ADR-0006 keys one value per message
@@ -910,7 +910,8 @@ class PreCharge(StateSECC):
             dc_evse_status=dc_charger_state,
             evse_present_voltage=evse_present_voltage,
         )
-        # From PreChargeRes onward the ABB baseline reports Valid / EVSE_Ready.
+        # From PreChargeRes onward the reference-charger baseline reports Valid /
+        # EVSE_Ready.
         apply_personality_tree(self.comm_session, precharge_res, "PreChargeRes")
 
         self.create_next_message(
@@ -1127,8 +1128,9 @@ class CurrentDemand(StateSECC):
             ),
             evse_max_power_limit=max_power,
         )
-        # The ABB baseline echoes the max V/A/W envelope here and reports Valid /
-        # EVSE_Ready; both come from the tree now, not the retired evse_dc reads.
+        # The reference-charger baseline echoes the max V/A/W envelope here and
+        # reports Valid / EVSE_Ready; both come from the tree now, not the retired
+        # evse_dc reads.
         # Live-override precedence (ADR-0006, issue #75): get_evse_present_* has
         # already applied any operator override onto the built present V/I, so
         # skip those leaves here — the tree is the pre-override start value and

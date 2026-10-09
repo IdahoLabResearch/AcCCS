@@ -5,7 +5,7 @@ Configuration of AcCCS emulators was previously split across three formats — `
 ## Considered Options
 
 - Layered TOML / pydantic-settings with env-var and CLI overrides on the personality fields. Rejected: layering is exactly what we're escaping; multiple sources of truth for the same field hurt reproducibility of test runs.
-- JSON file (matching the existing per-protocol sub-config format). Rejected in favor of YAML for comments (these fields are esoteric protocol knobs that benefit from inline docs) and anchors (lets a "Ford Mach-E variant" personality reuse a base block and override two fields).
+- JSON file (matching the existing per-protocol sub-config format). Rejected in favor of YAML for comments (these fields are esoteric protocol knobs that benefit from inline docs) and anchors (lets a "reference-vehicle variant" personality reuse a base block and override two fields).
 - Concern-first with per-protocol override blocks (e.g. `power: { max_current: 200, iso15118_20: { max_current: 250 } }`). Rejected for now in favor of flat concern-first sections (single value per field). Graduating to per-protocol overrides is a future change if fuzzing per-protocol encoding divergence becomes important.
 
 ## Consequences

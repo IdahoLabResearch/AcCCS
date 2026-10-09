@@ -12,7 +12,7 @@ Note (#96 / #97): the ISO-2 *SECC* structured reads (AC charge params, ISO-2 SA
 schedule) are retired (#96) and the ISO-2 *EVCC* structured reads (AC envelope,
 ISO-2 DC announcements) are retired (#97) — those wire values are now sourced
 from the `message_field_tree`, so the corresponding builders return the
-model-default skeleton (or omit the fields the Mach-E omits) and the tests below
+model-default skeleton (or omit the fields the reference vehicle omits) and the tests below
 assert that retirement.
 """
 
@@ -171,9 +171,9 @@ async def test_evcc_iso2_ac_charge_params_retired_to_skeleton():
 async def test_evcc_iso2_dc_charge_params_retired_to_skeleton():
     # #97 retired the structured ISO-2 DC announcements: the DC envelope maxima
     # come from the EVDCLimits model-default skeleton (the tree overrides them at
-    # the build site), and the Mach-E omits EVEnergyRequest / FullSOC / BulkSOC /
-    # EVEnergyCapacity / DepartureTime, so this builder leaves them unset. An
-    # empty tree falls back to the default DC_extended request (#105).
+    # the build site), and the reference vehicle omits EVEnergyRequest / FullSOC /
+    # BulkSOC / EVEnergyCapacity / DepartureTime, so this builder leaves them
+    # unset. An empty tree falls back to the default DC_extended request (#105).
     personality = EVCCPersonality.model_validate({})
     evcc_config = EVCCConfig.from_personality(personality)
     sim = SimEVController(evcc_config)
@@ -181,7 +181,7 @@ async def test_evcc_iso2_dc_charge_params_retired_to_skeleton():
 
     dc = params.dc_parameters
     assert dc is not None
-    # The Mach-E-omitted Optional fields are left unset (not the personality's).
+    # The Optional fields the reference vehicle omits are left unset (not the personality's).
     assert dc.ev_energy_request is None
     assert dc.full_soc is None
     assert dc.bulk_soc is None

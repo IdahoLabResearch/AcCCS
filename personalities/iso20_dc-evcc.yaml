@@ -1,7 +1,7 @@
 # Example ISO 15118-20 DC EVCC device personality (ADR-0006 / #106).
 #
 # The EVCC half of the tree-migrated `iso20_dc.yaml`. A thin device override that
-# `extends: iso20-dc-evcc-baseline` (the DC-BPT-seeded HAL-reference tree, #99)
+# `extends: iso20-dc-evcc-baseline` (the DC-BPT-seeded reference-charger tree, #99)
 # and narrows the requested energy service to plain DC, so the vehicle requests
 # unidirectional DC and builds the `DC_CPDReqEnergyTransferMode` sub-model instead
 # of the baseline's BPT one. It pins the requested plain-DC charge-power maximum

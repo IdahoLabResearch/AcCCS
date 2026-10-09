@@ -133,7 +133,7 @@ def apply_personality_tree(comm_session, req, skip_fields=None) -> None:
     role in both energy modes: DC as of #99 (``iso20-dc-evcc-baseline``, the
     DC-BPT / Dynamic / EIM vehicle in ``iso20.pcap``) and AC as of #101
     (``iso20-ac-evcc-baseline``, the plain-AC / Dynamic / EIM vehicle in
-    ``HAL+TCP_ISO_20_AC_Example.pcap``). The tree rides on
+    the ISO-20 AC reference capture). The tree rides on
     ``EVCCConfig`` (the EVCC is config-driven), so this is a no-op when the
     session carries no config, the config carries no tree (bare-controller unit
     tests), the negotiated protocol is not a known tree protocol, or the tree

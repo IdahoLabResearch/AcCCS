@@ -2,7 +2,7 @@
 #
 # The SECC half of the tree-migrated `example_iso20_ac_bpt_variant.yaml`. A thin
 # device override that `extends: iso20-ac-secc-baseline` (the plain-AC
-# HAL-reference tree, #100) and flips the advertised energy service to AC_BPT so
+# reference-charger tree, #100) and flips the advertised energy service to AC_BPT so
 # the emulator negotiates bidirectional AC and builds the
 # `BPT_AC_CPDResEnergyTransferMode` sub-model. It then pins the leaves that make
 # this device distinct on the wire: its announced EVSEID, a BPT charge/discharge

@@ -8,9 +8,9 @@
 # below, and the structured `power.evse_ac_v20` ISO-20 AC SECC read is retired
 # (its fallback is now the `EVSEACLimitsV20` model-default skeleton).
 #
-# PROVENANCE — capture-seeded, decoded field-for-field from `~/projects/pcaps/
-# HAL+TCP_ISO_20_AC_Example.pcap`, a real charger's ISO-15118-20 **plain-AC /
-# Dynamic control mode / EIM** session. It decodes cleanly as ISO-20 AC with the
+# PROVENANCE — capture-seeded, decoded field-for-field from the ISO-20 AC
+# reference capture, a real charger's ISO-15118-20 **plain-AC / Dynamic control
+# mode / EIM** session. It decodes cleanly as ISO-20 AC with the
 # project EXI codec (payload type 0x8003 AC_MAINSTREAM; SECC source port 63496) —
 # plaintext on the wire (TCP, not TLS). The decodable AC-specific SECC-emitted
 # message that bears a config-owned wire leaf is reproduced exactly:
@@ -18,7 +18,7 @@
 #     envelope the retired `power.evse_ac_v20` used to carry, now tree-sourced:
 #     EVSEMaximumChargePower 200000 W (Exponent 1 / Value 20000),
 #     EVSEMinimumChargePower 0 W (Exponent -3 / Value 0), and EVSENominalFrequency
-#     0 Hz (Exponent -3 / Value 0) — the exact values the HAL charger emitted.
+#     0 Hz (Exponent -3 / Value 0) — the exact values the reference charger emitted.
 #     The session negotiated plain AC (ServiceID 1), so the capture carries the
 #     `AC_CPDResEnergyTransferMode` sub-model, not the AC-BPT
 #     `BPT_AC_CPDResEnergyTransferMode` variant; an AC-BPT device pins the BPT
@@ -26,9 +26,9 @@
 #     whichever the negotiated service builds).
 #
 # SYNTHETIC FALLBACK (per missing field, ADR-0006's builder-produced skeleton):
-# the HAL capture's ACChargeParameterDiscoveryRes omits the L2/L3 phase mirrors,
-# MaximumPowerAsymmetry, EVSEPowerRampLimitation, and EVSEPresentActivePower(_L2/
-# _L3). The AcCCS builder always emits those (it replicates a single magnitude to
+# the reference capture's ACChargeParameterDiscoveryRes omits the L2/L3 phase
+# mirrors, MaximumPowerAsymmetry, EVSEPowerRampLimitation, and
+# EVSEPresentActivePower(_L2/_L3). The AcCCS builder always emits those (it replicates a single magnitude to
 # L1/L2/L3 and stubs present-active-power at 0), so they stay at the
 # `EVSEACLimitsV20` model-default skeleton — only the three fields the capture
 # bears are tree-pinned. The ACChargeLoopRes control-mode envelope
@@ -53,10 +53,10 @@
 # protocol-keyed amendment): the charger's common identity (SessionSetupRes.EVSEID
 # = PcLoadLetter) is declared once and merged under this file's ISO_15118_20_AC
 # key, so a combined DC+AC personality aliases the one block under both ISO-20
-# keys. The HAL AC capture's own SessionSetupRes.EVSEID was `ZZ000000` (a
-# different real device); the shared anchor identity deliberately supersedes it,
-# because the anchor's purpose is one common identity across the ISO-20 keys, not
-# a per-capture value.
+# keys. The ISO-20 AC reference capture's own SessionSetupRes.EVSEID was
+# `ZZ000000` (a different real device); the shared anchor identity deliberately
+# supersedes it, because the anchor's purpose is one common identity across the
+# ISO-20 keys, not a per-capture value.
 #
 # ISO-20 mandates TLS 1.3 regardless of auth mode (`app/secc/secc_settings.py`
 # rejects TLS-off with ISO-20), so this baseline keeps TLS on even though the

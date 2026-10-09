@@ -1,7 +1,7 @@
 # Example ISO 15118-2 PnC (Plug-and-Charge) EVCC device.
 #
 # The EVCC half of the retired symmetric `iso2_pnc_dc.yaml`. A device override
-# that `extends: iso2-evcc-baseline` (the Mach-E-reference EIM tree) and
+# that `extends: iso2-evcc-baseline` (the reference-vehicle EIM tree) and
 # overrides the leaves a PnC vehicle differs on: it selects the Contract (PnC)
 # payment option instead of the baseline's EIM, turns TLS on, and points at the
 # contract-cert PKI. The DC envelope and SOC pins are inherited from the
@@ -20,8 +20,8 @@ capabilities:
   is_cert_install_needed: false
 residual:
   charge_ramp:
-    # The Mach-E envelope pins EVMaximumVoltageLimit to 422 V (in the baseline
-    # tree), so the target start voltage stays under it. PreCharge also requires
+    # The reference-vehicle envelope pins EVMaximumVoltageLimit to 422 V (in the
+    # baseline tree), so the target start voltage stays under it. PreCharge also requires
     # target_current < 2 A (IEC 61851-23 CC.5.2 inrush limit).
     target_voltage_v: 410.0
     target_current_a: 1.7

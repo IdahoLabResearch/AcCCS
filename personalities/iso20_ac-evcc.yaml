@@ -1,7 +1,7 @@
 # Example ISO 15118-20 AC EVCC device personality (ADR-0006 / #106).
 #
 # The EVCC half of the tree-migrated `example_iso20_ac_variant.yaml`. A thin
-# device override that `extends: iso20-ac-evcc-baseline` (the HAL-reference AC
+# device override that `extends: iso20-ac-evcc-baseline` (the reference-charger AC
 # tree, #101) and pins only the requested plain-AC charge-power envelope that
 # makes this vehicle distinct on the wire. The EVCCID is runtime-derived (the
 # NIC MAC on ISO-20), so — unlike the SECC half — the vehicle has no tree-pinnable

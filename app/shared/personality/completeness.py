@@ -174,8 +174,9 @@ ISO2_SECC_MESSAGES: Tuple[str, ...] = (
 
 # The ISO-15118-2 EVCC-emitted message set (issue #97). The vehicle-side mirror
 # of ISO2_SECC_MESSAGES: every ``*Req`` the EVCC state machine emits. The
-# per-message-present rule means the shipped DC-EIM Mach-E baseline (which carries
-# only the DC messages that bear tree leaves) simply skips the AC / PnC entries.
+# per-message-present rule means the shipped DC-EIM reference-vehicle baseline
+# (which carries only the DC messages that bear tree leaves) simply skips the
+# AC / PnC entries.
 ISO2_EVCC_MESSAGES: Tuple[str, ...] = (
     "SessionSetupReq",
     "ServiceDiscoveryReq",
@@ -356,7 +357,7 @@ _EVCC_MESSAGE_ALLOWLIST: Dict[str, Set[LeafPath]] = {
     # The SelectedServiceList must reference a service the SECC advertised, so
     # the EVCC echoes the ServiceID from the received ServiceDiscoveryRes rather
     # than emitting a static wire value — a real charger may advertise any
-    # xs:unsignedShort (the Tellus Power uses 4660), and pinning it would send an
+    # xs:unsignedShort (a third-party DIN charger uses 4660), and pinning it would send an
     # unadvertised ServiceID and draw FAILED_ServiceSelectionInvalid. Runtime-
     # produced (an echo), so it is omitted from the tree.
     "ServicePaymentSelectionReq": {("selected_service_list", "selected_service")},
@@ -399,7 +400,7 @@ _EVCC_MESSAGE_ALLOWLIST: Dict[str, Set[LeafPath]] = {
 
 
 # The ISO-15118-2 SECC allowlist (issue #96). The runtime-produced required
-# leaves, decoded field-for-field from `HAL+TCP_ISO_2_DC_Example.pcap`: the
+# leaves, decoded field-for-field from the ISO-2 DC reference capture: the
 # EVSEProcessing ONGOING->FINISHED progression, the ramping present voltage /
 # current (value/multiplier/unit — ISO-2 makes the unit a required leaf, and the
 # builder always emits the constant V/A), the CurrentDemandRes limit-achieved
@@ -444,18 +445,18 @@ _ISO2_SECC_MESSAGE_ALLOWLIST: Dict[str, Set[LeafPath]] = {
 
 
 # The ISO-15118-2 EVCC allowlist (issue #97). The runtime-produced required
-# leaves, decoded field-for-field from `Mach-E-ISO.pcapng`: the NIC-MAC EVCCID,
-# the negotiated SelectedPaymentOption and the echoed SelectedServiceList
-# ServiceID, the DC_EVStatus
+# leaves, decoded field-for-field from the ISO-2 reference-vehicle capture: the
+# NIC-MAC EVCCID, the negotiated SelectedPaymentOption and the echoed
+# SelectedServiceList ServiceID, the DC_EVStatus
 # EVReady / EVErrorCode (the adjacent EVRESSSOC is config-only, pinned by the
-# baseline — mirroring the DIN Cadillac's 88 %), the ramping target voltage /
+# baseline — mirroring the DIN reference vehicle's 88 %), the ramping target voltage /
 # current (value/multiplier/unit — ISO-2 makes the unit a required leaf), the
 # runtime PowerDeliveryReq ChargeProgress / SAScheduleTupleID, the per-loop
 # ChargingComplete and the SessionStopReq ChargingSession. The DC envelope
-# maxima the Mach-E *does* emit (500 A / 422 V / 211000 W) and the
+# maxima the reference vehicle *does* emit (500 A / 422 V / 211000 W) and the
 # RequestedEnergyTransferMode (tree-migrated in #105) are deliberately
 # tree-owned, not allowlisted, so the baseline pins them; the Optional fields the
-# Mach-E omits (EVEnergyRequest, FullSOC, BulkSOC, RemainingTime*,
+# reference vehicle omits (EVEnergyRequest, FullSOC, BulkSOC, RemainingTime*,
 # BulkChargingComplete) are left unset by the builder and never reach the tree.
 # The AC-/PnC-only messages (ServiceDetailReq, CertificateInstallationReq,
 # PaymentDetailsReq, MeteringReceiptReq, ChargingStatusReq) carry no entry: the
@@ -619,7 +620,7 @@ _ISO20_DC_EVCC_MESSAGE_ALLOWLIST: Dict[str, Set[LeafPath]] = {
 # SECC allowlist (#100): its *common*-message entries (the ISO-20 common ``*Req``
 # are the same models regardless of energy transfer mode) plus the one AC-specific
 # entry the DC side had a DC-specific analogue of. Decoded field-for-field from
-# `HAL+TCP_ISO_20_AC_Example.pcap` (a real plain-AC / Dynamic / EIM session,
+# the ISO-20 AC reference capture (a real plain-AC / Dynamic / EIM session,
 # plaintext TCP): the NIC-MAC EVCCID; the negotiated SelectedAuthorizationService
 # (EIM); the echoed ServiceDetailReq ServiceID and the session-scoped
 # ServiceSelectionReq SelectedEnergyService (ServiceID + ParameterSetID, chosen at
@@ -659,7 +660,7 @@ _ISO20_AC_EVCC_MESSAGE_ALLOWLIST: Dict[str, Set[LeafPath]] = {
 # The ISO-15118-20 AC SECC allowlist (issue #100). The AC sibling of
 # _ISO20_DC_SECC_MESSAGE_ALLOWLIST: exactly its *common*-message entries, because
 # the ISO-20 common ``*Res`` are the same models regardless of energy transfer
-# mode, decoded field-for-field from `HAL+TCP_ISO_20_AC_Example.pcap` (a real
+# mode, decoded field-for-field from the ISO-20 AC reference capture (a real
 # plain-AC / Dynamic / EIM session, plaintext TCP): the EVSEProcessing
 # ONGOING->FINISHED progression (Authorization / ScheduleExchange), the
 # ServiceDiscoveryRes energy-service advertisement (`get_energy_service_list`,

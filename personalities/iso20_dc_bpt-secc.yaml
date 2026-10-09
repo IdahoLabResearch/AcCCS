@@ -2,7 +2,7 @@
 #
 # The SECC half of the tree-migrated `example_iso20_dc_bpt_variant.yaml`. A thin
 # device override that `extends: iso20-dc-secc-baseline` (the DC-BPT-seeded
-# HAL-reference tree, #98) — the baseline already advertises DC_BPT, so this only
+# reference-charger tree, #98) — the baseline already advertises DC_BPT, so this only
 # pins the leaves that make this device distinct on the wire: its announced
 # EVSEID, a lowered BPT charge-power maximum, and the meter identity it reports
 # in DCChargeLoopRes. Every other SECC wire value (the rest of the BPT envelope,

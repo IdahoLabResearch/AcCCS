@@ -2,7 +2,7 @@
 
 Every ISO-15118-20 AC EVCC-emitted message is sourced from the [[message field
 tree]] as of #101, with the shipped ``iso20-ac-evcc-baseline`` replicating the
-plain-AC / Dynamic / EIM vehicle in ``HAL+TCP_ISO_20_AC_Example.pcap``. This
+plain-AC / Dynamic / EIM vehicle in the ISO-20 AC reference capture. This
 drives a full ISO-20 AC session over veth (TLS 1.3) with the EXI capture tap on,
 using an EVCC personality tree-backed by that baseline, then decodes the messages
 the EVCC actually put on the wire and asserts the baseline value reached it:

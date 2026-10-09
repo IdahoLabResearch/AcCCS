@@ -9,9 +9,9 @@
 # `power.ev_ac_v20` / AC uses of `power.schedule_exchange_v20` ISO-20 AC EVCC reads
 # are retired (their fallback is now the model-default skeleton).
 #
-# PROVENANCE — capture-seeded, decoded field-for-field from `~/projects/pcaps/
-# HAL+TCP_ISO_20_AC_Example.pcap`, the same real session the AC SECC baseline
-# (#100) replicates: an ISO-15118-20 **plain-AC / Dynamic control mode / EIM**
+# PROVENANCE — capture-seeded, decoded field-for-field from the ISO-20 AC
+# reference capture, the same real session the AC SECC baseline (#100)
+# replicates: an ISO-15118-20 **plain-AC / Dynamic control mode / EIM**
 # session. It decodes cleanly as ISO-20 AC with the project EXI codec (EVCC source
 # port 60900; payload type 0x8003 AC_MAINSTREAM) — plaintext on the wire (TCP, not
 # TLS), so the synthetic `EVACLimitsV20` fallback the issue reserves for an

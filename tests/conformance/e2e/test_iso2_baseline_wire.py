@@ -2,7 +2,7 @@
 
 Every ISO-15118-2 SECC-emitted message is sourced from the [[message field
 tree]] as of #96, with the shipped ``iso2-secc-baseline`` replicating
-``HAL+TCP_ISO_2_DC_Example.pcap``. This drives a full ISO-2 DC/EIM session over
+the ISO-2 DC reference capture. This drives a full ISO-2 DC/EIM session over
 veth with the EXI capture tap on, using a SECC personality tree-backed by that
 baseline, then decodes the messages the SECC actually put on the wire and
 asserts the baseline values reached it:

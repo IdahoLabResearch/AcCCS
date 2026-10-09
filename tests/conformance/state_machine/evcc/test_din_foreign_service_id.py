@@ -1,6 +1,6 @@
 """The DIN EVCC handles a charger that advertises a non-well-known ServiceID.
 
-Regression for a real-charger interop failure: a Tellus Power SECC advertises
+Regression for a real-charger interop failure: a third-party DIN charger advertises
 ``ServiceTag.ServiceID = 4660`` (0x1234) in its ``ServiceDiscoveryRes``. DIN's
 ``serviceIDType`` is ``xs:unsignedShort`` [0..65535], so that is legal, but the
 EVCC used to (a) model ``ServiceID`` as a 4-value enum, so decoding 4660 threw
@@ -50,7 +50,7 @@ from tests.conformance.state_machine.harness import ScriptedPeer, StubCommSessio
 
 PERSONALITIES_DIR = Path(__file__).resolve().parents[4] / "personalities"
 
-# The value the real Tellus Power charger advertises (0x1234); outside the
+# The value the real third-party DIN charger advertises (0x1234); outside the
 # well-known DIN ServiceID enum {CHARGING=1, CERTIFICATE=2, INTERNET=3, CUSTOM=4}.
 FOREIGN_SERVICE_ID = 4660
 

@@ -4,9 +4,9 @@
 # files (e.g. din_dc_extended-evcc.yaml) `extends:` this and override only the
 # leaves that differ.
 #
-# This baseline replicates the Cadillac Lyriq from `ABB_Cadillac_Lyric.pcapng`
-# field-for-field (#74) — the vehicle-side mirror of the ABB `din-secc-baseline`
-# (#73). Every EVCC-emitted DIN message sources its wire values from the
+# This baseline replicates the DIN reference vehicle from the DIN reference
+# capture field-for-field (#74) — the vehicle-side mirror of the reference-charger
+# `din-secc-baseline` (#73). Every EVCC-emitted DIN message sources its wire values from the
 # `message_field_tree` below via construction-time substitution (ADR-0006); the
 # structured `power.ev_dc` maxima + remaining-time reads are retired from the DIN
 # EVCC path.
@@ -14,9 +14,9 @@
 # Runtime/computed fields are NOT in the tree and stay computed / start-value:
 # SessionID, EVCCID (from the NIC MAC), EVReady, ChargingComplete, and the
 # present/target voltage & current that ramp during the session (the target
-# start values live in `power.ev_dc` on the device file). The Cadillac reports a
-# static 88% SOC across the whole capture, so EVRESSSOC *is* a baseline value and
-# is pinned per message.
+# start values live in `power.ev_dc` on the device file). The reference vehicle
+# reports a static 88% SOC across the whole capture, so EVRESSSOC *is* a baseline
+# value and is pinned per message.
 role: evcc
 capabilities:
   supported_protocols:
@@ -34,15 +34,15 @@ message_field_tree:
   # the DIN_SPEC_70121 protocol key.
   DIN_SPEC_70121:
     # In the scope of DIN SPEC 70121, if ServiceCategory is used it is always
-    # "EVCharging"; the Cadillac sends it explicitly.
+    # "EVCharging"; the reference vehicle sends it explicitly.
     ServiceDiscoveryReq:
       ServiceCategory: EVCharging
     # Only "ExternalPayment" is used in DIN, so the selected payment option is a
     # static wire value. The SelectedServiceList is NOT: a valid EVCC must select
     # a service the SECC actually advertised, so the EVCC echoes the ServiceID it
     # received in ServiceDiscoveryRes (which is an xs:unsignedShort — real
-    # chargers use values well beyond the well-known 1, e.g. the Tellus Power
-    # advertises 0x1234 / 4660). Pinning it to 1 here made the EVCC send
+    # chargers use values well beyond the well-known 1, e.g. a third-party DIN
+    # charger advertises 0x1234 / 4660). Pinning it to 1 here made the EVCC send
     # ServiceID 1 to any charger, and a charger advertising anything else rejects
     # ServicePaymentSelectionReq with FAILED_ServiceSelectionInvalid. It is
     # therefore a runtime-produced field on the completeness allowlist, not a tree
@@ -50,14 +50,14 @@ message_field_tree:
     ServicePaymentSelectionReq:
       SelectedPaymentOption: ExternalPayment
     # The EV announces its charging envelope once, here: 500 A / 410 V, targeting
-    # a full battery (FullSOC 100, BulkSOC 80). The Cadillac omits
+    # a full battery (FullSOC 100, BulkSOC 80). The reference vehicle omits
     # EVMaximumPowerLimit and EVEnergyCapacity, so they are left unset (the builder
     # does not emit them). EVReady/EVErrorCode stay computed; EVRESSSOC is pinned.
     ChargeParameterDiscoveryReq:
       # The EVCC's requested energy transfer mode is dual-purpose (emitted here as
       # EVRequestedEnergyTransferType and consulted internally when matching the
       # SECC's offer), single-sourced from this tree leaf (ADR-0006 / #105). The
-      # Cadillac requests DC_extended (type 3).
+      # reference vehicle requests DC_extended (type 3).
       EVRequestedEnergyTransferType: DC_extended
       DC_EVChargeParameter:
         DC_EVStatus:
@@ -72,8 +72,8 @@ message_field_tree:
     PreChargeReq:
       DC_EVStatus:
         EVRESSSOC: 88
-    # The Cadillac reports BulkChargingComplete already true (it is near full);
-    # ChargingComplete stays computed off the charge loop.
+    # The reference vehicle reports BulkChargingComplete already true (it is near
+    # full); ChargingComplete stays computed off the charge loop.
     PowerDeliveryReq:
       DC_EVPowerDeliveryParameter:
         DC_EVStatus:

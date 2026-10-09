@@ -4,7 +4,7 @@ While an SECC answers ``EVSEProcessing.ONGOING`` — a real charger does this at
 ContractAuthentication for as long as it waits on external payment
 authorization (EIM RFID/app/backend) — the EVCC re-sends the same request. It
 used to do so with no delay at all: ~3,800 round-trips in ~40 s (~190 req/s)
-were observed against a Tellus Power charger before the ongoing timer elapsed.
+were observed against a third-party DIN charger before the ongoing timer elapsed.
 A conformant EVCC polls at a modest cadence instead.
 
 These tests drive the real EVCC states through `process_message()` at the

@@ -4,13 +4,14 @@
 # files (e.g. din_dc_extended-secc.yaml) `extends:` this and override only the
 # leaves that differ.
 #
-# This baseline replicates the ABB charger from `ABB_Cadillac_Lyric.pcapng`
-# field-for-field (#73). Every SECC-emitted DIN message sources its wire values
+# This baseline replicates the DIN reference charger from the DIN reference
+# capture field-for-field (#73). Every SECC-emitted DIN message sources its wire values
 # from the `message_field_tree` below via construction-time substitution
 # (ADR-0006); the structured `power.evse_dc` reads are retired from the DIN SECC
 # path. This now includes the list-nested SAScheduleList (issue #81 amendment):
-# the tree declares the whole `SAScheduleTuple` list, so the ABB PMax (24000 W),
-# PMaxScheduleID (1), and start (0, duration omitted) are byte-exact too.
+# the tree declares the whole `SAScheduleTuple` list, so the reference charger's
+# PMax (24000 W), PMaxScheduleID (1), and start (0, duration omitted) are
+# byte-exact too.
 #
 # The advertised DC energy transfer mode is single-sourced from the tree — the
 # same ServiceDiscoveryRes -> ChargeService -> EnergyTransferType value the
@@ -37,7 +38,7 @@ message_field_tree:
   # the DIN_SPEC_70121 protocol key.
   DIN_SPEC_70121:
     # "If an SECC cannot provide such ID data, the value of the EVSEID is set to
-    # zero (00hex)." The ABB charger does exactly that.
+    # zero (00hex)." The DIN reference charger does exactly that.
     SessionSetupRes:
       EVSEID: "00"
     ServiceDiscoveryRes:
@@ -48,9 +49,10 @@ message_field_tree:
         ServiceTag:
           ServiceID: 1
           # In the scope of DIN SPEC 70121, ServiceCategory is always
-          # "EVCharging"; the ABB advertises it explicitly. Pinned here (config,
-          # not runtime-produced) so the load-time completeness check (#83) has a
-          # value for this required leaf — the builder already emits exactly this.
+          # "EVCharging"; the reference charger advertises it explicitly. Pinned
+          # here (config, not runtime-produced) so the load-time completeness
+          # check (#83) has a value for this required leaf — the builder already
+          # emits exactly this.
           ServiceCategory: EVCharging
         FreeService: false
         EnergyTransferType: DC_extended
@@ -70,11 +72,12 @@ message_field_tree:
         EVSEMinimumVoltageLimit: {Value: 150, Multiplier: 0, Unit: V}
         EVSEMinimumCurrentLimit: {Value: 1, Multiplier: 0, Unit: A}
         EVSEPeakCurrentRipple: {Value: 3, Multiplier: 0, Unit: A}
-      # The charging schedule the ABB advertises: one tuple, one PMax entry at
-      # 24000 W starting at t=0. List-nested wire field sourced from the tree
-      # (ADR-0006 issue #81) — the tree declares the whole SAScheduleTuple list,
-      # cardinality included. RelativeTimeInterval.duration is Optional and left
-      # unset, matching the ABB capture (which omits it).
+      # The charging schedule the reference charger advertises: one tuple, one
+      # PMax entry at 24000 W starting at t=0. List-nested wire field sourced
+      # from the tree (ADR-0006 issue #81) — the tree declares the whole
+      # SAScheduleTuple list, cardinality included. RelativeTimeInterval.duration
+      # is Optional and left unset, matching the DIN reference capture (which
+      # omits it).
       SAScheduleList:
         SAScheduleTuple:
           - SAScheduleTupleID: 1
@@ -112,7 +115,8 @@ message_field_tree:
         EVSENotification: None
         EVSEIsolationStatus: Valid
         EVSEStatusCode: EVSE_Ready
-      # The ABB charger echoes its max V/A/W envelope in every CurrentDemandRes.
+      # The reference charger echoes its max V/A/W envelope in every
+      # CurrentDemandRes.
       EVSEMaximumVoltageLimit: {Value: 451, Multiplier: 0, Unit: V}
       EVSEMaximumCurrentLimit: {Value: 60, Multiplier: 0, Unit: A}
       EVSEMaximumPowerLimit: {Value: 24000, Multiplier: 0, Unit: W}

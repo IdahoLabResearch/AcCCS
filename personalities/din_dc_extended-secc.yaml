@@ -1,8 +1,8 @@
-# Default DIN 70121 SECC personality — the ABB DC_extended charger.
+# Default DIN 70121 SECC personality — the DIN reference DC_extended charger.
 #
 # This is the default `--config` for run_secc.py. It `extends:` the DIN SECC
-# baseline (ADR-0006), which now replicates the ABB charger from
-# `ABB_Cadillac_Lyric.pcapng` field-for-field (#73): EVSEID `00`, the DC
+# baseline (ADR-0006), which now replicates the DIN reference charger from
+# the DIN reference capture field-for-field (#73): EVSEID `00`, the DC
 # envelope (max V 451 / max A 60 / max W 24000 / min V 150 / min A 1 / peak
 # ripple 3), the SAScheduleList PMax 24000 W, and the isolation-status
 # progression (Invalid / IsolationMonitoringActive through

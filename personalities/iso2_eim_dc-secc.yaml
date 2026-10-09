@@ -1,7 +1,7 @@
 # Example ISO 15118-2 EIM SECC device personality (ADR-0006 / #96).
 #
 # The SECC half of the retired symmetric `iso2_eim_dc.yaml`. A thin device
-# override that `extends: iso2-secc-baseline` (the HAL-reference tree) and pins
+# override that `extends: iso2-secc-baseline` (the reference-charger tree) and pins
 # only the leaves that make this device distinguishable on the wire — here its
 # EVSEID — demonstrating the layered baseline + sparse override pattern. Every
 # other SECC wire value (the DC envelope, the isolation progression, the service

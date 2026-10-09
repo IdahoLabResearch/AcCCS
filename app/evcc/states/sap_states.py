@@ -126,8 +126,8 @@ class SupportedAppProtocol(StateEVCC):
                     # message is already set to SessionSetupReqV2 as default.
                     # Route the ISO-2 SessionSetupReq through the message field
                     # tree (ADR-0006 / #97) so a personality can override its one
-                    # wire field (EVCCID); the Mach-E baseline leaves it computed
-                    # from the NIC MAC.
+                    # wire field (EVCCID); the ISO-2 reference-vehicle baseline
+                    # leaves it computed from the NIC MAC.
                     apply_personality_tree_iso2(self.comm_session, next_msg)
                     next_state = SessionSetupV2
                 elif protocol.protocol_ns == Protocol.DIN_SPEC_70121.ns.value:
@@ -141,8 +141,8 @@ class SupportedAppProtocol(StateEVCC):
                     )
                     # Route the DIN SessionSetupReq through the message field
                     # tree too (ADR-0006 / #74) so a personality can override its
-                    # one wire field (EVCCID); the Cadillac baseline leaves it
-                    # computed from the NIC MAC.
+                    # one wire field (EVCCID); the DIN reference-vehicle baseline
+                    # leaves it computed from the NIC MAC.
                     apply_personality_tree(self.comm_session, next_msg)
 
                     next_ns = Namespace.DIN_MSG_DEF

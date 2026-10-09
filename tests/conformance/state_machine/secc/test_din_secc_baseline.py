@@ -1,10 +1,10 @@
-"""The shipped `din-secc-baseline` reproduces the ABB charger field-for-field.
+"""The shipped `din-secc-baseline` reproduces the DIN reference charger field-for-field.
 
-Issue #73 / ADR-0006: the DIN SECC baseline replicates the ABB charger from
-`ABB_Cadillac_Lyric.pcapng`. This drives the SECC through a full DIN session
+Issue #73 / ADR-0006: the DIN SECC baseline replicates the DIN reference charger
+from the DIN reference capture. This drives the SECC through a full DIN session
 with the shipped `personalities/din-secc-baseline.yaml`, decodes the bytes the
-SECC actually put on the wire for each `*Res`, and asserts every ABB baseline
-field — proving the message field tree reaches the wire for the whole SECC DIN
+SECC actually put on the wire for each `*Res`, and asserts every reference-charger
+baseline field — proving the message field tree reaches the wire for the whole SECC DIN
 path, not just the one field wired in #71.
 
 Runtime/computed fields (SessionID, DateTimeNow, present voltage/current, the
@@ -123,11 +123,11 @@ def _decode(result):
 
 
 @pytest.mark.asyncio
-async def test_din_secc_baseline_reproduces_abb_capture(exi_codec):
+async def test_din_secc_baseline_reproduces_reference_capture(exi_codec):
     session = _baseline_session()
     hdr = lambda: MessageHeader(session_id=session.session_id)  # noqa: E731
 
-    # --- SessionSetupRes: EVSEID "00" (ABB reports no ID) --------------------
+    # --- SessionSetupRes: EVSEID "00" (the reference charger reports no ID) ---
     res = _decode(
         await ScriptedPeer(session, SessionSetup).feed(
             V2GMessageDINSPEC(
@@ -185,7 +185,7 @@ async def test_din_secc_baseline_reproduces_abb_capture(exi_codec):
         )
     )
 
-    # --- ChargeParameterDiscoveryRes: full ABB DC envelope, Invalid isolation -
+    # --- ChargeParameterDiscoveryRes: full reference DC envelope, Invalid isolation
     res = _decode(
         await ScriptedPeer(session, ChargeParameterDiscovery).feed(
             V2GMessageDINSPEC(
@@ -221,7 +221,7 @@ async def test_din_secc_baseline_reproduces_abb_capture(exi_codec):
     assert dcp.evse_minimum_current_limit.get_decimal_value() == 1
     assert dcp.evse_peak_current_ripple.get_decimal_value() == 3
     # The list-nested SAScheduleList is tree-sourced (#81) and byte-exact to the
-    # ABB capture: one tuple (ID 1), PMaxScheduleID 1, one PMax entry at 24000 W
+    # DIN reference capture: one tuple (ID 1), PMaxScheduleID 1, one PMax entry at 24000 W
     # starting at t=0 with RelativeTimeInterval.duration omitted (Optional).
     [tuple_entry] = res.sa_schedule_list.values
     assert tuple_entry.sa_schedule_tuple_id == 1
@@ -232,9 +232,9 @@ async def test_din_secc_baseline_reproduces_abb_capture(exi_codec):
     assert pmax_details.time_interval.duration is None
 
     # --- CableCheckRes: Invalid / IsolationMonitoringActive while monitoring,
-    # then Valid / EVSE_Ready on the completing (FINISHED) response — the ABB
-    # progression from ABB_Cadillac_Lyric.pcapng (frames 316-465 Invalid, frame
-    # 469 Valid). The completing flip is what lets a conformant EVCC advance.
+    # then Valid / EVSE_Ready on the completing (FINISHED) response — the
+    # reference charger's progression in the DIN reference capture (frames
+    # 316-465 Invalid, frame 469 Valid). The completing flip is what lets a conformant EVCC advance.
     cc = ScriptedPeer(session, CableCheck)
     # First feed: contactors close, isolation monitoring still Ongoing.
     res = _decode(

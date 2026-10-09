@@ -2,7 +2,7 @@
 
 Every ISO-15118-20 AC SECC-emitted message is sourced from the [[message field
 tree]] as of #100, with the shipped ``iso20-ac-secc-baseline`` replicating the
-real plain-AC / Dynamic / EIM session in ``HAL+TCP_ISO_20_AC_Example.pcap``. This
+real plain-AC / Dynamic / EIM session in the ISO-20 AC reference capture. This
 drives a full ISO-20 AC session over veth (TLS 1.3) with the EXI capture tap on,
 using a SECC personality tree-backed by that baseline, then decodes the messages
 the SECC actually put on the wire and asserts the baseline values reached it:

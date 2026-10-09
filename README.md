@@ -39,9 +39,9 @@ The devices labeled ETH, RELAY, 5V OUT, 12V OUT, and RASPBERRY PI are generic de
 
 **12V/5V OUT:** These DC/DC power converters were used as a means to get +12V,-12V, and +5V power supplies, so they are not necessary if you have a way to supply these voltages by other means. If the provided configuration is used, the converters must be **ISOLATED** DC/DC converters so that you can tie the positive terminal of one 12V supply to the negative terminal of the other in order to create a -12V supply.
 
-**ETH:** Any generic USB to RJ-45 adapter can be used. This is needed so that the Raspberry pi can interface with the two Devolo radios via ethernet. Not necessary if your choice of controller has 3 RJ-45 ports.
+**ETH:** Any generic USB to RJ-45 adapter can be used. This is needed so that the Raspberry pi can interface with the two GreenPHY eval board radios via ethernet. Not necessary if your choice of controller has 3 RJ-45 ports.
 
-**EVSE/PEV DEVOLO:** The Devolo eval board used acts as a radio that bridges ethernet communications over cat cable to HomePlug GreenPHY communications over a single signal wire and ground. These boards also automatically complete some of the level 2 HomePlug protocol specific actions, such as forming ALVNs according to the standard, so to work properly must be configured properly. Currently, these radios are purchased pre-configured from Devolo, but there may be some way to flash an unconfigured board with the contents of a configured board. There are also some jumper options present on the eval boards which should be configured so that the HomePlug GreenPHY is output over the two-wire terminal instead of coax.
+**EVSE/PEV DEVOLO:** The GreenPHY eval board used acts as a radio that bridges ethernet communications over cat cable to HomePlug GreenPHY communications over a single signal wire and ground. These boards also automatically complete some of the level 2 HomePlug protocol specific actions, such as forming ALVNs according to the standard, so to work properly must be configured properly. Currently, these radios are purchased pre-configured from the vendor, but there may be some way to flash an unconfigured board with the contents of a configured board. There are also some jumper options present on the eval boards which should be configured so that the HomePlug GreenPHY is output over the two-wire terminal instead of coax.
 
 ![Alt text](/resources/AcCCS_Box_BG.png?raw=true "AcCCS Box Layout")
 
@@ -56,7 +56,7 @@ Op-Amp: [LM6132BIN/NOPB](https://www.ti.com/product/LM6132/part-details/LM6132BI
 
 ## Software Configuration
 
-The DIN and ISO standards define that the TCP/IP communication between EVCC and SECC equipment use IPv6 networking with link-local addressing. For this reason, to properly communicate to these devices from a controller, IPv6 networking on the controller must be configured for link-local addressing on the interfaces that connect to the Devolo radios.
+The DIN and ISO standards define that the TCP/IP communication between EVCC and SECC equipment use IPv6 networking with link-local addressing. For this reason, to properly communicate to these devices from a controller, IPv6 networking on the controller must be configured for link-local addressing on the interfaces that connect to the GreenPHY eval board radios.
 
 ### Python Module Dependencies
 * scapy

@@ -32,7 +32,7 @@ Four layers, each with a distinct seam, oracle, and substrate.
 
 - **Seam:** two real emulator subprocesses talking over the `acccs_secc` ⇄ `acccs_evcc` veth pair (`setup_veth.sh`).
 - **Oracle:** clean session termination — both EVCC and SECC observe `SessionStopReq` → `SessionStopRes` with no protocol-level errors raised. Negotiated protocol / auth mode / energy mode may additionally be asserted per [[scenario]].
-- **Substrate:** veth-only in CI. The AcCCS-box Raspberry Pi runs the same suite as a pre-merge job on substantial changes (real TCP/IPv6, real `smbus`/PWM/Devolo NIC path).
+- **Substrate:** veth-only in CI. The AcCCS-box Raspberry Pi runs the same suite as a pre-merge job on substantial changes (real TCP/IPv6, real `smbus`/PWM/GreenPHY eval board NIC path).
 - **Inputs:** declarative [[scenario]] YAML files (see the Coverage matrix below). New E2E tests = new YAML files, no Python edits required.
 - **Known coverage gap:** HomePlug GreenPHY / SLAC is not exercised — veth is L2-clean Ethernet. SLAC verification depends on hardware-in-the-loop, which is the major-release acceptance gate (below), not routine CI.
 

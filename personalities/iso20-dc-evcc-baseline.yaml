@@ -14,7 +14,7 @@
 # **DC-BPT / Dynamic control mode / EIM** ISO-15118-20 DC session. `iso20.pcap`
 # decodes cleanly as ISO-20 DC with the project EXI codec (EVCC source port 58564;
 # payload types 0x8002 common / 0x8004 DC_MAINSTREAM) — plaintext on the wire,
-# unlike the TLS-encrypted `HAL+TLS*+ISO20_DC_BPT_Example.pcap` captures, so the
+# unlike the TLS-encrypted ISO-20 DC-BPT reference captures, so the
 # synthetic `EVDCLimitsV20` / `ScheduleExchangeV20` fallback the issue reserves for
 # an undecodable capture is not needed here. The one decodable EVCC-emitted message
 # that bears a config-owned wire leaf is reproduced exactly:
