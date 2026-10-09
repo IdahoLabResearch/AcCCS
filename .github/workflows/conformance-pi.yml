@@ -29,7 +29,7 @@ name: Conformance suite (Pi)
 #   - i2c headers + a C/C++ build toolchain (CMake >=3.20, Ninja, compiler)
 #     so `smbus` and the EXPy libcbv2g extension build during `pip install`.
 #   - Real `acccs_evcc` / `acccs_secc` USB-Ethernet NICs, MAC-renamed once by
-#     the operator's `rename_eth.sh`, both adapters connected and coupled. The
+#     `scripts/rename_eth.sh`, both adapters connected and coupled. The
 #     E2E layer runs over these REAL NICs — this workflow does NOT provision a
 #     veth pair (setup_veth.sh would delete the identically-named real NICs).
 #   - The runner's interpreter carries the `cap_net_raw=eip` file capability so

@@ -60,8 +60,9 @@ The E2E layer needs the `acccs_secc` ⇄ `acccs_evcc` veth pair from
 - **GitHub-hosted runners:** have `CAP_NET_ADMIN` by default. The CI workflow
   invokes `setup_veth.sh` as part of the job.
 - **AcCCS-box Pi (self-hosted):** does **not** use veth. It has real
-  `acccs_evcc` / `acccs_secc` USB-Ethernet NICs (renamed once by the operator's
-  `rename_eth.sh`), so the E2E layer runs over them directly and
+  `acccs_evcc` / `acccs_secc` USB-Ethernet NICs (renamed once by
+  [`scripts/rename_eth.sh`](../../scripts/rename_eth.sh)), so the E2E layer
+  runs over them directly and
   `conformance-pi.yml` never calls `setup_veth.sh`. See *Pi runner maintenance*
   below and ADR-0003 § Substrate and gating.
 
@@ -171,8 +172,8 @@ These must exist on the Pi before the workflow can pass; the workflow does
 - **The `cap_net_raw=eip` file capability on the venv interpreter** so the SLAC
   raw socket opens without a per-run `setcap` (the hosted job sets this itself;
   the Pi interpreter carries it persistently).
-- **Real `acccs_evcc` / `acccs_secc` USB-Ethernet NICs**, renamed once by the
-  operator's `rename_eth.sh` (MAC-matched systemd `.link` files: "PEV" →
+- **Real `acccs_evcc` / `acccs_secc` USB-Ethernet NICs**, renamed once by
+  `sudo scripts/rename_eth.sh` (MAC-matched systemd `.link` files: "PEV" →
   `acccs_evcc`, "EVSE" → `acccs_secc`), with both USB adapters connected and
   coupled. The Pi runs E2E over these real NICs — it does **not** use a veth
   pair, and the workflow must never call `setup_veth.sh` (its teardown would
