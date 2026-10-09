@@ -65,6 +65,18 @@ class StubCommSession:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
+class StubWriter:
+    """Minimal stand-in for the asyncio transport writer.
+
+    `stop_state_machine` only reads `get_extra_info("peername")` off the
+    writer when building the StopNotification; nothing at this seam sends
+    bytes, so a peername is all it needs.
+    """
+
+    def get_extra_info(self, _key: str):
+        return ("fe80::2", 0)
+
+
 @dataclass
 class StepResult:
     """One scripted-peer step: the inbound message and what the role did."""

@@ -193,9 +193,12 @@ class SessionSetup(StateSECC):
 
         session_setup_req: SessionSetupReq = cast(SessionSetupReq, msg)
 
-        # Check session ID. Most likely, we need to create a new one
+        # Check session ID. Most likely, we need to create a new one.
+        # A zero-length SessionID (a real vehicle sends 0 bytes to open a
+        # session) is the new-session request too; the header validator has
+        # already logged it as out-of-spec (issue #136).
         session_id: str = get_random_bytes(8).hex().upper()
-        if session_setup_req.header.session_id == bytes(1).hex():
+        if session_setup_req.header.session_id in ("", bytes(1).hex()):
             # A new charging session is established
             self.response_code = ResponseCode.OK_NEW_SESSION_ESTABLISHED
         elif session_setup_req.header.session_id == self.comm_session.session_id:

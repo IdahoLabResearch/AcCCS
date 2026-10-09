@@ -22,7 +22,7 @@ from pydantic import Field, conbytes, conint, constr, field_validator
 from typing_extensions import TypeAlias
 
 from app.shared.messages import BaseModel
-from app.shared.messages.datatypes import get_exponent_value_repr
+from app.shared.messages.datatypes import get_exponent_value_repr, validate_session_id
 from app.shared.messages.enums import (
     INT_8_MAX,
     INT_8_MIN,
@@ -66,14 +66,11 @@ class MessageHeader(BaseModel):
         """
         # pylint: disable=no-self-argument
         # pylint: disable=no-self-use
-        try:
-            int(value, 16)
-            return value
-        except ValueError as exc:
-            raise ValueError(
-                f"Invalid value '{value}' for SessionID (must be "
-                f"hexadecimal representation of max 8 bytes)"
-            ) from exc
+        return validate_session_id(
+            cls,
+            value,
+            "SessionID of zeroes for a new session ([V2G20-2106], ISO 15118-20)",
+        )
 
 
 class V2GMessage(BaseModel, ABC):

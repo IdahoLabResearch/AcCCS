@@ -16,6 +16,7 @@ from pydantic import Field, field_validator
 from typing import Optional
 
 from app.shared.messages import BaseModel
+from app.shared.messages.datatypes import validate_session_id
 from app.shared.messages.iso15118_2.datatypes import Notification
 from app.shared.messages.xmldsig import Signature
 
@@ -40,12 +41,8 @@ class MessageHeader(BaseModel):
         """
         # pylint: disable=no-self-argument
         # pylint: disable=no-self-use
-        try:
-            # convert value to int, assuming base 16
-            int(value, 16)
-            return value
-        except ValueError as exc:
-            raise ValueError(
-                f"Invalid value '{value}' for SessionID (must be "
-                f"hexadecimal representation of max 8 bytes)"
-            ) from exc
+        return validate_session_id(
+            cls,
+            value,
+            "zero SessionID for a new session ([V2G2-750], ISO 15118-2)",
+        )

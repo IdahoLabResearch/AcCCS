@@ -19,6 +19,7 @@ from pydantic import Field, model_validator, field_validator
 from app.shared.exceptions import V2GMessageValidationError
 from app.shared.messages import BaseModel
 from app.shared.messages.out_of_spec import accept_out_of_spec
+from app.shared.messages.datatypes import validate_session_id
 from app.shared.messages.datatypes import (
     DCEVSEChargeParameter,
     DCEVSEStatus,
@@ -437,15 +438,11 @@ class MeteringReceiptReq(BodyBase):
         """
         # pylint: disable=no-self-argument
         # pylint: disable=no-self-use
-        try:
-            # convert value to int, assuming base 16
-            int(value, 16)
-            return value
-        except ValueError as exc:
-            raise ValueError(
-                f"Invalid value '{value}' for SessionID (must be "
-                f"hexadecimal representation of max 8 bytes)"
-            ) from exc
+        return validate_session_id(
+            cls,
+            value,
+            "non-empty SessionID of the running session (ISO 15118-2 8.4.3.13.2)",
+        )
 
 
 class MeteringReceiptRes(Response):

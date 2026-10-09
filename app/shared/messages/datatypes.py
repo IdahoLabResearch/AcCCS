@@ -13,6 +13,30 @@ from app.shared.messages.enums import (
 )
 from app.shared.messages.out_of_spec import accept_out_of_spec
 
+
+def validate_session_id(cls, value: str, empty_bound: str) -> str:
+    """Shared body of the ISO 15118-2 / -20 ``SessionID`` validators.
+
+    ``sessionIDType`` is ``hexBinary`` maxLength 8, carried as up to 16 hex
+    characters. A zero-length value is schema-legal (no minLength) and a real
+    vehicle opens its session with one, but both standards ask for a zero
+    SessionID: keep it, logging one out-of-spec warning against
+    ``empty_bound``, and let the state or the ordinary session-ID check decide
+    what it means (issue #136). ``int("", 16)`` would otherwise reject the
+    message. The DIN validator keeps its own silent acceptance.
+    """
+    if value == "":
+        accept_out_of_spec(cls.__name__, "SessionID", value, empty_bound)
+        return value
+    try:
+        int(value, 16)
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid value '{value}' for SessionID (must be "
+            f"hexadecimal representation of max 8 bytes)"
+        ) from exc
+    return value
+
 # NotificationMaxDelay: xs:unsignedShort in ISO 15118-2, xs:unsignedInt in DIN.
 NOTIFICATION_MAX_DELAY_UNSIGNED_SHORT_MAX = 65535
 NOTIFICATION_MAX_DELAY_UNSIGNED_INT_MAX = 4294967295
