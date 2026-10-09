@@ -245,7 +245,7 @@ async def drive_dc_session(session: StubCommSession) -> Dict[str, object]:
         )
     )
     # Stop charging so the loop exits to PowerDelivery(STOP) -> WeldingDetection.
-    session.ev_controller._charging_is_completed = True
+    session.ev_controller._stop_requested = True
     reqs["PowerDeliveryReq_stop"] = _decode(
         await feed(
             Body(

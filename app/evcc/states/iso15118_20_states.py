@@ -1088,6 +1088,16 @@ class PowerDelivery(StateEVCC):
 
             return
 
+        if not await self.comm_session.ev_controller.continue_charging():
+            # Every ChargeLoopReq is one charge-loop cycle, the first one
+            # included, so `charge_loop_cycle: N` puts exactly N on the wire
+            # (conformance SC-003, #138). This mirrors the DIN and ISO-2
+            # PowerDelivery states; the loop can only be non-continuable
+            # here when the EV already wants to stop.
+            logger.debug("EV initiated stop charging.")
+            self.stop_v20_charging(next_state=PowerDelivery)
+            return
+
         scheduled_params: ScheduledDCChargeLoopReqParams = None
         dynamic_params: DynamicDCChargeLoopReqParams = None
         bpt_scheduled_params: BPTScheduledDCChargeLoopReqParams = None

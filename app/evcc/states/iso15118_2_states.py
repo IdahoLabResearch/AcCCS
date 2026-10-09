@@ -1019,7 +1019,11 @@ class PowerDelivery(StateEVCC):
                 Timeouts.CHARGING_STATUS_REQ,
                 Namespace.ISO_V2_MSG_DEF,
             )
-        else:
+        elif await self.comm_session.ev_controller.continue_charging():
+            # Every CurrentDemandReq is one charge-loop cycle, the first one
+            # included, so `charge_loop_cycle: N` puts exactly N on the wire
+            # (conformance SC-003, #138). The DIN PowerDelivery state consults
+            # the loop the same way before its first CurrentDemandReq.
             current_demand_req = await self.build_current_demand_data()
 
             self.create_next_message(
@@ -1028,6 +1032,9 @@ class PowerDelivery(StateEVCC):
                 Timeouts.CHARGING_STATUS_REQ,
                 Namespace.ISO_V2_MSG_DEF,
             )
+        else:
+            logger.debug("EV initiated stop charging.")
+            await _send_dc_power_delivery_stop(self)
 
     async def build_current_demand_data(self) -> CurrentDemandReq:
         dc_ev_charge_params = (
@@ -1623,24 +1630,33 @@ class CurrentDemand(StateEVCC):
         return current_demand_req
 
     async def stop_charging(self):
-        ev_controller = self.comm_session.ev_controller
-        power_delivery_req = PowerDeliveryReq(
-            charge_progress=ChargeProgress.STOP,
-            sa_schedule_tuple_id=self.comm_session.selected_schedule,
-            # charging_profile=None,  # TODO
-            dc_ev_power_delivery_parameter=(
-                await ev_controller.get_dc_ev_power_delivery_parameter()
-            ),
-        )
-        apply_personality_tree(self.comm_session, power_delivery_req)
-        self.create_next_message(
-            PowerDelivery,
-            power_delivery_req,
-            Timeouts.POWER_DELIVERY_REQ,
-            Namespace.ISO_V2_MSG_DEF,
-        )
-        self.comm_session.charging_session_stop_v2 = ChargingSession.TERMINATE
-        logger.debug(f"ChargeProgress is set to {ChargeProgress.STOP}")
+        await _send_dc_power_delivery_stop(self)
+
+
+async def _send_dc_power_delivery_stop(state: StateEVCC) -> None:
+    """End the DC charge loop: PowerDeliveryReq(Stop), then WeldingDetection.
+
+    Shared by the CurrentDemand state (loop exhausted or charger asked to stop)
+    and the PowerDelivery state (loop not continuable right after Start).
+    """
+    ev_controller = state.comm_session.ev_controller
+    power_delivery_req = PowerDeliveryReq(
+        charge_progress=ChargeProgress.STOP,
+        sa_schedule_tuple_id=state.comm_session.selected_schedule,
+        # charging_profile=None,  # TODO
+        dc_ev_power_delivery_parameter=(
+            await ev_controller.get_dc_ev_power_delivery_parameter()
+        ),
+    )
+    apply_personality_tree(state.comm_session, power_delivery_req)
+    state.create_next_message(
+        PowerDelivery,
+        power_delivery_req,
+        Timeouts.POWER_DELIVERY_REQ,
+        Namespace.ISO_V2_MSG_DEF,
+    )
+    state.comm_session.charging_session_stop_v2 = ChargingSession.TERMINATE
+    logger.debug(f"ChargeProgress is set to {ChargeProgress.STOP}")
 
 
 class WeldingDetection(StateEVCC):

@@ -226,11 +226,22 @@ class SimEVController(EVControllerInterface):
         self.live_control = live_control
         self.charging_loop_cycles: int = max(evcc_config.charge_loop_cycle, 1)
         self.charge_loop_delay_time: int = min(evcc_config.charge_loop_delay_time, 50)
-        self.increment = (1 / self.charging_loop_cycles) * 100
         self.precharge_loop_cycles: int = 0
         self.welding_detection_cycles: int = 0
-        self._charging_is_completed = False
-        self._soc = 10
+        # "The EV wants to stop" (stop_charging()). Ends the charge loop; it is
+        # NOT the same as full charge, which ChargingComplete reports (#138).
+        self._stop_requested = False
+        # Simulated state of charge. It ramps from the initial value to exactly
+        # 100 over the charge-loop cycles the loop starts with, so the loop's
+        # last CurrentDemandReq reports 100 % and the PowerDeliveryReq(Stop)
+        # that follows carries ChargingComplete=TRUE (DIN Table 47, ISO-2
+        # DC_EVPowerDeliveryParameter). Only continue_charging() advances it.
+        # The ramp length is pinned on the first advance, so a cycle count set
+        # after construction (tests, future operator knobs) still ramps from
+        # the initial value.
+        self._initial_soc: int = 10
+        self._total_loop_cycles: Optional[int] = None
+        self._soc = self._initial_soc
         self.dc_ev_charge_params: DCEVChargeParams = self._build_dc_ev_charge_params(
             din=False
         )
@@ -872,17 +883,33 @@ class SimEVController(EVControllerInterface):
                 )
                 return False
             return True
-        if self.charging_loop_cycles == 0 or await self.is_charging_complete():
+        if (
+            self.charging_loop_cycles == 0
+            or self._stop_requested
+            or await self.is_charging_complete()
+        ):
             # To simulate a bit of a charging loop, we'll let it run chargingLoopCycle
             # times specified in config file
             return False
-        else:
-            self.charging_loop_cycles -= 1
-            self._soc = min(int(self._soc + self.increment), 100)
-            # The line below can just be called once process_message in all states
-            # are converted to async calls
-            # await asyncio.sleep(0.5)
-            return True
+        # This is the only place the loop advances: one cycle consumed, SOC
+        # moved along its ramp. Request builders read the state; they never
+        # call this (conformance SC-003, #138).
+        if self._total_loop_cycles is None:
+            self._total_loop_cycles = self.charging_loop_cycles
+        self.charging_loop_cycles -= 1
+        self._soc = self._soc_for_remaining_cycles(self.charging_loop_cycles)
+        return True
+
+    def _soc_for_remaining_cycles(self, remaining: int) -> int:
+        """SOC on the ramp from the initial value to 100 at zero cycles left.
+
+        Computed from the remaining count rather than accumulated per cycle so
+        integer rounding cannot leave the loop short of 100 at the end.
+        """
+        span = 100 - self._initial_soc
+        total = max(self._total_loop_cycles or 1, 1)
+        soc = 100 - round(remaining * span / total)
+        return max(self._initial_soc, min(soc, 100))
 
     async def store_contract_cert_and_priv_key(
         self, contract_cert: bytes, priv_key: bytes
@@ -895,7 +922,9 @@ class SimEVController(EVControllerInterface):
         return None
 
     async def ready_to_charge(self) -> bool:
-        return await self.continue_charging()
+        # A pure read: the EV is ready while it still wants energy. Building a
+        # request must never advance the charge loop (#138).
+        return not (self._stop_requested or await self.is_charging_complete())
 
     async def is_precharged(
         self, present_voltage_evse: Union[PVEVSEPresentVoltage, RationalNumber]
@@ -913,10 +942,13 @@ class SimEVController(EVControllerInterface):
     async def get_dc_ev_power_delivery_parameter_dinspec(
         self,
     ) -> DCEVPowerDeliveryParameterDINSPEC:
+        # ChargingComplete means "full charge (100 % SOC) reached" (DIN Table
+        # 47). It is a pure read of the simulated state of charge: building the
+        # request must not advance the charge loop (conformance SC-003, #138).
         return DCEVPowerDeliveryParameterDINSPEC(
             dc_ev_status=await self.get_dc_ev_status_dinspec(),
             bulk_charging_complete=False,
-            charging_complete=await self.continue_charging(),
+            charging_complete=await self.is_charging_complete(),
         )
 
     async def get_dc_ev_power_delivery_parameter(self) -> DCEVPowerDeliveryParameter:
@@ -927,17 +959,17 @@ class SimEVController(EVControllerInterface):
         return DCEVPowerDeliveryParameter(
             dc_ev_status=await self.get_dc_ev_status(),
             bulk_charging_complete=None,
-            charging_complete=await self.continue_charging(),
+            charging_complete=await self.is_charging_complete(),
         )
 
     async def is_bulk_charging_complete(self) -> bool:
         return False
 
     async def is_charging_complete(self) -> bool:
-        if self._soc == 100 or self._charging_is_completed:
-            return True
-        else:
-            return False
+        # "Full charge (100 % SOC) reached" — derived from the simulated state
+        # of charge only. An explicit stop (stop_charging()) ends the loop but
+        # does not claim a full battery (#138).
+        return self._soc >= 100
 
     async def get_remaining_time_to_full_soc(
             self, protocol: Protocol) -> PVRemainingTimeToFullSOC:
@@ -974,7 +1006,7 @@ class SimEVController(EVControllerInterface):
         return False
 
     async def stop_charging(self) -> None:
-        self._charging_is_completed = True
+        self._stop_requested = True
 
     async def get_ac_charge_loop_params_v20(
         self, control_mode: ControlMode, selected_service: ServiceV20

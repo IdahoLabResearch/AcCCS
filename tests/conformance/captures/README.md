@@ -63,9 +63,9 @@ Per ADR-0003:
 
 | Capture            | Protocol     | Energy mode | Personality                       | Records |
 |--------------------|--------------|-------------|-----------------------------------|---------|
-| `din-dc`           | din70121     | dc          | `din_dc_extended-{secc,evcc}`     | 116     |
-| `iso2-eim-dc`      | iso15118-2   | dc          | `iso2_eim_dc-{secc,evcc}`         | 122     |
-| `iso2-pnc-dc`      | iso15118-2   | dc          | `iso2_pnc_dc-{secc,evcc}`         | 130     |
+| `din-dc`           | din70121     | dc          | `din_dc_extended-{secc,evcc}`     | 124     |
+| `iso2-eim-dc`      | iso15118-2   | dc          | `iso2_eim_dc-{secc,evcc}`         | 126     |
+| `iso2-pnc-dc`      | iso15118-2   | dc          | `iso2_pnc_dc-{secc,evcc}`         | 134     |
 | `iso20-ac`         | iso15118-20  | ac          | `iso20_ac-{secc,evcc}`            | 88      |
 | `iso20-dc`         | iso15118-20  | dc          | `iso20_dc-{secc,evcc}`            | 136     |
 
@@ -73,9 +73,17 @@ Record counts are the JSONL line count per capture. The deduplicated
 replay test count fluctuates by ±a few between re-captures because some
 fields are session-randomised (challenges, IDs, nonces) and produce
 distinct `(ns, root, hex)` keys each run. The post-#25 re-capture moved
-the headline numbers from 167 passed / 24 skipped to **165 passed / 24
-skipped** in the replay suite; the delta is a natural consequence of the
-session-randomised fields and is not a behavioural regression.
+the headline numbers from 167 passed / 24 skipped to 165 passed / 24
+skipped in the replay suite, and the #138 re-capture (below) to **162
+passed / 0 skipped**; the deltas are a natural consequence of the
+session-randomised fields and are not a behavioural regression.
+
+The DIN and both ISO-2 captures were re-recorded for #138 (conformance
+SC-003): the old recordings encoded `ChargingComplete=TRUE` on the
+PowerDeliveryReq Start and FALSE on the Stop, and a charge loop two
+(DIN) or one (ISO-2) CurrentDemandReq short of `charge_loop_cycle`. The
+new ones carry FALSE on Start, TRUE on the Stop at 100 % SOC, and
+exactly ten CurrentDemandReq, which is why their record counts grew.
 
 ### Known gaps (deferred to follow-up issues)
 
