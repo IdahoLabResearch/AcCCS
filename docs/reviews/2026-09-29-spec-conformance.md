@@ -608,7 +608,7 @@ Reviewer sections are cited as `[slice F-n]`.
 #### SC-070 · DIN SECC baseline/builder status values: CPDRes pinned to `EVSE_IsolationMonitoringActive` (spec: `EVSE_Ready`); ONGOING CableCheckRes/CPDRes say Valid/EVSE_Ready with an empty tree
 - **S3** · confirmed (demo wire DIN `ChargeParameterDiscoveryRes DC_EVSEStatus{EVSEIsolationStatus:0(Invalid), EVSEStatusCode:4(IsolationMonitoringActive)}`) · DIN SECC, ISO-2 SECC.
 - Req: [V2G-DC-453] p175, [V2G-DC-498], [V2G-DC-638] p136; [V2G-DC-499] p176, Table 67; ISO-2 8.5.4.1, [V2G2-880].
-- Where: `personalities/din-secc-baseline.yaml:57-66` (byte-copy of the ABB capture) applied at `din_spec_states.py:618-622`; builder defaults `app/secc/controller/simulator.py:1092-1099, 1178-1183` (always Valid/EVSE_Ready even while ONGOING); `personalities/default-secc.yaml:56` (empty tree).
+- Where: `personalities/din-secc-baseline.yaml:57-66` (byte-copy of the real-charger capture) applied at `din_spec_states.py:618-622`; builder defaults `app/secc/controller/simulator.py:1092-1099, 1178-1183` (always Valid/EVSE_Ready even while ONGOING); `personalities/default-secc.yaml:56` (empty tree).
 - `[din-secc F-8] [din-secc F-9] [iso2-secc F-18]`. Tags: personality.
 
 #### SC-071 · DIN SECC wrong-but-harmless values: FAILED templates use `EVSENotification=StopCharging` (DIN: always None); `EVSECurrentLimitAchieved` echoes the EV's `ChargingComplete`
