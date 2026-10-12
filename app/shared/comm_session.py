@@ -440,28 +440,36 @@ class V2GCommunicationSession(SessionStateMachine):
         being sent, and the loop starts over again waiting to read data on the
         TCP socket for the given amount of time ('timeoout').
 
-        We expect the incoming message to be an EXI encoded message.
+        Each read is framed by the V2GTP header (see V2GTPMessage.read_frame),
+        so a message split across TCP segments is reassembled and coalesced
+        messages are processed one at a time. We expect the incoming payload
+        to be an EXI encoded message.
 
         Args:
             timeout:    The time the EVCC / SECC is waiting for a next message
         """
         while True:
             try:
-                # The biggest message is the Certificate Installation Response,
-                # which is estimated to be maximum between 5k to 6k
-                # TODO check if that still holds with -20 (e.g. cross certs)
-                message = await asyncio.wait_for(self.reader.read(7000), timeout)
-                if message == b"" and self.reader.at_eof():
-                    stop_reason: str = "TCP peer closed connection"
-                    await self.stop(reason=stop_reason)
-                    self.session_handler_queue.put_nowait(
-                        StopNotification(
-                            False,
-                            stop_reason,
-                            self.peer_name,
-                        )
+                message = await asyncio.wait_for(
+                    V2GTPMessage.read_frame(self.reader, self.comm_session.protocol),
+                    timeout,
+                )
+            except asyncio.IncompleteReadError as exc:
+                stop_reason: str = "TCP peer closed connection"
+                if exc.partial:
+                    stop_reason += (
+                        f" mid-message ({len(exc.partial)} of "
+                        f"{exc.expected} bytes received)"
                     )
-                    return
+                await self.stop(reason=stop_reason)
+                self.session_handler_queue.put_nowait(
+                    StopNotification(
+                        False,
+                        stop_reason,
+                        self.peer_name,
+                    )
+                )
+                return
             except (asyncio.TimeoutError, ConnectionResetError) as exc:
                 if type(exc) is asyncio.TimeoutError:
                     if self.last_message_sent:

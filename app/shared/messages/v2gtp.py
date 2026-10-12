@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Union
 
@@ -14,8 +15,17 @@ from app.shared.messages.enums import (
     Protocol,
     V2GTPVersion,
 )
+from app.shared.messages.out_of_spec import discard_out_of_spec
 
 logger = logging.getLogger(__name__)
+
+V2GTP_HEADER_LENGTH = 8
+
+# The largest payload we will read through. The biggest message on the wire
+# is the CertificateInstallationRes (~5-6 kB, more with ISO 15118-20 cross
+# certificates); a declared length beyond this is treated as exceeding our
+# receive buffer, which the spec says to ignore.
+MAX_V2GTP_PAYLOAD_LENGTH = 64 * 1024
 
 
 class V2GTPMessage:
@@ -72,7 +82,7 @@ class V2GTPMessage:
 
     @staticmethod
     def get_payload_type(header: bytes) -> int:
-        if len(header) == 8:
+        if len(header) == V2GTP_HEADER_LENGTH:
             return int.from_bytes(header[2:4], "big")
 
         # Returning a non-positive number guarantees that any upper-level checks
@@ -81,7 +91,7 @@ class V2GTPMessage:
 
     @staticmethod
     def get_payload_length(header: bytes) -> int:
-        if len(header) == 8:
+        if len(header) == V2GTP_HEADER_LENGTH:
             return int.from_bytes(header[4:], "big")
 
         # Return -1 to show we're unable to determine the payload length
@@ -92,6 +102,9 @@ class V2GTPMessage:
         if (
             protocol in [Protocol.ISO_15118_2, Protocol.UNKNOWN]
             and payload_type not in ISOV2PayloadTypes.options()
+        ) or (
+            protocol == Protocol.DIN_SPEC_70121
+            and payload_type not in DINPayloadTypes.options()
         ) or (
             protocol.ns.startswith("urn:iso:std:iso:15118:-20")
             and payload_type not in ISOV20PayloadTypes.options()
@@ -110,10 +123,10 @@ class V2GTPMessage:
         (Check section 7.8.3.2 15118-2, Ed.1)
         """
         is_valid: bool = True
-        if len(header) != 8:
+        if len(header) != V2GTP_HEADER_LENGTH:
             logger.error(
                 f"No proper V2GTP message, header is "
-                f"{len(header)} bytes long. Expected: 8 bytes"
+                f"{len(header)} bytes long. Expected: {V2GTP_HEADER_LENGTH} bytes"
             )
             is_valid = False
 
@@ -191,15 +204,22 @@ class V2GTPMessage:
         # The smallest possible datagram is a V2GTP message with an
         # SDP request of 2 bytes
         if len(data) >= 10:
-            header = data[:8]
+            header = data[:V2GTP_HEADER_LENGTH]
 
             payload_type: Union[ISOV2PayloadTypes, ISOV20PayloadTypes]
+            declared_length = cls.get_payload_length(header)
+            actual_length = len(data) - V2GTP_HEADER_LENGTH
+            if declared_length != actual_length:
+                raise InvalidV2GTPMessageError(
+                    f"V2GTP header declares a payload of {declared_length} "
+                    f"bytes but {actual_length} bytes followed"
+                )
             if cls.is_header_valid(protocol, header):
                 if protocol.ns.startswith("urn:iso:std:iso:15118:-20"):
                     payload_type = ISOV20PayloadTypes(cls.get_payload_type(header))
                 else:
                     payload_type = ISOV2PayloadTypes(cls.get_payload_type(header))
-                return V2GTPMessage(protocol, payload_type, data[8:])
+                return V2GTPMessage(protocol, payload_type, data[V2GTP_HEADER_LENGTH:])
             raise InvalidV2GTPMessageError(
                 "Not a valid V2GTP message " "(header check failed)"
             )
@@ -208,6 +228,54 @@ class V2GTPMessage:
             "a valid V2GTP message"
             f" (only {len(data)} bytes)"
         )
+
+    @classmethod
+    async def read_frame(cls, reader: asyncio.StreamReader, protocol: Protocol) -> bytes:
+        """
+        Reads exactly one V2GTP message (header plus payload) off a TCP stream.
+
+        One TCP read is not one message: a message larger than a link segment
+        arrives in several reads, and several small messages can arrive in
+        one. The eight-byte header is the delimiter ([V2G2-088], [V2G2-094],
+        DIN [V2G-DC-166]/[V2G-DC-172], [V2G20-1229]): read it, then exactly the
+        payload length it declares. Bytes after that stay buffered in the
+        reader for the next call.
+
+        A message whose header fails the check is ignored, as if never
+        received ([V2G2-800], DIN [V2G-DC-171]-[V2G-DC-173], [V2G20-800]), and
+        the next one is read. Its declared payload is consumed so the stream
+        stays aligned; a declared length beyond MAX_V2GTP_PAYLOAD_LENGTH
+        cannot be read through, so only that header is dropped. Neither case
+        guarantees a resync: a garbage header whose length field looks
+        plausible makes the read wait for bytes that never come (the caller's
+        message timeout then ends the session), and dropping only an
+        oversized header leaves its payload to be read as the next headers.
+
+        Raises:
+            asyncio.IncompleteReadError if the peer closes the stream before
+            a whole message arrives (``partial`` is empty on a clean close
+            between messages).
+        """
+        while True:
+            header = await reader.readexactly(V2GTP_HEADER_LENGTH)
+            payload_length = cls.get_payload_length(header)
+            if payload_length > MAX_V2GTP_PAYLOAD_LENGTH:
+                discard_out_of_spec(
+                    "V2GTPHeader",
+                    "PayloadLength",
+                    payload_length,
+                    f"<= {MAX_V2GTP_PAYLOAD_LENGTH} B receive buffer [V2G2-800]",
+                )
+                continue
+            payload = await reader.readexactly(payload_length)
+            if cls.is_header_valid(protocol, header):
+                return header + payload
+            discard_out_of_spec(
+                "V2GTPHeader",
+                "Header",
+                header.hex(),
+                f"version 0x01/0xFE and a {protocol} payload type [V2G2-800]",
+            )
 
     def __repr__(self):
         return (
