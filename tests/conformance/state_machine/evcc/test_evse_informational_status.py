@@ -7,8 +7,10 @@ EVSE_IsolationMonitoringActive is an expected value during CableCheck.
 EVSEIsolationStatus is optional (DIN Table 66), and a Warning isolation
 (ISO-2 Table 97: below the warning level) is still a go. So a Finished
 CableCheckRes advances to PreCharge unless the isolation is Fault or the
-charger asks for a shutdown, and the DIN charge loop keeps running on any
-code but a shutdown. Each tolerated value logs one warning.
+charger asks for a shutdown (EVSE_Shutdown, or EVSE_EmergencyShutdown since
+the charger has cut its output), and the DIN charge loop keeps running on any
+code but those. Each tolerated value logs one warning; a Valid isolation logs
+one info line.
 
 Each replay feeds the charger's message to the real state at the ADR-0003
 ``process_message()`` seam.
@@ -64,6 +66,8 @@ READY = DCEVSEStatusCode.EVSE_READY
 MONITORING = DCEVSEStatusCode.EVSE_ISOLATION_MONITORING_ACTIVE
 UTILITY_INTERRUPT = DCEVSEStatusCode.EVSE_UTILITY_INTERUPT_EVENT
 SHUTDOWN = DCEVSEStatusCode.EVSE_SHUTDOWN
+EMERGENCY = DCEVSEStatusCode.EVSE_EMERGENCY_SHUTDOWN
+EVCC_STATE_LOGGER = "app.evcc.states.evcc_state"
 
 # (status code, isolation, the value the single warning names)
 TOLERATED = [
@@ -165,12 +169,19 @@ async def test_iso2_cable_check_finished_proceeds_on_informational_status(
 @pytest.mark.parametrize(
     "feed", [_feed_din_cable_check, _feed_iso2_cable_check], ids=["din", "iso2"]
 )
-async def test_cable_check_ready_and_valid_logs_nothing(exi_codec, caplog, feed):
-    with caplog.at_level(logging.WARNING, logger=OUT_OF_SPEC_LOGGER):
+async def test_cable_check_ready_and_valid_logs_one_info_line(exi_codec, caplog, feed):
+    with caplog.at_level(logging.INFO):
         result = await feed(_status(READY, IsolationLevel.VALID))
 
     assert result.next_state not in (None, Terminate)
     assert out_of_spec_records(caplog) == []
+    valid_lines = [
+        rec
+        for rec in caplog.records
+        if rec.name == EVCC_STATE_LOGGER and rec.levelno == logging.INFO
+    ]
+    assert len(valid_lines) == 1, [rec.getMessage() for rec in valid_lines]
+    assert "Valid" in valid_lines[0].getMessage()
 
 
 @pytest.mark.asyncio
@@ -182,6 +193,7 @@ async def test_cable_check_ready_and_valid_logs_nothing(exi_codec, caplog, feed)
     [
         pytest.param(READY, IsolationLevel.FAULT, id="fault-isolation"),
         pytest.param(SHUTDOWN, IsolationLevel.VALID, id="shutdown"),
+        pytest.param(EMERGENCY, IsolationLevel.VALID, id="emergency-shutdown"),
     ],
 )
 async def test_cable_check_finished_stops_on_fault_or_shutdown(
@@ -242,11 +254,12 @@ async def test_din_charge_loop_logs_a_held_status_code_once(exi_codec, caplog):
 
 
 @pytest.mark.asyncio
-async def test_din_charge_loop_stops_on_shutdown(exi_codec):
+@pytest.mark.parametrize("code", [SHUTDOWN, EMERGENCY], ids=lambda c: c.value)
+async def test_din_charge_loop_stops_on_shutdown(exi_codec, code):
     session = _din_session()
     peer = ScriptedPeer(session, din.CurrentDemand)
 
-    result = await peer.feed(_current_demand_message(session, SHUTDOWN))
+    result = await peer.feed(_current_demand_message(session, code))
 
     assert result.next_state is din.PowerDelivery
     stop = _decode(result, Namespace.DIN_MSG_DEF)

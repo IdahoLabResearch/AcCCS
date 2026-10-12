@@ -56,6 +56,12 @@ from app.shared.states import State, Terminate
 logger = logging.getLogger(__name__)
 
 
+SHUTDOWN_STATUS_CODES = (
+    DCEVSEStatusCode.EVSE_SHUTDOWN,
+    DCEVSEStatusCode.EVSE_EMERGENCY_SHUTDOWN,
+)
+
+
 def evse_requests_shutdown(
     dc_evse_status: DCEVSEStatus,
     previous_code: Optional[DCEVSEStatusCode] = None,
@@ -66,36 +72,39 @@ def evse_requests_shutdown(
     Only EVSE_Shutdown carries an EVCC obligation (DIN [V2G-DC-650]); every
     other status code is informational ([V2G-DC-637] and its NOTE), so a code
     other than EVSE_Ready is logged and the caller carries on (#142, SC-037,
-    SC-038). A charge loop passes the code of the previous response as
+    SC-038). EVSE_EmergencyShutdown is honoured too: a charger reporting it
+    has cut its output, so carrying on would only end in a timeout. A charge loop passes the code of the previous response as
     ``previous_code`` so a charger that holds one code logs it once, not once
     per poll.
     """
     code = dc_evse_status.evse_status_code
-    if code == DCEVSEStatusCode.EVSE_SHUTDOWN:
+    if code in SHUTDOWN_STATUS_CODES:
         return True
     if code not in (DCEVSEStatusCode.EVSE_READY, previous_code):
         note_informational(
             "DCEVSEStatus",
             "EVSEStatusCode",
             code.value,
-            "only EVSE_Shutdown obliges the EVCC to act",
+            "only a shutdown code obliges the EVCC to act",
         )
     return False
 
 
 def isolation_faulted(dc_evse_status: DCEVSEStatus) -> bool:
     """Whether a Finished CableCheckRes reports an isolation Fault, logging
-    any other non-Valid isolation on the way.
+    the isolation on the way.
 
     EVSEIsolationStatus is optional (DIN Table 66) and Warning is still a go
     (ISO-2 Table 97: below the warning level), so any isolation other than
-    Valid or Fault, absent included, is logged once and PreCharge proceeds
-    (#142, SC-037).
+    Valid or Fault, absent included, is logged once as a warning and PreCharge
+    proceeds (#142, SC-037). Valid is the normal outcome and logs at info.
     """
     isolation = dc_evse_status.evse_isolation_status
     if isolation == IsolationLevel.FAULT:
         return True
-    if isolation != IsolationLevel.VALID:
+    if isolation == IsolationLevel.VALID:
+        logger.info("CableCheck finished with EVSEIsolationStatus=Valid")
+    else:
         note_informational(
             "DCEVSEStatus",
             "EVSEIsolationStatus",
