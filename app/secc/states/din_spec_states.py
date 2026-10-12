@@ -16,7 +16,7 @@ from app.shared.messages.app_protocol import (
     SupportedAppProtocolReq,
     SupportedAppProtocolRes,
 )
-from app.shared.messages.datatypes import PVEVSEPresentCurrent
+from app.shared.messages.datatypes import DCEVSEStatusCode, PVEVSEPresentCurrent
 from app.shared.messages.din_spec.body import (
     CableCheckReq,
     CableCheckRes,
@@ -610,8 +610,8 @@ class ChargeParameterDiscovery(StateSECC):
         # Construction-time substitution (ADR-0006): apply the personality's
         # message field tree so configured leaves — the whole DC envelope plus
         # DC_EVSEChargeParameter -> DC_EVSEStatus -> {EVSEIsolationStatus,
-        # EVSEStatusCode}, which the reference-charger baseline pins to Invalid /
-        # IsolationMonitoringActive here — replace the values the builder just
+        # EVSEStatusCode}, which the baseline pins to Invalid / EVSE_Ready here
+        # ([V2G-DC-453], #140) — replace the values the builder just
         # computed from the retired structured reads. A leaf set nowhere leaves
         # the built message untouched.
         apply_personality_tree(
@@ -746,9 +746,20 @@ class CableCheck(StateSECC):
         # [V2G-DC-418] Stay in CableCheck state until EVSEProcessing is complete.
         # Until EVSEProcessing is completed, EV will send identical
         # CableCheckReq message.
+        dc_evse_status = await self.comm_session.evse_controller.get_dc_evse_status()
+        if evse_processing == EVSEProcessing.ONGOING:
+            # [V2G-DC-498] Isolation monitoring is still running, so the status
+            # must not already claim Valid / EVSE_Ready — a vehicle would read
+            # "done" and "not done" in the same message (#140).
+            dc_evse_status = dc_evse_status.model_copy(
+                update={
+                    "evse_isolation_status": IsolationLevel.INVALID,
+                    "evse_status_code": DCEVSEStatusCode.EVSE_ISOLATION_MONITORING_ACTIVE,
+                }
+            )
         cable_check_res: CableCheckRes = CableCheckRes(
             response_code=response_code,
-            dc_evse_status=await self.comm_session.evse_controller.get_dc_evse_status(),
+            dc_evse_status=dc_evse_status,
             evse_processing=evse_processing,
         )
         # The reference-charger baseline pins CableCheckRes -> DC_EVSEStatus to
@@ -1109,7 +1120,9 @@ class CurrentDemand(StateSECC):
             dc_evse_status=await self.comm_session.evse_controller.get_dc_evse_status(),
             evse_present_voltage=voltage,
             evse_present_current=current,
-            evse_current_limit_achieved=current_demand_req.charging_complete,
+            evse_current_limit_achieved=(
+                await self.comm_session.evse_controller.is_evse_current_limit_achieved()
+            ),
             evse_voltage_limit_achieved=(
                 await self.comm_session.evse_controller.is_evse_voltage_limit_achieved()
             ),

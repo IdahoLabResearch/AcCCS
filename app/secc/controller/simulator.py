@@ -1315,7 +1315,17 @@ class SimEVSEController(EVSEControllerInterface):
         return _EVSE_DC_SKELETON.max_voltage_v, _EVSE_DC_SKELETON.max_current_a
 
     async def is_evse_current_limit_achieved(self) -> bool:
-        return False
+        """True once the EV requests at least the advertised maximum current.
+
+        The flag reports the charger's own limit [V2G-DC-282], so it compares
+        the requested current against the envelope this session advertised; a
+        request with no target current (ISO-20 dynamic mode) never reaches it.
+        """
+        requested = self.ev_data_context.target_current
+        if requested is None:
+            return False
+        _, max_current = self._advertised_dc_maxima()
+        return requested >= max_current
 
     async def is_evse_voltage_limit_achieved(self) -> bool:
         return False

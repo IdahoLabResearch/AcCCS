@@ -10,8 +10,9 @@ path, not just the one field wired in #71.
 Runtime/computed fields (SessionID, DateTimeNow, present voltage/current, the
 CurrentDemandRes limit-achieved flags) are deliberately NOT asserted — the
 baseline leaves them computed. The isolation-status progression (Invalid /
-IsolationMonitoringActive through ChargeParameterDiscoveryRes + CableCheckRes,
-then Valid / EVSE_Ready from PreChargeRes on) is the headline behaviour.
+EVSE_Ready at ChargeParameterDiscoveryRes, Invalid / IsolationMonitoringActive
+through the ongoing CableCheckRes, then Valid / EVSE_Ready from the completing
+CableCheckRes on) is the headline behaviour.
 """
 
 from __future__ import annotations
@@ -208,11 +209,11 @@ async def test_din_secc_baseline_reproduces_reference_capture(exi_codec):
         )
     )
     dcp = res.dc_charge_parameter
+    # Isolation is untested before CableCheck, so Invalid; but the status code
+    # is EVSE_Ready at this phase ([V2G-DC-453], #140) — the reference capture's
+    # IsolationMonitoringActive here is not carried over.
     assert dcp.dc_evse_status.evse_isolation_status == IsolationLevel.INVALID
-    assert (
-        dcp.dc_evse_status.evse_status_code
-        == DCEVSEStatusCode.EVSE_ISOLATION_MONITORING_ACTIVE
-    )
+    assert dcp.dc_evse_status.evse_status_code == DCEVSEStatusCode.EVSE_READY
     assert dcp.dc_evse_status.notification_max_delay == 0
     assert dcp.evse_maximum_voltage_limit.get_decimal_value() == 451
     assert dcp.evse_maximum_current_limit.get_decimal_value() == 60

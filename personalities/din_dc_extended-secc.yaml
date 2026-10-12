@@ -5,10 +5,10 @@
 # the DIN reference capture field-for-field (#73): EVSEID `00`, the DC
 # envelope (max V 451 / max A 60 / max W 24000 / min V 150 / min A 1 / peak
 # ripple 3), the SAScheduleList PMax 24000 W, and the isolation-status
-# progression (Invalid / IsolationMonitoringActive through
-# ChargeParameterDiscoveryRes + CableCheckRes, then Valid / EVSE_Ready from
-# PreChargeRes on). All of that is inherited from the baseline's message field
-# tree — the SECC DIN wire values are no longer sourced from the retired
+# progression (Invalid / EVSE_Ready at ChargeParameterDiscoveryRes, Invalid /
+# IsolationMonitoringActive through the ongoing CableCheckRes, then Valid /
+# EVSE_Ready from the completing CableCheckRes on). All of that is inherited
+# from the baseline's message field tree — the SECC DIN wire values are no longer sourced from the retired
 # structured `power.evse_dc` block.
 #
 # It advertises DC_extended, which is what production vehicles request via

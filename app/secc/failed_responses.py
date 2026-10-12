@@ -314,10 +314,15 @@ def init_failed_responses_din_spec_70121() -> dict:
 
     Note: When sending the actual response, you must override the preset
           response code with the failure response code that is most fitting.
+
+    EVSENotification is always None: DIN SPEC 70121 [V2G-DC-500] does not use
+    the notification, a FAILED response code alone ends the session.
     """
     failed_response_iso_dinspec = {
+        # EVSEID is hexBinary: "00" is DIN's "no ID" value and, unlike the
+        # odd-length placeholder it replaces, encodes (#140).
         SessionSetupReqDINSPEC: SessionSetupResDINSPEC(
-            response_code=ResponseCodeDINSPEC.FAILED, evse_id="1234567"
+            response_code=ResponseCodeDINSPEC.FAILED, evse_id="00"
         ),
         ServiceDiscoveryReqDINSPEC: ServiceDiscoveryResDINSPEC(
             response_code=ResponseCodeDINSPEC.FAILED,
@@ -344,7 +349,7 @@ def init_failed_responses_din_spec_70121() -> dict:
             dc_charge_parameter=DCEVSEChargeParameter(
                 dc_evse_status=DCEVSEStatus(
                     notification_max_delay=1000,
-                    evse_notification=EVSENotificationDINSPEC.STOP_CHARGING,
+                    evse_notification=EVSENotificationDINSPEC.NONE,
                     evse_isolation_status=IsolationLevel.INVALID,
                     evse_status_code=DCEVSEStatusCodeDINSPEC.EVSE_NOT_READY,
                 ),
@@ -378,7 +383,7 @@ def init_failed_responses_din_spec_70121() -> dict:
             response_code=ResponseCodeDINSPEC.FAILED,
             dc_evse_status=DCEVSEStatus(
                 notification_max_delay=1000,
-                evse_notification=EVSENotificationDINSPEC.STOP_CHARGING,
+                evse_notification=EVSENotificationDINSPEC.NONE,
                 evse_isolation_status=IsolationLevel.INVALID,
                 evse_status_code=DCEVSEStatusCodeDINSPEC.EVSE_NOT_READY,
             ),
@@ -388,7 +393,7 @@ def init_failed_responses_din_spec_70121() -> dict:
             response_code=ResponseCodeDINSPEC.FAILED,
             dc_evse_status=DCEVSEStatus(
                 notification_max_delay=1000,
-                evse_notification=EVSENotificationDINSPEC.STOP_CHARGING,
+                evse_notification=EVSENotificationDINSPEC.NONE,
                 evse_isolation_status=IsolationLevel.INVALID,
                 evse_status_code=DCEVSEStatusCodeDINSPEC.EVSE_NOT_READY,
             ),
@@ -400,7 +405,7 @@ def init_failed_responses_din_spec_70121() -> dict:
             response_code=ResponseCodeDINSPEC.FAILED,
             dc_evse_status=DCEVSEStatus(
                 notification_max_delay=1000,
-                evse_notification=EVSENotificationDINSPEC.STOP_CHARGING,
+                evse_notification=EVSENotificationDINSPEC.NONE,
                 evse_isolation_status=IsolationLevel.INVALID,
                 evse_status_code=DCEVSEStatusCodeDINSPEC.EVSE_NOT_READY,
             ),
@@ -409,7 +414,7 @@ def init_failed_responses_din_spec_70121() -> dict:
             response_code=ResponseCodeDINSPEC.FAILED,
             dc_evse_status=DCEVSEStatus(
                 notification_max_delay=1000,
-                evse_notification=EVSENotificationDINSPEC.STOP_CHARGING,
+                evse_notification=EVSENotificationDINSPEC.NONE,
                 evse_isolation_status=IsolationLevel.INVALID,
                 evse_status_code=DCEVSEStatusCodeDINSPEC.EVSE_NOT_READY,
             ),
@@ -436,7 +441,7 @@ def init_failed_responses_din_spec_70121() -> dict:
             response_code=ResponseCodeDINSPEC.FAILED,
             dc_evse_status=DCEVSEStatus(
                 notification_max_delay=1000,
-                evse_notification=EVSENotificationDINSPEC.STOP_CHARGING,
+                evse_notification=EVSENotificationDINSPEC.NONE,
                 evse_isolation_status=IsolationLevel.INVALID,
                 evse_status_code=DCEVSEStatusCodeDINSPEC.EVSE_NOT_READY,
             ),

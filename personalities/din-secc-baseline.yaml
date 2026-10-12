@@ -58,14 +58,15 @@ message_field_tree:
         EnergyTransferType: DC_extended
     ChargeParameterDiscoveryRes:
       DC_EVSEChargeParameter:
-        # Isolation monitoring is active while the EVSE runs the cable check, so
-        # this response reports Invalid / IsolationMonitoringActive (the original
-        # motivation for the message field tree, ADR-0006).
+        # Isolation is not yet tested (Invalid), but the status code is
+        # EVSE_Ready at this phase ([V2G-DC-453], #140). The reference capture
+        # reports IsolationMonitoringActive here; that deviation is not
+        # replicated — isolation monitoring belongs to CableCheckRes below.
         DC_EVSEStatus:
           NotificationMaxDelay: 0
           EVSENotification: None
           EVSEIsolationStatus: Invalid
-          EVSEStatusCode: EVSE_IsolationMonitoringActive
+          EVSEStatusCode: EVSE_Ready
         EVSEMaximumVoltageLimit: {Value: 451, Multiplier: 0, Unit: V}
         EVSEMaximumCurrentLimit: {Value: 60, Multiplier: 0, Unit: A}
         EVSEMaximumPowerLimit: {Value: 24000, Multiplier: 0, Unit: W}
