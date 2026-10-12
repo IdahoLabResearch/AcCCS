@@ -1950,7 +1950,7 @@ class DCChargeLoop(StateSECC):
             if selected_energy_service.service == ServiceV20.DC_BPT:
                 is_session_bpt = True
             await self.comm_session.evse_controller.send_charging_command(
-                ev_target_voltage, ev_target_current, is_session_bpt
+                ev_target_voltage, ev_target_current, is_session_bpt=is_session_bpt
             )
         except (asyncio.TimeoutError, Exception) as e:
             self.stop_state_machine(

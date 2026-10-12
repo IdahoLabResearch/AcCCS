@@ -10,7 +10,7 @@ import base64
 import logging
 import time
 from types import SimpleNamespace
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 from app.secc.controller.common import UnknownEnergyService
 from app.secc.controller.evse_data import (
@@ -228,6 +228,36 @@ _EVSE_SE_V20_SKELETON = SimpleNamespace(
 )
 
 
+# Simulated power stage (issue #139, conformance finding SC-029). The emulator
+# has no real power electronics, but the present voltage/current it reports is
+# what a vehicle's precharge logic reads first, so `send_charging_command`
+# models one: each PreCharge request moves the reported present voltage this
+# fraction of the remaining gap toward the EV's target voltage — converging over
+# a handful of polls the way the field-captured chargers do — and snaps onto the
+# target once within `PRECHARGE_SNAP_TOLERANCE_V`. The ramp starts from
+# `PRECHARGE_START_VOLTAGE_V` (an idle, de-energised output) at controller start,
+# at every CableCheck (so an ISO-2 renegotiation re-precharges from idle) and
+# after every session. These are controller constants, not personality
+# fields: the ramp shape has no wire representation of its own.
+PRECHARGE_RAMP_FRACTION = 0.5
+PRECHARGE_START_VOLTAGE_V = 0.0
+PRECHARGE_SNAP_TOLERANCE_V = 1.0
+
+
+def _physical_value_magnitude(leaf) -> Optional[float]:
+    """Decode a DIN / ISO-2 tree PhysicalValue leaf to its real magnitude.
+
+    The tree may spell keys by XSD alias (``Value``/``Multiplier``) or Python
+    name; anything else (UNSET, a malformed leaf) decodes to `None`.
+    """
+    if not isinstance(leaf, dict):
+        return None
+    value = leaf.get("Value", leaf.get("value"))
+    if value is None:
+        return None
+    return value * (10 ** leaf.get("Multiplier", leaf.get("multiplier", 0)))
+
+
 def get_evse_context():
     ac_limits = EVSEACCPDLimits(
         max_current=10,
@@ -305,8 +335,8 @@ def get_evse_context():
     evse_data_context.present_active_power_l3 = 10
     evse_data_context.current_regulation_tolerance = 10
     evse_data_context.energy_to_be_delivered = 10
-    evse_data_context.present_current = 1
-    evse_data_context.present_voltage = 1
+    evse_data_context.present_current = 0
+    evse_data_context.present_voltage = PRECHARGE_START_VOLTAGE_V
     return evse_data_context
 
 
@@ -1195,8 +1225,18 @@ class SimEVSEController(EVSEControllerInterface):
             self.set_selected_protocol(previous)
 
     async def start_cable_check(self):
-        """Overrides EVSEControllerInterface.start_cable_check()."""
-        pass
+        """Overrides EVSEControllerInterface.start_cable_check().
+
+        The output is idle during the isolation test, so the following PreCharge
+        ramps from the start voltage and its inrush check reads no stale
+        charge-loop current (an ISO-2 renegotiation re-enters CableCheck).
+        """
+        self._de_energise()
+
+    def _de_energise(self) -> None:
+        """Return the simulated output to its idle start values (issue #139)."""
+        self.evse_data_context.present_voltage = PRECHARGE_START_VOLTAGE_V
+        self.evse_data_context.present_current = 0
 
     async def get_cable_check_status(self) -> Union[IsolationLevel, None]:
         """Overrides EVSEControllerInterface.get_cable_check_status()."""
@@ -1209,7 +1249,70 @@ class SimEVSEController(EVSEControllerInterface):
         is_precharge: bool = False,
         is_session_bpt: bool = False,
     ):
-        pass
+        """Overrides EVSEControllerInterface.send_charging_command().
+
+        Simulates the power stage the present-value reads report (issue #139).
+        Targets are first clamped to the advertised maxima. A precharge command
+        steps the present voltage `PRECHARGE_RAMP_FRACTION` of the remaining gap
+        toward the target (snapping on within `PRECHARGE_SNAP_TOLERANCE_V`); a
+        charge-loop command reports the target voltage and requested current
+        outright. A `None` target (ISO-20 dynamic control mode) leaves that
+        present value untouched. A live operator override is applied later, at
+        the `get_evse_present_*` read sites, so it keeps precedence.
+        """
+        max_voltage, max_current = self._advertised_dc_maxima()
+        context = self.evse_data_context
+        if ev_target_current is not None:
+            context.present_current = min(max(ev_target_current, 0), max_current)
+        if ev_target_voltage is None:
+            return
+        target = min(max(ev_target_voltage, 0), max_voltage)
+        if not is_precharge:
+            context.present_voltage = target
+            return
+        present = context.present_voltage
+        stepped = round(present + PRECHARGE_RAMP_FRACTION * (target - present), 1)
+        if abs(target - stepped) < PRECHARGE_SNAP_TOLERANCE_V:
+            stepped = target
+        context.present_voltage = stepped
+
+    def _advertised_dc_maxima(self) -> Tuple[float, float]:
+        """The (max voltage, max current) the SECC advertised for this session.
+
+        DIN / ISO-2 read the ChargeParameterDiscoveryRes envelope from the
+        message field tree (the wire value, single-sourced there), falling back
+        to the builder skeleton for an empty/partial tree. ISO-20 DC reads the
+        session limits the DCChargeParameterDiscovery state fills from its tree.
+        No negotiated protocol (a bare harness) falls back to the DC skeleton.
+        """
+        protocol = self.get_selected_protocol()
+        if protocol in (Protocol.DIN_SPEC_70121, Protocol.ISO_15118_2):
+
+            def advertised(field: str, fallback: float) -> float:
+                leaf = resolve_tree_leaf(
+                    self.personality.message_field_tree,
+                    protocol.name,
+                    "ChargeParameterDiscoveryRes",
+                    ("dc_charge_parameter", field),
+                )
+                magnitude = _physical_value_magnitude(leaf)
+                return fallback if magnitude is None else magnitude
+
+            return (
+                advertised("evse_maximum_voltage_limit", _EVSE_DC_SKELETON.max_voltage_v),
+                advertised("evse_maximum_current_limit", _EVSE_DC_SKELETON.max_current_a),
+            )
+        if protocol in (
+            Protocol.ISO_15118_20_COMMON_MESSAGES,
+            Protocol.ISO_15118_20_DC,
+        ):
+            dc_limits = self.evse_data_context.session_limits.dc_limits
+            return (
+                dc_limits.max_voltage or _EVSE_DC_V20_SKELETON.max_voltage_v,
+                dc_limits.max_charge_current
+                or _EVSE_DC_V20_SKELETON.max_charge_current_a,
+            )
+        return _EVSE_DC_SKELETON.max_voltage_v, _EVSE_DC_SKELETON.max_current_a
 
     async def is_evse_current_limit_achieved(self) -> bool:
         return False
@@ -1517,6 +1620,7 @@ class SimEVSEController(EVSEControllerInterface):
         @param last_message: The last message that was either sent/received.
         """
         logger.info(f"Session ended in {current_state} ({reason}).")
+        self._de_energise()
 
     async def send_display_params(self):
         """

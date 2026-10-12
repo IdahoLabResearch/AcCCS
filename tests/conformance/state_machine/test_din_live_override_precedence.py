@@ -173,16 +173,12 @@ async def test_secc_tree_only_emits_tree(exi_codec):
 
 @pytest.mark.asyncio
 async def test_secc_neither_is_computed(exi_codec):
+    # The simulated power stage reports the EV's CurrentDemandReq target voltage
+    # and requested current (#139) — 390 V / 60 A as sent by `_secc_present`,
+    # both within the baseline's advertised 451 V / 60 A envelope.
     session = _secc_session(tree_present=False, live_control=LiveControl())
-    expected_v = (
-        await session.evse_controller.get_evse_present_voltage(Protocol.DIN_SPEC_70121)
-    ).get_decimal_value()
-    expected_c = (
-        await session.evse_controller.get_evse_present_current(Protocol.DIN_SPEC_70121)
-    ).get_decimal_value()
     volt, curr = await _secc_present(session)
-    assert volt == expected_v
-    assert curr == expected_c
+    assert (volt, curr) == (390, 60)
     assert (volt, curr) != (TREE_VOLTAGE, TREE_CURRENT)
 
 
