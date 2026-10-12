@@ -22,7 +22,7 @@ from app.shared.messages.din_spec.datatypes import (
     ResponseCode as ResponseCodeDINSPEC,
 )
 from app.shared.messages.din_spec.msgdef import V2GMessage as V2GMessageDINSPEC
-from app.shared.messages.enums import Namespace
+from app.shared.messages.enums import DCEVErrorCode, Namespace
 from app.shared.messages.iso15118_2.body import BodyBase as BodyBaseV2
 from app.shared.messages.iso15118_2.body import (
     SessionSetupReq as SessionSetupReqV2,
@@ -45,10 +45,49 @@ from app.shared.messages.iso15118_20.common_types import (
 from app.shared.messages.iso15118_20.common_types import (
     V2GRequest as V2GRequestV20,
 )
+from app.shared.messages.out_of_spec import accept_out_of_spec
 from app.shared.notifications import StopNotification
 from app.shared.states import State, Terminate
 
 logger = logging.getLogger(__name__)
+
+# IEC 61851-23 CC.5.2 inrush guidance on the charger's own pre-charge output.
+# Neither DIN SPEC 70121 nor ISO 15118-2 bounds the EV's requested pre-charge
+# current, so this caps what the charger delivers rather than gating the EV.
+PRECHARGE_MAX_CURRENT_A = 2.0
+
+
+def tolerate_ev_error_code(dc_ev_status) -> None:
+    """Log a DIN / ISO-2 ``DC_EVStatus.EVErrorCode`` other than NO_ERROR.
+
+    The code is informational: the EVSE shall not change its behaviour on it
+    ([V2G-DC-640], [V2G2-881]); the EV signals shutdown through the control
+    pilot. Callers carry on with the normal response (#141, SC-004).
+    """
+    if dc_ev_status.ev_error_code != DCEVErrorCode.NO_ERROR:
+        accept_out_of_spec(
+            "DC_EVStatus",
+            "EVErrorCode",
+            dc_ev_status.ev_error_code.value,
+            "informational; the EVSE shall not act on it",
+        )
+
+
+def precharge_output_current(ev_target_current: float) -> float:
+    """The current the charger delivers for a PreChargeReq's EVTargetCurrent.
+
+    A request above `PRECHARGE_MAX_CURRENT_A` is logged and clamped instead of
+    answered FAILED (#141, SC-039).
+    """
+    if ev_target_current > PRECHARGE_MAX_CURRENT_A:
+        accept_out_of_spec(
+            "PreChargeReq",
+            "EVTargetCurrent",
+            ev_target_current,
+            f"<= {PRECHARGE_MAX_CURRENT_A} A pre-charge output, clamped",
+        )
+        return PRECHARGE_MAX_CURRENT_A
+    return ev_target_current
 
 
 class StateSECC(State, ABC):

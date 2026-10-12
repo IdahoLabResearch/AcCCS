@@ -11,12 +11,16 @@ from typing import Optional, Type, Union
 
 from app.secc.comm_session_handler import SECCCommunicationSession
 from app.secc.controller.evse_data import CurrentType
-from app.secc.states.secc_state import StateSECC
+from app.secc.states.secc_state import (
+    StateSECC,
+    precharge_output_current,
+    tolerate_ev_error_code,
+)
 from app.shared.messages.app_protocol import (
     SupportedAppProtocolReq,
     SupportedAppProtocolRes,
 )
-from app.shared.messages.datatypes import DCEVSEStatusCode, PVEVSEPresentCurrent
+from app.shared.messages.datatypes import DCEVSEStatusCode
 from app.shared.messages.din_spec.body import (
     CableCheckReq,
     CableCheckRes,
@@ -59,7 +63,6 @@ from app.shared.messages.din_spec.timeouts import Timeouts
 from app.shared.messages.enums import (
     AuthEnum,
     AuthorizationStatus,
-    DCEVErrorCode,
     EVSEProcessing,
     IsolationLevel,
     Namespace,
@@ -674,15 +677,7 @@ class CableCheck(StateSECC):
 
         cable_check_req: CableCheckReq = msg.body.cable_check_req
 
-        if cable_check_req.dc_ev_status.ev_error_code != DCEVErrorCode.NO_ERROR:
-            self.stop_state_machine(
-                f"{cable_check_req.dc_ev_status} "
-                "has Error"
-                f"{cable_check_req.dc_ev_status}",
-                message,
-                ResponseCode.FAILED,
-            )
-            return
+        tolerate_ev_error_code(cable_check_req.dc_ev_status)
 
         evse_processing: EVSEProcessing = EVSEProcessing.ONGOING
         response_code: ResponseCode = ResponseCode.OK
@@ -851,46 +846,14 @@ class PreCharge(StateSECC):
 
         precharge_req: PreChargeReq = msg.body.pre_charge_req
 
-        if precharge_req.dc_ev_status.ev_error_code != DCEVErrorCode.NO_ERROR:
-            self.stop_state_machine(
-                f"{precharge_req.dc_ev_status} "
-                "has Error"
-                f"{precharge_req.dc_ev_status}",
-                message,
-                ResponseCode.FAILED,
-            )
-            return
+        tolerate_ev_error_code(precharge_req.dc_ev_status)
 
         ev_data_context = self.comm_session.evse_controller.ev_data_context
         ev_data_context.update_pre_charge_parameters(precharge_req)
 
-        # for the PreCharge phase, the requested current must be < 2 A
-        # (maximum inrush current according to CC.5.2 in IEC61851 -23)
-        present_current = (
-            await self.comm_session.evse_controller.get_evse_present_current(
-                Protocol.DIN_SPEC_70121
-            )
-        )
-
-        if isinstance(present_current, PVEVSEPresentCurrent):
-            present_current_in_a = present_current.get_decimal_value()
-            target_current_in_a = ev_data_context.target_current
-        else:
-            self.stop_state_machine(
-                "Error reading EVSE Present Current."
-                f"Wrong type: {type(present_current)}",
-                message,
-                ResponseCode.FAILED,
-            )
-            return
-
-        if present_current_in_a > 2 or target_current_in_a > 2:
-            self.stop_state_machine(
-                "Target current or present current too high in state Precharge",
-                message,
-                ResponseCode.FAILED,
-            )
-            return
+        # The 2 A pre-charge figure bounds the charger's own output, not the EV's
+        # request (SC-039): an over-limit request is logged and clamped.
+        output_current = precharge_output_current(ev_data_context.target_current)
 
         # Set precharge voltage in every loop.
         # Because there are EVs that send a wrong Precharge-Voltage
@@ -898,7 +861,7 @@ class PreCharge(StateSECC):
         try:
             await self.comm_session.evse_controller.send_charging_command(
                 ev_data_context.target_voltage,
-                ev_data_context.target_current,
+                output_current,
                 is_precharge=True,
             )
         except asyncio.TimeoutError:
