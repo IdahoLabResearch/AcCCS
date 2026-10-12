@@ -350,6 +350,19 @@ class EVSEControllerInterface(ABC):
     async def stop_charger(self) -> None:
         raise NotImplementedError
 
+    async def step_welding_discharge(self) -> None:
+        """
+        Advance the output's discharge by one WeldingDetectionReq, before the
+        response reads the EVSE present voltage. A real power stage discharges
+        on its own, so the default does nothing; a simulated one models it here
+        so the EV's welding check sees the voltage fall (issue #145).
+
+        Relevant for:
+        - DIN SPEC 70121
+        - ISO 15118-2
+        - ISO 15118-20
+        """
+
     @abstractmethod
     async def is_contactor_opened(self) -> bool:
         """

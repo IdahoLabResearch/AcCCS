@@ -242,6 +242,12 @@ _EVSE_SE_V20_SKELETON = SimpleNamespace(
 PRECHARGE_RAMP_FRACTION = 0.5
 PRECHARGE_START_VOLTAGE_V = 0.0
 PRECHARGE_SNAP_TOLERANCE_V = 1.0
+# After PowerDelivery Stop the simulated output discharges this fraction of
+# its present voltage per WeldingDetectionReq, snapping to zero below
+# `WELDING_DISCHARGE_SNAP_V`, so the EV's welding check reads a falling voltage
+# the way it would against a real charger (issue #145).
+WELDING_DISCHARGE_FRACTION = 0.5
+WELDING_DISCHARGE_SNAP_V = 1.0
 
 
 def _physical_value_magnitude(leaf) -> Optional[float]:
@@ -955,7 +961,21 @@ class SimEVSEController(EVSEControllerInterface):
         pass
 
     async def stop_charger(self) -> None:
-        pass
+        """Overrides EVSEControllerInterface.stop_charger().
+
+        The energy transfer stops, so the reported current drops to zero; the
+        output stays charged until welding detection discharges it (#145).
+        """
+        self.evse_data_context.present_current = 0
+
+    async def step_welding_discharge(self) -> None:
+        """Overrides EVSEControllerInterface.step_welding_discharge() (#145)."""
+        context = self.evse_data_context
+        remaining = 1 - WELDING_DISCHARGE_FRACTION
+        discharged = round(context.present_voltage * remaining, 1)
+        if discharged < WELDING_DISCHARGE_SNAP_V:
+            discharged = 0
+        context.present_voltage = discharged
 
     async def get_cp_state(self) -> CpState:
         """Overrides EVSEControllerInterface.set_cp_state()."""

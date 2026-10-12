@@ -2077,6 +2077,9 @@ class DCWeldingDetection(StateSECC):
             return
 
         self.expecting_welding_detection_req = False
+        # The output discharges across the welding polls, so the EV's welding
+        # check reads a falling present voltage (#145).
+        await self.comm_session.evse_controller.step_welding_discharge()
         welding_detection_res = DCWeldingDetectionRes(
             header=MessageHeader(
                 session_id=self.comm_session.session_id, timestamp=int(time.time())

@@ -18,6 +18,7 @@ import pytest
 from app.secc.controller.simulator import (
     PRECHARGE_RAMP_FRACTION,
     PRECHARGE_START_VOLTAGE_V,
+    WELDING_DISCHARGE_FRACTION,
     SimEVSEController,
 )
 from app.shared.live_control import LiveControl
@@ -159,3 +160,33 @@ async def test_operator_override_returned_unchanged():
     current = await _magnitude(ctrl.get_evse_present_current(Protocol.DIN_SPEC_70121))
     assert voltage == pytest.approx(123.4)
     assert current == 7
+
+
+# Welding detection (issue #145): after PowerDelivery Stop the simulated output
+# discharges a fixed fraction per WeldingDetectionReq, so the EV's welding
+# check reads a voltage that actually falls to zero.
+
+
+async def test_stop_charger_cuts_the_current_and_keeps_the_voltage():
+    ctrl = _controller(Protocol.DIN_SPEC_70121)
+    await ctrl.send_charging_command(400, 30)
+    await ctrl.stop_charger()
+    assert ctrl.evse_data_context.present_current == 0
+    assert ctrl.evse_data_context.present_voltage == 400
+
+
+@pytest.mark.parametrize(
+    "protocol",
+    [Protocol.DIN_SPEC_70121, Protocol.ISO_15118_2, Protocol.ISO_15118_20_DC],
+)
+async def test_welding_discharge_falls_monotonically_to_zero(protocol):
+    ctrl = _controller(protocol)
+    await ctrl.send_charging_command(400, 30)
+    await ctrl.stop_charger()
+    seen = []
+    for _ in range(15):
+        await ctrl.step_welding_discharge()
+        seen.append(ctrl.evse_data_context.present_voltage)
+    assert seen[0] == pytest.approx(400 * (1 - WELDING_DISCHARGE_FRACTION), abs=0.1)
+    assert all(b <= a for a, b in zip(seen, seen[1:]))
+    assert seen[-1] == 0

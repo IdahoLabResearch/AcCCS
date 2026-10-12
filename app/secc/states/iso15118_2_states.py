@@ -2690,6 +2690,9 @@ class WeldingDetection(StateSECC):
             await SessionStop(self.comm_session).process_message(message, message_exi)
             return
 
+        # The output discharges across the welding polls, so the EV's welding
+        # check reads a falling present voltage (#145).
+        await self.comm_session.evse_controller.step_welding_discharge()
         welding_detection_res = WeldingDetectionRes(
             response_code=ResponseCode.OK,
             dc_evse_status=await self.comm_session.evse_controller.get_dc_evse_status(),
