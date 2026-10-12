@@ -2468,8 +2468,6 @@ class PreCharge(StateSECC):
         tolerate_ev_error_code(precharge_req.dc_ev_status)
         ev_data_context = self.comm_session.evse_controller.ev_data_context
         ev_data_context.update_pre_charge_parameters(precharge_req)
-        # The 2 A pre-charge figure bounds the charger's own output, not the EV's
-        # request (SC-039): an over-limit request is logged and clamped.
         output_current = precharge_output_current(ev_data_context.target_current)
 
         # Set precharge voltage in every loop.

@@ -24,6 +24,7 @@ from app.secc.failed_responses import (
     init_failed_responses_iso_v2,
 )
 from app.secc.states import din_spec_states, iso15118_2_states
+from app.secc.states.secc_state import PRECHARGE_MAX_CURRENT_A
 from app.shared.messages import datatypes as dt
 from app.shared.messages.din_spec import body as din_body
 from app.shared.messages.din_spec import datatypes as din_dt
@@ -42,7 +43,8 @@ from tests.conformance.state_machine.harness import (
     StubWriter,
 )
 
-OUT_OF_SPEC_LOGGER = "app.shared.messages.out_of_spec"
+# Both out-of-spec and informational lines are logged by this module.
+RECEIVE_POSTURE_LOGGER = "app.shared.messages.out_of_spec"
 
 
 def _session(protocol: Protocol) -> StubCommSession:
@@ -124,17 +126,24 @@ def _iso2_pre_charge(session, code, current_a=1):
     )
 
 
+# Per protocol: the SECC states module, and a request builder per state name.
 PROTOCOLS = {
-    Protocol.DIN_SPEC_70121: (din_spec_states, _din_cable_check, _din_pre_charge),
-    Protocol.ISO_15118_2: (iso15118_2_states, _iso2_cable_check, _iso2_pre_charge),
+    Protocol.DIN_SPEC_70121: (
+        din_spec_states,
+        {"CableCheck": _din_cable_check, "PreCharge": _din_pre_charge},
+    ),
+    Protocol.ISO_15118_2: (
+        iso15118_2_states,
+        {"CableCheck": _iso2_cable_check, "PreCharge": _iso2_pre_charge},
+    ),
 }
 
 
-def _out_of_spec_lines(caplog):
+def _warning_lines(caplog):
     return [
         r.getMessage()
         for r in caplog.records
-        if r.name == OUT_OF_SPEC_LOGGER and r.levelno == logging.WARNING
+        if r.name == RECEIVE_POSTURE_LOGGER and r.levelno == logging.WARNING
     ]
 
 
@@ -145,66 +154,50 @@ def _response(result, name: str):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("protocol", list(PROTOCOLS), ids=lambda p: p.name)
 @pytest.mark.parametrize(
-    "code", [DCEVErrorCode.NO_DATA, DCEVErrorCode.RESERVED_A], ids=lambda c: c.value
+    "state_name, res_field",
+    [("CableCheck", "cable_check_res"), ("PreCharge", "pre_charge_res")],
+    ids=["CableCheck", "PreCharge"],
 )
-async def test_cable_check_ignores_ev_error_code(protocol, code, caplog):
-    states, cable_check, _ = PROTOCOLS[protocol]
-    session = _session(protocol)
-    caplog.set_level(logging.WARNING)
-
-    result = await ScriptedPeer(session, states.CableCheck).feed(
-        cable_check(session, code)
-    )
-
-    res = _response(result, "cable_check_res")
-    assert res.response_code.value == "OK"
-    assert result.next_state is not Terminate
-    lines = _out_of_spec_lines(caplog)
-    assert len(lines) == 1
-    assert "EVErrorCode" in lines[0] and code.value in lines[0]
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("protocol", list(PROTOCOLS), ids=lambda p: p.name)
 @pytest.mark.parametrize(
     "code", [DCEVErrorCode.NO_DATA, DCEVErrorCode.RESERVED_A], ids=lambda c: c.value
 )
-async def test_pre_charge_ignores_ev_error_code(protocol, code, caplog):
-    states, _, pre_charge = PROTOCOLS[protocol]
+async def test_ev_error_code_is_ignored(
+    exi_codec, protocol, state_name, res_field, code, caplog
+):
+    states, builders = PROTOCOLS[protocol]
     session = _session(protocol)
     caplog.set_level(logging.WARNING)
 
-    result = await ScriptedPeer(session, states.PreCharge).feed(
-        pre_charge(session, code)
+    result = await ScriptedPeer(session, getattr(states, state_name)).feed(
+        builders[state_name](session, code)
     )
 
-    res = _response(result, "pre_charge_res")
+    res = _response(result, res_field)
     assert res.response_code.value == "OK"
     assert result.next_state is not Terminate
-    lines = _out_of_spec_lines(caplog)
+    lines = _warning_lines(caplog)
     assert len(lines) == 1
     assert "EVErrorCode" in lines[0] and code.value in lines[0]
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("protocol", list(PROTOCOLS), ids=lambda p: p.name)
-async def test_pre_charge_clamps_high_target_current(protocol, caplog):
-    states, _, pre_charge = PROTOCOLS[protocol]
+async def test_pre_charge_clamps_high_target_current(exi_codec, protocol, caplog):
+    states, builders = PROTOCOLS[protocol]
     session = _session(protocol)
     caplog.set_level(logging.WARNING)
-    controller = session.evse_controller
 
     result = await ScriptedPeer(session, states.PreCharge).feed(
-        pre_charge(session, DCEVErrorCode.NO_ERROR, current_a=10)
+        builders["PreCharge"](session, DCEVErrorCode.NO_ERROR, current_a=10)
     )
 
     res = _response(result, "pre_charge_res")
     assert res.response_code.value == "OK"
     assert result.next_state is not Terminate
-    present = (await controller.get_evse_present_current(protocol)).get_decimal_value()
-    _, advertised_max = controller._advertised_dc_maxima()
-    assert present <= 2
-    assert present <= advertised_max
-    lines = _out_of_spec_lines(caplog)
+    # The simulator's own clamp to the advertised maximum is covered by
+    # tests/secc/controller/test_sim_charging_command.py.
+    present = await session.evse_controller.get_evse_present_current(protocol)
+    assert present.get_decimal_value() <= PRECHARGE_MAX_CURRENT_A
+    lines = _warning_lines(caplog)
     assert len(lines) == 1
     assert "EVTargetCurrent" in lines[0] and "10" in lines[0]

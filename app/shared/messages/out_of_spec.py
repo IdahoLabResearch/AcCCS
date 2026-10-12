@@ -12,7 +12,9 @@ bound it falls outside. A peer message that cannot be used at all (an SDP
 response naming a port outside the dynamic range, a SLAC frame announcing
 zero sounds) is dropped rather than kept; :func:`discard_out_of_spec` logs
 that with the same shape so the operator reads both outcomes the same way
-(issue #137). A later tolerant-receive framework (conformance review SC-031)
+(issue #137). A spec-legal value the receiver is told not to act on (an
+informational error code) is logged by :func:`note_informational`, so it is
+not misread as an out-of-spec peer (issue #141). A later tolerant-receive framework (conformance review SC-031)
 can replace both helpers wholesale; nothing else should format an out-of-spec
 line by hand.
 """
@@ -47,4 +49,16 @@ def discard_out_of_spec(owner: str, field: str, value: Any, bound: str) -> None:
     """
     logger.warning(
         "Out-of-spec value discarded: %s.%s=%r (bound: %s)", owner, field, value, bound
+    )
+
+
+def note_informational(owner: str, field: str, value: Any, rule: str) -> None:
+    """Log that ``owner.field`` carried ``value``, a legal value the receiver
+    does not act on.
+
+    Same shape as :func:`accept_out_of_spec`; ``rule`` names the spec rule that
+    makes the field informational (for example "the EVSE shall not act on it").
+    """
+    logger.warning(
+        "Informational value ignored: %s.%s=%r (rule: %s)", owner, field, value, rule
     )

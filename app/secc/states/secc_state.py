@@ -18,6 +18,7 @@ from app.shared.messages.din_spec.body import (
     SessionSetupReq as SessionSetupReqDINSPEC,
 )
 from app.shared.messages.din_spec.body import get_msg_type as get_msg_type_dinspec
+from app.shared.messages.din_spec.datatypes import DCEVStatus as DCEVStatusDINSPEC
 from app.shared.messages.din_spec.datatypes import (
     ResponseCode as ResponseCodeDINSPEC,
 )
@@ -30,6 +31,7 @@ from app.shared.messages.iso15118_2.body import (
 from app.shared.messages.iso15118_2.body import (
     get_msg_type,
 )
+from app.shared.messages.iso15118_2.datatypes import DCEVStatus as DCEVStatusV2
 from app.shared.messages.iso15118_2.datatypes import ResponseCode as ResponseCodeV2
 from app.shared.messages.iso15118_2.msgdef import V2GMessage as V2GMessageV2
 from app.shared.messages.iso15118_20.common_messages import (
@@ -45,19 +47,20 @@ from app.shared.messages.iso15118_20.common_types import (
 from app.shared.messages.iso15118_20.common_types import (
     V2GRequest as V2GRequestV20,
 )
-from app.shared.messages.out_of_spec import accept_out_of_spec
+from app.shared.messages.out_of_spec import accept_out_of_spec, note_informational
 from app.shared.notifications import StopNotification
 from app.shared.states import State, Terminate
 
 logger = logging.getLogger(__name__)
 
-# IEC 61851-23 CC.5.2 inrush guidance on the charger's own pre-charge output.
-# Neither DIN SPEC 70121 nor ISO 15118-2 bounds the EV's requested pre-charge
-# current, so this caps what the charger delivers rather than gating the EV.
+# IEC 61851-23 CC.5.2 inrush guidance on the charger's own pre-charge output;
+# neither DIN SPEC 70121 nor ISO 15118-2 bounds the EV's request.
 PRECHARGE_MAX_CURRENT_A = 2.0
 
 
-def tolerate_ev_error_code(dc_ev_status) -> None:
+def tolerate_ev_error_code(
+    dc_ev_status: Union[DCEVStatusDINSPEC, DCEVStatusV2],
+) -> None:
     """Log a DIN / ISO-2 ``DC_EVStatus.EVErrorCode`` other than NO_ERROR.
 
     The code is informational: the EVSE shall not change its behaviour on it
@@ -65,18 +68,19 @@ def tolerate_ev_error_code(dc_ev_status) -> None:
     pilot. Callers carry on with the normal response (#141, SC-004).
     """
     if dc_ev_status.ev_error_code != DCEVErrorCode.NO_ERROR:
-        accept_out_of_spec(
-            "DC_EVStatus",
+        note_informational(
+            "DCEVStatus",
             "EVErrorCode",
             dc_ev_status.ev_error_code.value,
-            "informational; the EVSE shall not act on it",
+            "the EVSE shall not act on it",
         )
 
 
 def precharge_output_current(ev_target_current: float) -> float:
     """The current the charger delivers for a PreChargeReq's EVTargetCurrent.
 
-    A request above `PRECHARGE_MAX_CURRENT_A` is logged and clamped instead of
+    The 2 A figure bounds the charger's own output, not the EV's request, so a
+    request above `PRECHARGE_MAX_CURRENT_A` is logged and clamped instead of
     answered FAILED (#141, SC-039).
     """
     if ev_target_current > PRECHARGE_MAX_CURRENT_A:
