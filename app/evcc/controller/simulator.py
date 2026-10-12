@@ -158,7 +158,17 @@ _EV_AC_SKELETON = SimpleNamespace(
 # (issue #139). A real charger reports a measured voltage, never the exact
 # target, so an exact match would never be met against one. A charger that never
 # gets there trips the protocol's EVCC precharge timer instead.
+# TODO: confirm the tolerance against IEC 61851-23 (#145).
 PRECHARGE_VOLTAGE_TOLERANCE_V = 10.0
+# The simulated EV ends welding detection once the charger's reported present
+# voltage has fallen below this threshold (issue #145): the output is then
+# discharged and the connector can unlock. A charger that never discharges trips
+# the protocol's welding (ongoing) timer instead.
+# TODO: confirm the threshold against IEC 61851-23 (#145).
+WELDING_DETECTION_VOLTAGE_THRESHOLD_V = 60.0
+# Under virtual mode only, welding detection also ends after this many polls,
+# so a self-paired demo against a charger that never discharges cannot hang.
+WELDING_DETECTION_VIRTUAL_POLL_CAP = 10
 
 _EV_DC_V20_SKELETON = SimpleNamespace(
     max_charge_power_w=300000.0,
@@ -224,8 +234,12 @@ class SimEVController(EVControllerInterface):
         self,
         evcc_config: EVCCConfig,
         live_control: Optional["LiveControl"] = None,
+        virtual: bool = False,
     ):
         self.config = evcc_config
+        # Runtime `--virtual` (a self-paired demo): only it enables the welding
+        # detection poll cap (#145).
+        self.virtual = virtual
         # Live operator control (ADR-0004). `None` when no console/stall
         # plumbing was wired in (e.g. unit tests that construct the controller
         # directly) — the charge loop then behaves exactly as before.
@@ -935,10 +949,11 @@ class SimEVController(EVControllerInterface):
         self, present_voltage_evse: Union[PVEVSEPresentVoltage, RationalNumber]
     ) -> bool:
         target_v = self._precharge_target_voltage_v()
-        if abs(present_voltage_evse.get_decimal_value() - target_v) <= (
-            PRECHARGE_VOLTAGE_TOLERANCE_V
-        ):
-            logger.info("Precharge complete.")
+        present_v = present_voltage_evse.get_decimal_value()
+        if abs(present_v - target_v) <= PRECHARGE_VOLTAGE_TOLERANCE_V:
+            logger.info(
+                f"Precharge complete at {present_v:g} V (target {target_v:g} V)."
+            )
             return True
         return False
 
@@ -1013,11 +1028,25 @@ class SimEVController(EVControllerInterface):
         )
         return PVRemainingTimeToBulkSOC(multiplier=mult, value=val, unit="s")
 
-    async def welding_detection_has_finished(self):
-        if self.welding_detection_cycles == 3:
-            return True
+    async def welding_detection_has_finished(
+        self, present_voltage_evse: Union[PVEVSEPresentVoltage, RationalNumber]
+    ) -> bool:
+        present_v = present_voltage_evse.get_decimal_value()
         self.welding_detection_cycles += 1
-        return False
+        if present_v < WELDING_DETECTION_VOLTAGE_THRESHOLD_V:
+            logger.info(f"Welding detection complete at {present_v:g} V.")
+        elif not self.virtual or (
+            self.welding_detection_cycles < WELDING_DETECTION_VIRTUAL_POLL_CAP
+        ):
+            return False
+        else:
+            logger.warning(
+                f"Welding detection ended after {self.welding_detection_cycles} "
+                f"polls with the charger still at {present_v:g} V (virtual mode "
+                "poll cap)."
+            )
+        self.welding_detection_cycles = 0
+        return True
 
     async def stop_charging(self) -> None:
         self._stop_requested = True

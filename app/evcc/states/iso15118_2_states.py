@@ -1701,7 +1701,11 @@ class WeldingDetection(StateEVCC):
         )
         apply_personality_tree(self.comm_session, next_request)
         next_timeout = Timeouts.WELDING_DETECTION_REQ
-        if await self.comm_session.ev_controller.welding_detection_has_finished():
+        # Welding detection ends on the charger's reported voltage (#145).
+        if await self.comm_session.ev_controller.welding_detection_has_finished(
+            msg.body.welding_detection_res.evse_present_voltage
+        ):
+            self.comm_session.ongoing_timer = -1
             session_stop_req = SessionStopReq(
                 charging_session=self.comm_session.charging_session_stop_v2
             )

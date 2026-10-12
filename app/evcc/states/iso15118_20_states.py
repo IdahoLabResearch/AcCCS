@@ -85,6 +85,7 @@ from app.shared.messages.iso15118_20.dc import (
     DCPreChargeReq,
     DCPreChargeRes,
     DCWeldingDetectionReq,
+    DCWeldingDetectionRes,
     DynamicDCChargeLoopReqParams,
     ScheduledDCChargeLoopReqParams,
 )
@@ -1923,6 +1924,11 @@ class DCWeldingDetection(StateEVCC):
         ],
         message_exi: bytes = None,
     ):
+        msg: V2GMessageV20 = self.check_msg_v20(message, DCWeldingDetectionRes)
+        if not msg:
+            return
+
+        welding_detection_res = cast(DCWeldingDetectionRes, msg)
         if self.comm_session.ongoing_timer > 0:
             elapsed_time = int(time.time()) - self.comm_session.ongoing_timer
             logger.debug(f"EVCC timeout : {Timeouts.V2G_EVCC_ONGOING_TIMEOUT}")
@@ -1949,9 +1955,13 @@ class DCWeldingDetection(StateEVCC):
             next_payload_type = ISOV20PayloadTypes.MAINSTREAM
         else:
             processing = Processing.ONGOING
-            if await self.comm_session.ev_controller.welding_detection_has_finished():
+            # Welding detection ends on the charger's reported voltage (#145).
+            if await self.comm_session.ev_controller.welding_detection_has_finished(
+                welding_detection_res.evse_present_voltage
+            ):
                 processing = Processing.FINISHED
                 self.welding_detection_complete = True
+                self.comm_session.ongoing_timer = -1
             next_request = DCWeldingDetectionReq(
                 header=MessageHeader(
                     session_id=self.comm_session.session_id,

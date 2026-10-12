@@ -199,7 +199,9 @@ class PEV:
                         iface=self.config.iface,
                         exi_codec=EXPyEXICodec(),
                         ev_controller=SimEVController(
-                            self.evcc_config, self.live_control
+                            self.evcc_config,
+                            self.live_control,
+                            virtual=self.virtual,
                         ),
                         live_control=self.live_control,
                         ongoing_poll_interval=(

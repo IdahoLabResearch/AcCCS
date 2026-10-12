@@ -625,15 +625,18 @@ class EVControllerInterface(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def welding_detection_has_finished(self):
+    async def welding_detection_has_finished(
+        self, present_voltage_evse: Union[PVEVSEPresentVoltage, RationalNumber]
+    ) -> bool:
         """
-        Returns true as soon as the process of welding
-        detection has finished successfully.
+        Returns true as soon as the process of welding detection has finished
+        successfully, judged on the EVSE present voltage the charger reported
+        in its WeldingDetectionRes / DCWeldingDetectionRes.
 
         Relevant for:
         - DIN SPEC 70121
         - ISO 15118-2
-        - ISO 15118-20 ??
+        - ISO 15118-20
         """
         raise NotImplementedError
 

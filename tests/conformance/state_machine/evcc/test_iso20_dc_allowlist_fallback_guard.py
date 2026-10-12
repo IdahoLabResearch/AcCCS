@@ -59,7 +59,7 @@ from app.shared.messages.iso15118_20.common_types import (
     Processing,
     RationalNumber,
 )
-from app.shared.messages.iso15118_20.dc import DCCableCheckRes
+from app.shared.messages.iso15118_20.dc import DCCableCheckRes, DCWeldingDetectionRes
 from app.shared.personality.completeness import allowlist_for
 from app.shared.personality.model import EVCCPersonality
 from tests.conformance.state_machine.harness import ScriptedPeer, StubCommSession
@@ -192,8 +192,14 @@ async def test_dc_welding_detection_and_session_stop_req_allowlist_populates(exi
     peer = ScriptedPeer(session, DCWeldingDetection)
     welding_req = None
     session_stop_req = None
+    # A discharged output (below the welding threshold) ends welding detection.
+    res = DCWeldingDetectionRes(
+        header=_hdr(session),
+        response_code="OK",
+        evse_present_voltage=RationalNumber.get_rational_repr(10),
+    )
     for _ in range(6):
-        req = (await peer.feed(None)).outbound_msg
+        req = (await peer.feed(res)).outbound_msg
         name = type(req).__name__
         if name == "DCWeldingDetectionReq" and welding_req is None:
             welding_req = req
