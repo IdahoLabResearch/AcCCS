@@ -153,6 +153,13 @@ _EV_AC_SKELETON = SimpleNamespace(
     max_current_a=32.0,
     min_current_a=10.0,
 )
+# The simulated EV treats precharge as complete once the charger's reported
+# present voltage is within this tolerance of the EV's precharge target voltage
+# (issue #139). A real charger reports a measured voltage, never the exact
+# target, so an exact match would never be met against one. A charger that never
+# gets there trips the protocol's EVCC precharge timer instead.
+PRECHARGE_VOLTAGE_TOLERANCE_V = 10.0
+
 _EV_DC_V20_SKELETON = SimpleNamespace(
     max_charge_power_w=300000.0,
     min_charge_power_w=100.0,
@@ -160,7 +167,6 @@ _EV_DC_V20_SKELETON = SimpleNamespace(
     min_charge_current_a=10.0,
     max_voltage_v=1000.0,
     min_voltage_v=10.0,
-    target_voltage_v=20000.0,
     target_current_a=200.0,
     dynamic_target_energy_request_wh=200.0,
     dynamic_max_energy_request_wh=200.0,
@@ -226,7 +232,6 @@ class SimEVController(EVControllerInterface):
         self.live_control = live_control
         self.charging_loop_cycles: int = max(evcc_config.charge_loop_cycle, 1)
         self.charge_loop_delay_time: int = min(evcc_config.charge_loop_delay_time, 50)
-        self.precharge_loop_cycles: int = 0
         self.welding_detection_cycles: int = 0
         # "The EV wants to stop" (stop_charging()). Ends the charge loop; it is
         # NOT the same as full charge, which ChargingComplete reports (#138).
@@ -929,15 +934,24 @@ class SimEVController(EVControllerInterface):
     async def is_precharged(
         self, present_voltage_evse: Union[PVEVSEPresentVoltage, RationalNumber]
     ) -> bool:
-        if (
-            self.precharge_loop_cycles == 5
-            or present_voltage_evse.get_decimal_value()
-            == (await self.get_present_voltage()).get_decimal_value()
+        target_v = self._precharge_target_voltage_v()
+        if abs(present_voltage_evse.get_decimal_value() - target_v) <= (
+            PRECHARGE_VOLTAGE_TOLERANCE_V
         ):
             logger.info("Precharge complete.")
             return True
-        self.precharge_loop_cycles += 1
         return False
+
+    def _precharge_target_voltage_v(self) -> float:
+        """The precharge target voltage this EV requests, on every protocol.
+
+        The residual `charge_ramp.target_voltage_v` seed — the same value the
+        DIN / ISO-2 PreChargeReq and the ISO-20 DCPreChargeReq carry — unless
+        the operator's live voltage override replaces it (ADR-0004).
+        """
+        return self._iso20_override_or(
+            "override_voltage_v", self.config.ev_dc_target_voltage_v
+        )
 
     async def get_dc_ev_power_delivery_parameter_dinspec(
         self,
@@ -1169,7 +1183,9 @@ class SimEVController(EVControllerInterface):
         so their `personality.power.ev_dc_v20` fallback retires to the
         `EVDCLimitsV20` model-default skeleton; the operator's live override
         (issue #32) still wins over that fallback via `_iso20_override_or`, and
-        these ramping leaves are never baseline-pinned (mirroring #98).
+        these ramping leaves are never baseline-pinned (mirroring #98). The
+        target voltage is the precharge target (issue #139), so the loop asks
+        for the voltage the EV precharged to.
         """
         ev_dc_v20 = _EV_DC_V20_SKELETON
         return ScheduledDCChargeLoopReqParams(
@@ -1180,10 +1196,7 @@ class SimEVController(EVControllerInterface):
                 )
             ),
             ev_target_voltage=RationalNumber.get_rational_repr(
-                self._iso20_override_or(
-                    "override_voltage_v",
-                    ev_dc_v20.target_voltage_v if ev_dc_v20 else 20000,
-                )
+                self._precharge_target_voltage_v()
             ),
         )
 
@@ -1277,31 +1290,22 @@ class SimEVController(EVControllerInterface):
 
         This is the ISO-20 DC charge loop's `ev_present_voltage` read site
         (present on `DCChargeLoopReq` in both scheduled and dynamic modes), so
-        the voltage override (issue #32) rides here too. DC retirement (ADR-0006
-        / #99): the override's fallback is the `EVDCLimitsV20` model-default
-        skeleton, not `personality.power.ev_dc_v20` — this ramping present
-        voltage is allowlisted, never baseline-pinned (mirroring #98).
+        the voltage override (issue #32) rides here too. The simulated battery
+        sits at the residual `charge_ramp.target_voltage_v` seed (issue #139;
+        formerly a 20000 V `EVDCLimitsV20` skeleton value above the EV's own
+        announced maximum). This ramping present voltage is allowlisted, never
+        baseline-pinned (mirroring #98).
         """
-        ev_dc_v20 = _EV_DC_V20_SKELETON
-        return RationalNumber.get_rational_repr(
-            self._iso20_override_or(
-                "override_voltage_v",
-                ev_dc_v20.target_voltage_v if ev_dc_v20 else 20000,
-            )
-        )
+        return RationalNumber.get_rational_repr(self._precharge_target_voltage_v())
 
     async def get_target_voltage(self) -> RationalNumber:
         """Overrides EVControllerInterface.get_target_voltage().
 
-        DC retirement (ADR-0006 / #99): the DCPreChargeReq target voltage is
-        allowlisted (runtime-produced), so its fallback retires to the
-        `EVDCLimitsV20` model-default skeleton, not
-        `personality.power.ev_dc_v20`.
+        The DCPreChargeReq target voltage is allowlisted (runtime-produced); it
+        is the residual `charge_ramp.target_voltage_v` seed shared with DIN /
+        ISO-2 (issue #139), and the voltage `is_precharged` waits for.
         """
-        ev_dc_v20 = _EV_DC_V20_SKELETON
-        return RationalNumber.get_rational_repr(
-            ev_dc_v20.target_voltage_v if ev_dc_v20 else 20000
-        )
+        return RationalNumber.get_rational_repr(self._precharge_target_voltage_v())
 
     async def enable_charging(self, enabled: bool) -> None:
         """Overrides EVControllerInterface.enable_charging()."""

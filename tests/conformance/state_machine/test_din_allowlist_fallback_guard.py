@@ -501,8 +501,9 @@ async def test_evcc_allowlist_entries_populate_from_empty_tree(exi_codec):
         )
     )
 
-    # PreChargeRes -> PowerDeliveryReq (force the precharge loop complete)
-    session.ev_controller.precharge_loop_cycles = 5
+    # PreChargeRes -> PowerDeliveryReq
+    # The EV completes precharge once the charger reports its target (#139).
+    precharged_v = int(session.ev_controller.config.ev_dc_target_voltage_v)
     captured["PowerDeliveryReq"] = _decode(
         await peer.feed(
             V2GMessageDINSPEC(
@@ -512,7 +513,7 @@ async def test_evcc_allowlist_entries_populate_from_empty_tree(exi_codec):
                         response_code="OK",
                         dc_evse_status=_dc_evse_status_valid(),
                         evse_present_voltage=PVEVSEPresentVoltageDin(
-                            multiplier=0, value=390, unit=UnitSymbol.VOLTAGE
+                            multiplier=0, value=precharged_v, unit=UnitSymbol.VOLTAGE
                         ),
                     )
                 ),

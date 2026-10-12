@@ -20,5 +20,9 @@ role: evcc
 residual:
   charge_ramp:
     # PreCharge requires target_current < 2 A (IEC 61851-23 CC.5.2 inrush limit).
-    target_voltage_v: 800.0
+    # The target voltage stays within the baseline's announced 410 V
+    # EVMaximumVoltageLimit: the EV completes precharge only once the charger
+    # reports this voltage (#139), so a target above its own maximum (and above
+    # the DIN SECC baseline's 451 V) would never precharge.
+    target_voltage_v: 400.0
     target_current_a: 1.5

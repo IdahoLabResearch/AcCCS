@@ -120,14 +120,15 @@ async def test_charging_complete_follows_soc_and_loop_runs_configured_cycles(
         )
 
     # PreChargeRes -> PowerDeliveryReq(Start): not full yet, nothing consumed.
-    ctrl.precharge_loop_cycles = 5
+    # The EV completes precharge once the charger reports its target (#139).
+    precharged_v = int(ctrl.config.ev_dc_target_voltage_v)
     result = await feed(
         Body(
             pre_charge_res=PreChargeRes(
                 response_code="OK",
                 dc_evse_status=_status(),
                 evse_present_voltage=PVEVSEPresentVoltage(
-                    multiplier=0, value=400, unit=UnitSymbol.VOLTAGE
+                    multiplier=0, value=precharged_v, unit=UnitSymbol.VOLTAGE
                 ),
             )
         )

@@ -220,8 +220,8 @@ async def drive_dc_session(session: StubCommSession) -> Dict[str, object]:
             )
         )
     )
-    # Force the precharge loop complete so the EVCC advances to PowerDelivery.
-    session.ev_controller.precharge_loop_cycles = 5
+    # The EV completes precharge once the charger reports its target (#139).
+    precharged_v = int(session.ev_controller.config.ev_dc_target_voltage_v)
     reqs["PowerDeliveryReq"] = _decode(
         await feed(
             Body(
@@ -229,7 +229,7 @@ async def drive_dc_session(session: StubCommSession) -> Dict[str, object]:
                     response_code="OK",
                     dc_evse_status=valid_status(),
                     evse_present_voltage=PVEVSEPresentVoltage(
-                        multiplier=0, value=400, unit=UnitSymbol.VOLTAGE
+                        multiplier=0, value=precharged_v, unit=UnitSymbol.VOLTAGE
                     ),
                 )
             )

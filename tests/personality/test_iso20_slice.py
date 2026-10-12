@@ -302,8 +302,11 @@ async def test_evcc_dc_scheduled_loop_retired_to_skeleton():
     # override (not exercised here) still wins over that fallback.
     sim = _evcc_sim({})
     params = await sim.get_scheduled_dc_charge_loop_params()
-    # Retired EVDCLimitsV20 skeleton defaults.
-    assert params.ev_target_voltage.get_decimal_value() == 20000.0
+    # The target voltage is the residual charge-ramp seed shared with the
+    # precharge target (#139); the current stays a retired skeleton default.
+    assert params.ev_target_voltage.get_decimal_value() == (
+        sim.config.ev_dc_target_voltage_v
+    )
     assert params.ev_target_current.get_decimal_value() == 200.0
 
 
@@ -334,16 +337,16 @@ async def test_evcc_dc_bpt_dynamic_loop_discharge_retired_to_skeleton():
 
 
 @pytest.mark.asyncio
-async def test_evcc_present_and_target_voltage_retired_to_skeleton():
-    # #99: the ramping present / target voltage are allowlisted; their ev_dc_v20
-    # fallback retires to the EVDCLimitsV20 model-default skeleton (the live
-    # override, not exercised here, still wins over that fallback).
+async def test_evcc_present_and_target_voltage_from_charge_ramp_seed():
+    # #99: the ramping present / target voltage are allowlisted (never
+    # tree-pinned); #139 sources them from the residual charge-ramp seed shared
+    # with DIN / ISO-2 (the live override, not exercised here, still wins).
     sim = _evcc_sim({})
     present = await sim.get_present_voltage()
     target = await sim.get_target_voltage()
-    # Retired EVDCLimitsV20 skeleton default (target_voltage_v=20000).
-    assert present.get_decimal_value() == 20000.0
-    assert target.get_decimal_value() == 20000.0
+    # The residual charge-ramp seed (#139), no longer a 20000 V skeleton value.
+    assert present.get_decimal_value() == sim.config.ev_dc_target_voltage_v
+    assert target.get_decimal_value() == sim.config.ev_dc_target_voltage_v
 
 
 @pytest.mark.asyncio
@@ -358,8 +361,8 @@ async def test_evcc_iso20_live_override_beats_skeleton():
     live = LiveControl(override_voltage_v=654.0, override_current_a=321.0)
     sim = SimEVController(EVCCConfig.from_personality(personality), live_control=live)
 
-    # Retired EVDCLimitsV20 skeleton default (target_voltage_v=20000).
-    assert 20000.0 != 654.0  # guard: override is distinguishable
+    # Guard: the override is distinguishable from the charge-ramp seed (#139).
+    assert sim.config.ev_dc_target_voltage_v != 654.0
 
     present = await sim.get_present_voltage()
     assert present.get_decimal_value() == 654.0

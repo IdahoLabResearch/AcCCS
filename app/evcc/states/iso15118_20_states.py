@@ -1695,14 +1695,28 @@ class DCPreCharge(StateEVCC):
             payload_type = ISOV20PayloadTypes.MAINSTREAM
             namespace = Namespace.ISO_V20_COMMON_MSG
             timeout = Timeouts.POWER_DELIVERY_REQ
+            self.comm_session.ongoing_timer = -1
         else:
+            # Precharge completes on the charger's reported voltage (issue
+            # #139), so a charger that never reaches the target must trip the
+            # EVCC precharge timer rather than loop forever.
+            if self.comm_session.ongoing_timer >= 0:
+                elapsed_time = time.time() - self.comm_session.ongoing_timer
+                if elapsed_time > Timeouts.V2G_EVCC_PRE_CHARGE_TIMEOUT:
+                    self.stop_state_machine("Precharge timed out")
+                    return
+            else:
+                self.comm_session.ongoing_timer = time.time()
             next_request = await self.build_pre_charge_message(
                 precharge_res.evse_present_voltage
             )
             payload_type = ISOV20PayloadTypes.DC_MAINSTREAM
             timeout = Timeouts.DC_PRE_CHARGE_REQ
             namespace = Namespace.ISO_V20_DC
-            self.pre_charge_finished_message_built_once = True
+            # Only a Finished DCPreChargeReq ends precharge: the next response
+            # then moves on to PowerDelivery.
+            if next_request.ev_processing == Processing.FINISHED:
+                self.pre_charge_finished_message_built_once = True
 
         self.create_next_message(
             next_state,

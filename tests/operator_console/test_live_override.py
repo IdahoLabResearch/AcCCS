@@ -174,8 +174,8 @@ async def test_evcc_iso20_present_voltage_honours_override():
     lc = LiveControl()
     ctrl = _evcc(lc)
     baseline = (await ctrl.get_present_voltage()).get_decimal_value()
-    # Retired `power.ev_dc_v20` skeleton default (#102): target_voltage_v.
-    assert baseline == 20000.0
+    # The residual charge-ramp seed (#139).
+    assert baseline == ctrl.config.ev_dc_target_voltage_v
     lc.set_override_voltage(456)
     assert (await ctrl.get_present_voltage()).get_decimal_value() == 456
     lc.clear_overrides()
@@ -211,7 +211,10 @@ async def test_evcc_iso20_no_override_uses_skeleton():
     ctrl = _evcc(LiveControl())
     sched = await ctrl.get_scheduled_dc_charge_loop_params()
     assert sched.ev_target_current.get_decimal_value() == 200.0
-    assert sched.ev_target_voltage.get_decimal_value() == 20000.0
+    # Except the target voltage: the residual charge-ramp seed (#139).
+    assert sched.ev_target_voltage.get_decimal_value() == (
+        ctrl.config.ev_dc_target_voltage_v
+    )
     dyn = await ctrl.get_dynamic_dc_charge_loop_params()
     assert dyn.ev_max_charge_current.get_decimal_value() == 40.0
     assert dyn.ev_max_voltage.get_decimal_value() == 400.0
