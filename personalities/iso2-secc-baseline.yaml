@@ -16,8 +16,8 @@
 #     EVCharging / not free / DC_extended.
 #   * ChargeParameterDiscoveryRes.DC_EVSEChargeParameter: the DC envelope
 #     (1000 V / 400 A / 200000 W max, 0 V / 0 A min, 1 A peak ripple) and the
-#     Invalid / IsolationMonitoringActive isolation status observed while
-#     EVSEProcessing=Ongoing.
+#     Invalid isolation status. The capture's IsolationMonitoringActive status
+#     code is NOT replicated: EVSE_Ready is the phase-correct value (SC-070).
 #   * The isolation progression across CableCheckRes (Invalid/Ongoing ->
 #     Valid/Finished), PreCharge / PowerDelivery / CurrentDemand / Welding
 #     (Valid / EVSE_Ready), with the NotificationMaxDelay each message reports.
@@ -85,14 +85,15 @@ message_field_tree:
             - DC_extended
     ChargeParameterDiscoveryRes:
       DC_EVSEChargeParameter:
-        # Isolation monitoring is active while the EVSE runs the cable check, so
-        # this response reports Invalid / IsolationMonitoringActive (the original
-        # motivation for the message field tree, ADR-0006).
+        # Isolation is not yet tested (Invalid), but the status code is
+        # EVSE_Ready at this phase (SC-070). The reference capture reports
+        # IsolationMonitoringActive here; that deviation is not replicated —
+        # isolation monitoring belongs to CableCheckRes below.
         DC_EVSEStatus:
           NotificationMaxDelay: 0
           EVSENotification: None
           EVSEIsolationStatus: Invalid
-          EVSEStatusCode: EVSE_IsolationMonitoringActive
+          EVSEStatusCode: EVSE_Ready
         EVSEMaximumCurrentLimit: {Value: 400, Multiplier: 0, Unit: A}
         EVSEMaximumPowerLimit: {Value: 20000, Multiplier: 1, Unit: W}
         EVSEMaximumVoltageLimit: {Value: 1000, Multiplier: 0, Unit: V}

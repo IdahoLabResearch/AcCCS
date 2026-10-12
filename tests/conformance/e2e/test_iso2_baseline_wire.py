@@ -7,7 +7,8 @@ veth with the EXI capture tap on, using a SECC personality tree-backed by that
 baseline, then decodes the messages the SECC actually put on the wire and
 asserts the baseline values reached it:
 
-* the ``ChargeParameterDiscoveryRes`` isolation status is ``Invalid`` and its DC
+* the ``ChargeParameterDiscoveryRes`` isolation status is ``Invalid`` with the
+  phase-correct ``EVSE_Ready`` status code (SC-070), and its DC
   envelope is the baseline 200000 W max power (the retired structured read would
   have emitted the 80000 W model default);
 * the ``CableCheckRes`` isolation progression is ``Invalid`` while ONGOING and
@@ -22,6 +23,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.shared.exi_codec import EXI
+from app.shared.messages.datatypes import DCEVSEStatusCode
 from app.shared.messages.enums import IsolationLevel, Namespace
 
 from tests.conformance.e2e._capture_session import drive_session
@@ -48,6 +50,7 @@ def test_iso2_baseline_values_from_message_field_tree(
     )
 
     cpd_isolation = []
+    cpd_status_codes = []
     cpd_max_power_w = []
     cablecheck_isolation = []
     for rec in result.documents(namespace=ISO2_NS):
@@ -58,6 +61,7 @@ def test_iso2_baseline_values_from_message_field_tree(
         if cpd_res is not None and cpd_res.dc_charge_parameter is not None:
             dc = cpd_res.dc_charge_parameter
             cpd_isolation.append(dc.dc_evse_status.evse_isolation_status)
+            cpd_status_codes.append(dc.dc_evse_status.evse_status_code)
             mp = dc.evse_maximum_power_limit
             cpd_max_power_w.append(mp.value * (10 ** mp.multiplier))
         cc_res = msg.body.cable_check_res
@@ -69,6 +73,9 @@ def test_iso2_baseline_values_from_message_field_tree(
     assert all(v is IsolationLevel.INVALID for v in cpd_isolation), (
         "baseline isolation status did not reach the wire: "
         f"CPDRes EVSEIsolationStatus values = {cpd_isolation}"
+    )
+    assert all(c is DCEVSEStatusCode.EVSE_READY for c in cpd_status_codes), (
+        f"CPDRes EVSEStatusCode values = {cpd_status_codes}"
     )
     assert all(p == 200000 for p in cpd_max_power_w), (
         "baseline DC envelope did not reach the wire (retired structured read "

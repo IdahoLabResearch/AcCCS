@@ -33,6 +33,7 @@ from app.shared.messages.app_protocol import (
 from app.shared.messages.datatypes import (
     DCEVSEChargeParameter,
     DCEVSEStatus,
+    DCEVSEStatusCode,
     PVEVSEPresentCurrent,
 )
 from app.shared.messages.din_spec.datatypes import (
@@ -2394,9 +2395,19 @@ class CableCheck(StateSECC):
             cable_check_req.dc_ev_status.ev_ress_soc
         )
 
+        dc_evse_status = await self.comm_session.evse_controller.get_dc_evse_status()
+        if evse_processing == EVSEProcessing.ONGOING:
+            # Isolation monitoring is still running, so the status must not
+            # already claim Valid / EVSE_Ready (mirrors the DIN CableCheck, #140).
+            dc_evse_status = dc_evse_status.model_copy(
+                update={
+                    "evse_isolation_status": IsolationLevel.INVALID,
+                    "evse_status_code": DCEVSEStatusCode.EVSE_ISOLATION_MONITORING_ACTIVE,
+                }
+            )
         cable_check_res = CableCheckRes(
             response_code=ResponseCode.OK,
-            dc_evse_status=await self.comm_session.evse_controller.get_dc_evse_status(),
+            dc_evse_status=dc_evse_status,
             evse_processing=evse_processing,
         )
 
