@@ -14,6 +14,7 @@ from app.shared.messages.app_protocol import (
     SupportedAppProtocolReq,
     SupportedAppProtocolRes,
 )
+from app.shared.messages.datatypes import DCEVSEStatus, DCEVSEStatusCode
 from app.shared.messages.din_spec.body import Response as ResponseDINSPEC
 from app.shared.messages.din_spec.body import (
     SessionSetupRes as SessionSetupResDINSPEC,
@@ -21,7 +22,7 @@ from app.shared.messages.din_spec.body import (
 from app.shared.messages.din_spec.msgdef import V2GMessage as V2GMessageDINSPEC
 from app.shared.messages.din_spec.timeouts import Timeouts as TimeoutsDIN
 
-from app.shared.messages.enums import ISOV20PayloadTypes, Namespace
+from app.shared.messages.enums import IsolationLevel, ISOV20PayloadTypes, Namespace
 from app.shared.messages.iso15118_2.body import Response as ResponseV2
 from app.shared.messages.iso15118_2.body import (
     SessionSetupRes as SessionSetupResV2,
@@ -48,10 +49,53 @@ from app.shared.messages.iso15118_20.common_types import (
     V2GResponse as V2GResponseV20,
 )
 from app.shared.messages.iso15118_20.timeouts import Timeouts as TimeoutsV20
+from app.shared.messages.out_of_spec import note_informational
 from app.shared.notifications import StopNotification
 from app.shared.states import State, Terminate
 
 logger = logging.getLogger(__name__)
+
+
+def evse_requests_shutdown(dc_evse_status: DCEVSEStatus) -> bool:
+    """Whether a DIN / ISO-2 ``DC_EVSEStatus`` asks the EVCC to shut down.
+
+    Only EVSE_Shutdown carries an EVCC obligation (DIN [V2G-DC-650]); every
+    other status code is informational ([V2G-DC-637] and its NOTE), so a code
+    other than EVSE_Ready is logged once and the caller carries on (#142,
+    SC-037, SC-038).
+    """
+    code = dc_evse_status.evse_status_code
+    if code == DCEVSEStatusCode.EVSE_SHUTDOWN:
+        return True
+    if code != DCEVSEStatusCode.EVSE_READY:
+        note_informational(
+            "DCEVSEStatus",
+            "EVSEStatusCode",
+            code.value,
+            "only EVSE_Shutdown obliges the EVCC to act",
+        )
+    return False
+
+
+def cable_check_isolation_fault(dc_evse_status: DCEVSEStatus) -> bool:
+    """Whether a Finished CableCheckRes reports an isolation Fault.
+
+    EVSEIsolationStatus is optional (DIN Table 66) and Warning is still a go
+    (ISO-2 Table 97: below the warning level), so any isolation other than
+    Valid or Fault, absent included, is logged once and PreCharge proceeds
+    (#142, SC-037).
+    """
+    isolation = dc_evse_status.evse_isolation_status
+    if isolation == IsolationLevel.FAULT:
+        return True
+    if isolation != IsolationLevel.VALID:
+        note_informational(
+            "DCEVSEStatus",
+            "EVSEIsolationStatus",
+            isolation.value if isolation is not None else None,
+            "only Fault stops the session after CableCheck",
+        )
+    return False
 
 
 class StateEVCC(State, ABC):

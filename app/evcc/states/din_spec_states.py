@@ -13,7 +13,11 @@ from time import time
 from typing import Any, List, Union
 
 from app.evcc.comm_session_handler import EVCCCommunicationSession
-from app.evcc.states.evcc_state import StateEVCC
+from app.evcc.states.evcc_state import (
+    StateEVCC,
+    cable_check_isolation_fault,
+    evse_requests_shutdown,
+)
 from app.shared.messages.app_protocol import (
     SupportedAppProtocolReq,
     SupportedAppProtocolRes,
@@ -21,7 +25,6 @@ from app.shared.messages.app_protocol import (
 from app.shared.messages.datatypes import (
     DCEVChargeParams,
     DCEVSEStatus,
-    DCEVSEStatusCode,
     SelectedService,
     SelectedServiceList,
 )
@@ -59,7 +62,6 @@ from app.shared.messages.enums import (
     AuthEnum,
     EnergyTransferModeEnum,
     EVSEProcessing,
-    IsolationLevel,
     Namespace,
     Protocol,
 )
@@ -557,26 +559,23 @@ class CableCheck(StateEVCC):
 
         cable_check_res: CableCheckRes = msg.body.cable_check_res
         dc_evse_status: DCEVSEStatus = cable_check_res.dc_evse_status
-        evse_status_code: DCEVSEStatusCode = dc_evse_status.evse_status_code
-        isolation_status: IsolationLevel = dc_evse_status.evse_isolation_status
 
         if cable_check_res.evse_processing == EVSEProcessing.FINISHED:
             # Reset the Ongoing timer
             self.comm_session.ongoing_timer = -1
-            pre_charge_req: PreChargeReq = await self.build_pre_charge_req()
-            if (
-                evse_status_code == DCEVSEStatusCode.EVSE_READY
-                and isolation_status == IsolationLevel.VALID
-            ):
-                self.create_next_message(
-                    PreCharge,
-                    pre_charge_req,
-                    Timeouts.PRE_CHARGE_REQ,
-                    Namespace.DIN_MSG_DEF,
-                )
-            else:
-                self.stop_state_machine("Isolation-Level of EVSE is not Valid")
+            if evse_requests_shutdown(dc_evse_status):
+                self.stop_state_machine("EVSE requested shutdown during CableCheck")
                 return
+            if cable_check_isolation_fault(dc_evse_status):
+                self.stop_state_machine("Isolation-Level of EVSE is Fault")
+                return
+            pre_charge_req: PreChargeReq = await self.build_pre_charge_req()
+            self.create_next_message(
+                PreCharge,
+                pre_charge_req,
+                Timeouts.PRE_CHARGE_REQ,
+                Namespace.DIN_MSG_DEF,
+            )
         else:
             if self.comm_session.ongoing_timer >= 0:
                 elapsed_time = time() - self.comm_session.ongoing_timer
@@ -827,9 +826,8 @@ class CurrentDemand(StateEVCC):
         current_demand_res: CurrentDemandRes = msg.body.current_demand_res
         dc_evse_status: DCEVSEStatus = current_demand_res.dc_evse_status
 
-        # EVSE status must always be EVSE ready
-        if dc_evse_status.evse_status_code is not DCEVSEStatusCode.EVSE_READY:
-            logger.debug("EVSE Notification received requesting to stop charging.")
+        if evse_requests_shutdown(dc_evse_status):
+            logger.debug("EVSE requested shutdown; stopping charging.")
             await self.stop_charging()
         elif await self.comm_session.ev_controller.continue_charging():
             try:

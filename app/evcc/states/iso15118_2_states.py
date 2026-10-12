@@ -13,7 +13,11 @@ from time import time
 from typing import Any, List, Union
 
 from app.evcc.comm_session_handler import EVCCCommunicationSession
-from app.evcc.states.evcc_state import StateEVCC
+from app.evcc.states.evcc_state import (
+    StateEVCC,
+    cable_check_isolation_fault,
+    evse_requests_shutdown,
+)
 from app.shared.exceptions import DecryptionError, PrivateKeyReadError
 from app.shared.exi_codec import EXI
 from app.shared.messages.app_protocol import (
@@ -33,7 +37,6 @@ from app.shared.messages.enums import (
     AuthEnum,
     EnergyTransferModeEnum,
     EVSEProcessing,
-    IsolationLevel,
     Namespace,
     Protocol,
 )
@@ -1388,14 +1391,14 @@ class CableCheck(StateEVCC):
         cable_check_res: CableCheckRes = msg.body.cable_check_res
         dc_evse_status: DCEVSEStatus = cable_check_res.dc_evse_status
         evse_status_code: DCEVSEStatusCode = dc_evse_status.evse_status_code
-        isolation_status: IsolationLevel = dc_evse_status.evse_isolation_status
         if cable_check_res.evse_processing == EVSEProcessing.FINISHED:
             # Reset the Ongoing timer
             self.comm_session.ongoing_timer = -1
-            if (
-                evse_status_code == DCEVSEStatusCode.EVSE_READY
-                and isolation_status == IsolationLevel.VALID
-            ):
+            if evse_requests_shutdown(dc_evse_status):
+                self.stop_state_machine("EVSE requested shutdown during CableCheck")
+            elif cable_check_isolation_fault(dc_evse_status):
+                self.stop_state_machine("Isolation-Level of EVSE is Fault")
+            else:
                 precharge_req = await self.build_pre_charge_message()
                 self.create_next_message(
                     PreCharge,
@@ -1403,8 +1406,6 @@ class CableCheck(StateEVCC):
                     Timeouts.PRE_CHARGE_REQ,
                     Namespace.ISO_V2_MSG_DEF,
                 )
-            else:
-                self.stop_state_machine("Isolation-Level of EVSE is not Valid")
         else:
             logger.debug(f"{evse_status_code}")
             elapsed_time: float = 0
