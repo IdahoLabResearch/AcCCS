@@ -56,18 +56,24 @@ from app.shared.states import State, Terminate
 logger = logging.getLogger(__name__)
 
 
-def evse_requests_shutdown(dc_evse_status: DCEVSEStatus) -> bool:
-    """Whether a DIN / ISO-2 ``DC_EVSEStatus`` asks the EVCC to shut down.
+def evse_requests_shutdown(
+    dc_evse_status: DCEVSEStatus,
+    previous_code: Optional[DCEVSEStatusCode] = None,
+) -> bool:
+    """Whether a DIN / ISO-2 ``DC_EVSEStatus`` asks the EVCC to shut down,
+    logging any informational status code on the way.
 
     Only EVSE_Shutdown carries an EVCC obligation (DIN [V2G-DC-650]); every
     other status code is informational ([V2G-DC-637] and its NOTE), so a code
-    other than EVSE_Ready is logged once and the caller carries on (#142,
-    SC-037, SC-038).
+    other than EVSE_Ready is logged and the caller carries on (#142, SC-037,
+    SC-038). A charge loop passes the code of the previous response as
+    ``previous_code`` so a charger that holds one code logs it once, not once
+    per poll.
     """
     code = dc_evse_status.evse_status_code
     if code == DCEVSEStatusCode.EVSE_SHUTDOWN:
         return True
-    if code != DCEVSEStatusCode.EVSE_READY:
+    if code not in (DCEVSEStatusCode.EVSE_READY, previous_code):
         note_informational(
             "DCEVSEStatus",
             "EVSEStatusCode",
@@ -77,8 +83,9 @@ def evse_requests_shutdown(dc_evse_status: DCEVSEStatus) -> bool:
     return False
 
 
-def cable_check_isolation_fault(dc_evse_status: DCEVSEStatus) -> bool:
-    """Whether a Finished CableCheckRes reports an isolation Fault.
+def isolation_faulted(dc_evse_status: DCEVSEStatus) -> bool:
+    """Whether a Finished CableCheckRes reports an isolation Fault, logging
+    any other non-Valid isolation on the way.
 
     EVSEIsolationStatus is optional (DIN Table 66) and Warning is still a go
     (ISO-2 Table 97: below the warning level), so any isolation other than

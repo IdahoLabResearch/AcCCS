@@ -162,7 +162,9 @@ async def test_iso2_cable_check_finished_proceeds_on_informational_status(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("feed", [_feed_din_cable_check, _feed_iso2_cable_check])
+@pytest.mark.parametrize(
+    "feed", [_feed_din_cable_check, _feed_iso2_cable_check], ids=["din", "iso2"]
+)
 async def test_cable_check_ready_and_valid_logs_nothing(exi_codec, caplog, feed):
     with caplog.at_level(logging.WARNING, logger=OUT_OF_SPEC_LOGGER):
         result = await feed(_status(READY, IsolationLevel.VALID))
@@ -172,7 +174,9 @@ async def test_cable_check_ready_and_valid_logs_nothing(exi_codec, caplog, feed)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("feed", [_feed_din_cable_check, _feed_iso2_cable_check])
+@pytest.mark.parametrize(
+    "feed", [_feed_din_cable_check, _feed_iso2_cable_check], ids=["din", "iso2"]
+)
 @pytest.mark.parametrize(
     "code, isolation",
     [
@@ -222,6 +226,19 @@ async def test_din_charge_loop_continues_on_informational_status(
 
     assert isinstance(_decode(result, Namespace.DIN_MSG_DEF), din_body.CurrentDemandReq)
     assert_single_out_of_spec_warning(caplog, "EVSEStatusCode", code.value)
+
+
+@pytest.mark.asyncio
+async def test_din_charge_loop_logs_a_held_status_code_once(exi_codec, caplog):
+    session = _din_session()
+    peer = ScriptedPeer(session, din.CurrentDemand)
+
+    with caplog.at_level(logging.WARNING, logger=OUT_OF_SPEC_LOGGER):
+        for _ in range(3):
+            result = await peer.feed(_current_demand_message(session, MONITORING))
+
+    assert isinstance(_decode(result, Namespace.DIN_MSG_DEF), din_body.CurrentDemandReq)
+    assert_single_out_of_spec_warning(caplog, MONITORING.value)
 
 
 @pytest.mark.asyncio

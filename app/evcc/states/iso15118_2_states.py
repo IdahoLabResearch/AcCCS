@@ -15,8 +15,8 @@ from typing import Any, List, Union
 from app.evcc.comm_session_handler import EVCCCommunicationSession
 from app.evcc.states.evcc_state import (
     StateEVCC,
-    cable_check_isolation_fault,
     evse_requests_shutdown,
+    isolation_faulted,
 )
 from app.shared.exceptions import DecryptionError, PrivateKeyReadError
 from app.shared.exi_codec import EXI
@@ -1396,7 +1396,7 @@ class CableCheck(StateEVCC):
             self.comm_session.ongoing_timer = -1
             if evse_requests_shutdown(dc_evse_status):
                 self.stop_state_machine("EVSE requested shutdown during CableCheck")
-            elif cable_check_isolation_fault(dc_evse_status):
+            elif isolation_faulted(dc_evse_status):
                 self.stop_state_machine("Isolation-Level of EVSE is Fault")
             else:
                 precharge_req = await self.build_pre_charge_message()

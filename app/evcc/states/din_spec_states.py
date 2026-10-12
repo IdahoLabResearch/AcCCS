@@ -10,13 +10,13 @@ SessionStopRes.
 import asyncio
 import logging
 from time import time
-from typing import Any, List, Union
+from typing import Any, List, Optional, Union
 
 from app.evcc.comm_session_handler import EVCCCommunicationSession
 from app.evcc.states.evcc_state import (
     StateEVCC,
-    cable_check_isolation_fault,
     evse_requests_shutdown,
+    isolation_faulted,
 )
 from app.shared.messages.app_protocol import (
     SupportedAppProtocolReq,
@@ -25,6 +25,7 @@ from app.shared.messages.app_protocol import (
 from app.shared.messages.datatypes import (
     DCEVChargeParams,
     DCEVSEStatus,
+    DCEVSEStatusCode,
     SelectedService,
     SelectedServiceList,
 )
@@ -566,7 +567,7 @@ class CableCheck(StateEVCC):
             if evse_requests_shutdown(dc_evse_status):
                 self.stop_state_machine("EVSE requested shutdown during CableCheck")
                 return
-            if cable_check_isolation_fault(dc_evse_status):
+            if isolation_faulted(dc_evse_status):
                 self.stop_state_machine("Isolation-Level of EVSE is Fault")
                 return
             pre_charge_req: PreChargeReq = await self.build_pre_charge_req()
@@ -807,6 +808,8 @@ class CurrentDemand(StateEVCC):
 
     def __init__(self, comm_session: EVCCCommunicationSession):
         super().__init__(comm_session, Timeouts.CURRENT_DEMAND_REQ)
+        # Last charger status code seen, so a held informational code logs once.
+        self.previous_evse_status_code: Optional[DCEVSEStatusCode] = None
 
     async def process_message(
         self,
@@ -826,7 +829,9 @@ class CurrentDemand(StateEVCC):
         current_demand_res: CurrentDemandRes = msg.body.current_demand_res
         dc_evse_status: DCEVSEStatus = current_demand_res.dc_evse_status
 
-        if evse_requests_shutdown(dc_evse_status):
+        previous_code = self.previous_evse_status_code
+        self.previous_evse_status_code = dc_evse_status.evse_status_code
+        if evse_requests_shutdown(dc_evse_status, previous_code):
             logger.debug("EVSE requested shutdown; stopping charging.")
             await self.stop_charging()
         elif await self.comm_session.ev_controller.continue_charging():
