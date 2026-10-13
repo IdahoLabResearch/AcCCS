@@ -893,8 +893,6 @@ class ChargeParameterDiscovery(StateEVCC):
                 )
 
             self.comm_session.selected_schedule = schedule_id
-
-            await self.comm_session.ev_controller.enable_charging(True)
         else:
             logger.debug(
                 "SECC is still processing the proposed charging "
@@ -1641,6 +1639,9 @@ async def _send_dc_power_delivery_stop(state: StateEVCC) -> None:
     and the PowerDelivery state (loop not continuable right after Start).
     """
     ev_controller = state.comm_session.ev_controller
+    # Mark the EV as stopping before the build, so the stop request's
+    # DC_EVStatus carries EVReady false (SC-066, #144) — as the DIN path does.
+    await ev_controller.stop_charging()
     power_delivery_req = PowerDeliveryReq(
         charge_progress=ChargeProgress.STOP,
         sa_schedule_tuple_id=state.comm_session.selected_schedule,

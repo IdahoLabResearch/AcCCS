@@ -7,13 +7,15 @@ retrieve data from the EV. The DummyEVController overrides all abstract methods 
 EVControllerInterface.
 """
 
+import asyncio
 import logging
 import random
 from types import SimpleNamespace
-from typing import List, Optional, Tuple, Union
+from typing import Callable, List, Optional, Tuple, Union
 
 from app.evcc import EVCCConfig
 from app.evcc.controller.interface import ChargeParamsV2, EVControllerInterface
+from app.shared.EmulatorEnum import PEVState
 from app.shared.exceptions import InvalidProtocolError, MACAddressNotFound
 from app.shared.live_control import LiveControl
 from app.shared.messages.datatypes import (
@@ -169,6 +171,14 @@ WELDING_DETECTION_VOLTAGE_THRESHOLD_V = 60.0
 # Under virtual mode only, welding detection also ends after this many polls,
 # so a self-paired demo against a charger that never discharges cannot hang.
 WELDING_DETECTION_VIRTUAL_POLL_CAP = 10
+# After the State-B write that ends charging, the EV waits this long before
+# sending its next request (SC-066, issue #144). Not spec-mandated — the SECC
+# is allowed up to 1.5 s to see State B ([V2G2-920], [V2G-DC-556]) — but at
+# least one fielded charger samples the pilot the moment the request arrives,
+# and the relay alone settles in milliseconds. Sized inside DIN's
+# T_vald_state_duration (200-400 ms).
+# TODO: verify-IEC — confirm against IEC 61851-1 / -23 (#144).
+CP_STATE_B_SETTLE_S = 0.3
 
 _EV_DC_V20_SKELETON = SimpleNamespace(
     max_charge_power_w=300000.0,
@@ -235,8 +245,13 @@ class SimEVController(EVControllerInterface):
         evcc_config: EVCCConfig,
         live_control: Optional["LiveControl"] = None,
         virtual: bool = False,
+        cp_state_setter: Optional[Callable[[PEVState], None]] = None,
     ):
         self.config = evcc_config
+        # Drives the control pilot (issue #144). `pev.py` wires it to
+        # `PEV.setState`, i.e. the role-scoped `EvccRelays`; `None` (unit tests that build the
+        # controller directly) leaves the pilot alone.
+        self.cp_state_setter = cp_state_setter
         # Runtime `--virtual` (a self-paired demo): only it enables the welding
         # detection poll cap (#145).
         self.virtual = virtual
@@ -247,8 +262,9 @@ class SimEVController(EVControllerInterface):
         self.charging_loop_cycles: int = max(evcc_config.charge_loop_cycle, 1)
         self.charge_loop_delay_time: int = min(evcc_config.charge_loop_delay_time, 50)
         self.welding_detection_cycles: int = 0
-        # "The EV wants to stop" (stop_charging()). Ends the charge loop; it is
-        # NOT the same as full charge, which ChargingComplete reports (#138).
+        # "The EV wants to stop" (stop_charging(), or enable_charging(False)).
+        # Ends the charge loop and clears EVReady (SC-066, #144); it is NOT the
+        # same as full charge, which ChargingComplete reports (#138).
         self._stop_requested = False
         # Simulated state of charge. It ramps from the initial value to exactly
         # 100 over the charge-loop cycles the loop starts with, so the loop's
@@ -1171,14 +1187,14 @@ class SimEVController(EVControllerInterface):
 
     async def get_dc_ev_status_dinspec(self) -> DCEVStatusDINSPEC:
         return DCEVStatusDINSPEC(
-            ev_ready=True,
+            ev_ready=not self._stop_requested,
             ev_error_code=DCEVErrorCode.NO_ERROR,
             ev_ress_soc=self._soc,
         )
 
     async def get_dc_ev_status(self) -> DCEVStatus:
         return DCEVStatus(
-            ev_ready=True,
+            ev_ready=not self._stop_requested,
             ev_error_code=DCEVErrorCode.NO_ERROR,
             ev_ress_soc=self._soc,
         )
@@ -1337,8 +1353,21 @@ class SimEVController(EVControllerInterface):
         return RationalNumber.get_rational_repr(self._precharge_target_voltage_v())
 
     async def enable_charging(self, enabled: bool) -> None:
-        """Overrides EVControllerInterface.enable_charging()."""
-        pass
+        """Overrides EVControllerInterface.enable_charging().
+
+        State C when charging is enabled (after the parameter-discovery /
+        schedule-exchange response, before CableCheckReq), State B when it is
+        disabled (after the stop response, before WeldingDetectionReq) —
+        conformance SC-001. Disabling also marks the EV as stopping, so the
+        requests that follow carry EVReady false (SC-066); re-enabling clears
+        it, so the charge loop after an ISO-20 service renegotiation runs.
+        """
+        self._stop_requested = not enabled
+        if self.cp_state_setter is None:
+            return
+        self.cp_state_setter(PEVState.C if enabled else PEVState.B)
+        if not enabled:
+            await asyncio.sleep(CP_STATE_B_SETTLE_S)
 
     async def get_display_params(self) -> DisplayParameters:
         """Overrides EVControllerInterface.get_display_params()."""

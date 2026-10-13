@@ -52,6 +52,7 @@ class CaptureRecord:
     model: str
     root: str  # "document" | "fragment" | "xmldsig"
     hex: str
+    ts: float = 0.0  # epoch seconds the codec call ran (wire-timing checks)
 
     @property
     def payload(self) -> bytes:
@@ -157,6 +158,7 @@ def _read_capture(path: Path) -> list[CaptureRecord]:
                 model=d["model"],
                 root=d["root"],
                 hex=d["hex"],
+                ts=d.get("ts", 0.0),
             )
         )
     return records

@@ -202,6 +202,10 @@ class PEV:
                             self.evcc_config,
                             self.live_control,
                             virtual=self.virtual,
+                            # The enable hook drives CP State C / B through
+                            # the role-scoped relay bank (#144); under
+                            # --virtual the bank writes nothing but still logs.
+                            cp_state_setter=self.setState,
                         ),
                         live_control=self.live_control,
                         ongoing_poll_interval=(
