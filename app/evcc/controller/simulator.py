@@ -156,17 +156,26 @@ _EV_AC_SKELETON = SimpleNamespace(
     min_current_a=10.0,
 )
 # The simulated EV treats precharge as complete once the charger's reported
-# present voltage is within this tolerance of the EV's precharge target voltage
-# (issue #139). A real charger reports a measured voltage, never the exact
-# target, so an exact match would never be met against one. A charger that never
-# gets there trips the protocol's EVCC precharge timer instead.
-# TODO: confirm the tolerance against IEC 61851-23 (#145).
-PRECHARGE_VOLTAGE_TOLERANCE_V = 10.0
+# present voltage deviates from the EV's precharge target voltage by less than
+# this tolerance (issue #139). A real charger reports a measured voltage, never
+# the exact target, so an exact match would never be met against one. A charger
+# that never gets there trips the protocol's EVCC precharge timer instead.
+# Source (#148): the public "Design Guide for Combined Charging System", V7,
+# 2019-05-08, slide 15, step t7: "EV closes disconnecting device after deviation
+# of d.c. output voltage from EV battery voltage is less than 20 V." This is a
+# non-binding secondary source. It attributes the sequence to IEC 61851-23; the
+# IEC 61851-23 text was not available to check. DIN SPEC 70121, ISO 15118-2 and
+# ISO 15118-20 give no number and defer to IEC 61851-23.
+PRECHARGE_VOLTAGE_TOLERANCE_V = 20.0
 # The simulated EV ends welding detection once the charger's reported present
 # voltage has fallen below this threshold (issue #145): the output is then
 # discharged and the connector can unlock. A charger that never discharges trips
 # the protocol's welding (ongoing) timer instead.
-# TODO: confirm the threshold against IEC 61851-23 (#145).
+# Source (#148): the same design guide, slide 23, step t16: "EV unlocks the
+# connector after d.c. output has dropped below 60 V." Again a non-binding
+# secondary source attributing the value to IEC 61851-23; the IEC 61851-23 text
+# was not available to check. The guide's alternative unlock condition
+# ("energy < 0,2 J") is not modelled: the emulator has no energy measurement.
 WELDING_DETECTION_VOLTAGE_THRESHOLD_V = 60.0
 # Under virtual mode only, welding detection also ends after this many polls,
 # so a self-paired demo against a charger that never discharges cannot hang.
@@ -979,7 +988,7 @@ class SimEVController(EVControllerInterface):
     ) -> bool:
         target_v = self._precharge_target_voltage_v()
         present_v = present_voltage_evse.get_decimal_value()
-        if abs(present_v - target_v) <= PRECHARGE_VOLTAGE_TOLERANCE_V:
+        if abs(present_v - target_v) < PRECHARGE_VOLTAGE_TOLERANCE_V:
             logger.info(
                 f"Precharge complete at {present_v:g} V (target {target_v:g} V)."
             )

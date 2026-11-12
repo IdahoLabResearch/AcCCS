@@ -49,14 +49,31 @@ PROTOCOL_VOLTAGE = {
 
 async def test_not_precharged_until_charger_reaches_target():
     ctrl = _controller()
-    for volts in (0, 200, 300, 400 - PRECHARGE_VOLTAGE_TOLERANCE_V - 1):
+    for volts in (0, 200, 300, 400 - PRECHARGE_VOLTAGE_TOLERANCE_V):
         assert not await ctrl.is_precharged(_v(volts))
 
 
 async def test_precharged_within_tolerance_of_target():
     ctrl = _controller()
-    assert await ctrl.is_precharged(_v(400 - PRECHARGE_VOLTAGE_TOLERANCE_V))
+    assert await ctrl.is_precharged(_v(400 - PRECHARGE_VOLTAGE_TOLERANCE_V + 1))
     assert await ctrl.is_precharged(_v(400))
+
+
+def test_precharge_tolerance_is_the_design_guide_20_v():
+    assert PRECHARGE_VOLTAGE_TOLERANCE_V == 20.0
+
+
+@pytest.mark.parametrize("protocol", PROTOCOL_VOLTAGE)
+async def test_precharge_needs_a_deviation_strictly_under_20_v(protocol):
+    # "Less than 20 V" (#148): 19 V off the target is complete, exactly 20 V
+    # is not, whether the charger sits above or below the target.
+    voltage = PROTOCOL_VOLTAGE[protocol]
+    ctrl = _controller()
+    tol = PRECHARGE_VOLTAGE_TOLERANCE_V
+    assert await ctrl.is_precharged(voltage(400 - tol + 1))
+    assert await ctrl.is_precharged(voltage(400 + tol - 1))
+    assert not await ctrl.is_precharged(voltage(400 - tol))
+    assert not await ctrl.is_precharged(voltage(400 + tol))
 
 
 async def test_repeated_polls_never_complete_precharge_on_their_own():
@@ -90,5 +107,6 @@ async def test_precharge_waits_for_an_800_v_target_on_every_dc_protocol(protocol
     ctrl = SimEVController(EVCCConfig.from_personality(personality))
     assert not await ctrl.is_precharged(voltage(4))
     assert not await ctrl.is_precharged(voltage(34))
-    assert await ctrl.is_precharged(voltage(800 - PRECHARGE_VOLTAGE_TOLERANCE_V))
+    assert not await ctrl.is_precharged(voltage(800 - PRECHARGE_VOLTAGE_TOLERANCE_V))
+    assert await ctrl.is_precharged(voltage(800 - PRECHARGE_VOLTAGE_TOLERANCE_V + 1))
     assert await ctrl.is_precharged(voltage(800))

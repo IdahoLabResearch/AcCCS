@@ -43,6 +43,10 @@ async def test_welding_detection_finishes_below_the_threshold(protocol):
     )
 
 
+def test_welding_threshold_is_the_design_guide_60_v():
+    assert WELDING_DETECTION_VOLTAGE_THRESHOLD_V == 60.0
+
+
 async def test_polls_alone_never_finish_welding_detection_outside_virtual_mode():
     ctrl = _controller(virtual=False)
     for _ in range(WELDING_DETECTION_VIRTUAL_POLL_CAP * 3):
