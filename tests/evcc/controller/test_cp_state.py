@@ -6,7 +6,10 @@ CableCheck. The controller now takes an injected control-pilot setter (wired to
 the role-scoped `EvccRelays` in `pev.py`) and drives State C when charging is
 enabled, State B when it is disabled. SC-066 adds the two stop-side
 refinements: EVReady goes false once the EV is stopping, and a settle delay
-separates the State-B write from the next request.
+separates the State-B write from the next request. The same settle separates
+the State-C write from CableCheckReq: DIN [V2G-DC-501]/[502] want the EV in
+State C before that request leaves, and a fielded charger that samples the
+pilot on arrival read State B when the write landed 1 ms ahead of it.
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ def _controller(setter=None) -> SimEVController:
 @pytest.fixture(autouse=True)
 def _short_settle(monkeypatch):
     monkeypatch.setattr(simulator, "CP_STATE_B_SETTLE_S", 0.05)
+    monkeypatch.setattr(simulator, "CP_STATE_C_SETTLE_S", 0.05)
 
 
 async def test_enable_drives_state_c_and_disable_drives_state_b():
@@ -60,6 +64,21 @@ async def test_state_b_write_is_followed_by_a_settle_delay():
     returned_at = time.monotonic()
 
     assert returned_at - written_at[PEVState.B] >= simulator.CP_STATE_B_SETTLE_S
+
+
+async def test_state_c_write_is_followed_by_a_settle_delay():
+    # The staged CableCheckReq is only sent once this hook returns, so the
+    # delay here is what puts the pilot at State C before the request arrives.
+    written_at = {}
+
+    def setter(state):
+        written_at[state] = time.monotonic()
+
+    ctrl = _controller(setter)
+    await ctrl.enable_charging(True)
+    returned_at = time.monotonic()
+
+    assert returned_at - written_at[PEVState.C] >= simulator.CP_STATE_C_SETTLE_S
 
 
 async def test_ev_ready_true_while_charging():

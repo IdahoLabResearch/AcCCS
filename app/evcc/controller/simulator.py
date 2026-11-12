@@ -179,6 +179,15 @@ WELDING_DETECTION_VIRTUAL_POLL_CAP = 10
 # T_vald_state_duration (200-400 ms).
 # TODO: verify-IEC — confirm against IEC 61851-1 / -23 (#144).
 CP_STATE_B_SETTLE_S = 0.3
+# After the State-C write that starts charging, the EV waits this long before
+# its CableCheckReq / PowerDeliveryReq(Start) leaves. DIN [V2G-DC-501]/[502]
+# require the EV to already be in State C when it sends CableCheckReq, but the
+# relay write landed ~1 ms before the request hit the wire — inside the relay's
+# own closure time — so a fielded charger that samples the pilot on request
+# arrival still read State B and answered CableCheckRes FAILED / EVSE_NotReady
+# while the pilot measured a clean 12→9→6 V on the bench (2026-11-10). Same
+# sizing rationale as the State-B settle above.
+CP_STATE_C_SETTLE_S = 0.3
 
 _EV_DC_V20_SKELETON = SimpleNamespace(
     max_charge_power_w=300000.0,
@@ -1366,8 +1375,9 @@ class SimEVController(EVControllerInterface):
         if self.cp_state_setter is None:
             return
         self.cp_state_setter(PEVState.C if enabled else PEVState.B)
-        if not enabled:
-            await asyncio.sleep(CP_STATE_B_SETTLE_S)
+        # Let the pilot settle before the request that depends on it goes out
+        # (the caller's staged message is only sent once this hook returns).
+        await asyncio.sleep(CP_STATE_C_SETTLE_S if enabled else CP_STATE_B_SETTLE_S)
 
     async def get_display_params(self) -> DisplayParameters:
         """Overrides EVControllerInterface.get_display_params()."""
