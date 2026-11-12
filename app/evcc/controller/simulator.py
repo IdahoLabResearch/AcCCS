@@ -261,6 +261,10 @@ class SimEVController(EVControllerInterface):
         # `PEV.setState`, i.e. the role-scoped `EvccRelays`; `None` (unit tests that build the
         # controller directly) leaves the pilot alone.
         self.cp_state_setter = cp_state_setter
+        # The last state this controller drove, so a repeated request for the
+        # same state (a renegotiation re-enabling charging, an abort after a
+        # normal stop) writes nothing and waits for nothing (#146).
+        self._cp_state: Optional[PEVState] = None
         # Runtime `--virtual` (a self-paired demo): only it enables the welding
         # detection poll cap (#145).
         self.virtual = virtual
@@ -1361,23 +1365,45 @@ class SimEVController(EVControllerInterface):
         """
         return RationalNumber.get_rational_repr(self._precharge_target_voltage_v())
 
-    async def enable_charging(self, enabled: bool) -> None:
+    async def enable_charging(self, enabled: bool, settle: bool = True) -> None:
         """Overrides EVControllerInterface.enable_charging().
 
-        State C when charging is enabled (after the parameter-discovery /
-        schedule-exchange response, before CableCheckReq), State B when it is
-        disabled (after the stop response, before WeldingDetectionReq) —
-        conformance SC-001. Disabling also marks the EV as stopping, so the
-        requests that follow carry EVReady false (SC-066); re-enabling clears
-        it, so the charge loop after an ISO-20 service renegotiation runs.
+        State C when charging is enabled, State B when it is disabled —
+        conformance SC-001. On DC the change comes before the request that
+        depends on it (C before CableCheckReq, B after the stop response and
+        before WeldingDetectionReq), so the hook then holds the caller for a
+        settle time. On AC the change follows the PowerDeliveryReq that
+        announces it (issue #146), so those callers pass `settle=False`.
+        Disabling also marks the EV as stopping, so the requests that follow
+        carry EVReady false (SC-066); re-enabling clears it, so the charge
+        loop after an ISO-20 service renegotiation runs.
         """
         self._stop_requested = not enabled
-        if self.cp_state_setter is None:
+        if not self._drive_cp_state(PEVState.C if enabled else PEVState.B):
             return
-        self.cp_state_setter(PEVState.C if enabled else PEVState.B)
-        # Let the pilot settle before the request that depends on it goes out
-        # (the caller's staged message is only sent once this hook returns).
-        await asyncio.sleep(CP_STATE_C_SETTLE_S if enabled else CP_STATE_B_SETTLE_S)
+        if settle:
+            # Let the pilot settle before the request that depends on it goes
+            # out (the caller's staged message is only sent once this returns).
+            await asyncio.sleep(
+                CP_STATE_C_SETTLE_S if enabled else CP_STATE_B_SETTLE_S
+            )
+
+    def abort_charging(self) -> None:
+        """Overrides EVControllerInterface.abort_charging().
+
+        State B at once on any abort (conformance SC-065, issue #146): no
+        settle, because nothing is sent afterwards that depends on it.
+        """
+        self._stop_requested = True
+        self._drive_cp_state(PEVState.B)
+
+    def _drive_cp_state(self, state: PEVState) -> bool:
+        """Write `state` to the pilot; False when there was nothing to write."""
+        if self.cp_state_setter is None or state is self._cp_state:
+            return False
+        self.cp_state_setter(state)
+        self._cp_state = state
+        return True
 
     async def get_display_params(self) -> DisplayParameters:
         """Overrides EVControllerInterface.get_display_params()."""

@@ -386,6 +386,14 @@ class V2GCommunicationSession(SessionStateMachine):
         within the ISO 15118 User Group, and it became a formal requirement in
         ISO 15118-20 (at least for the SECC side, see [V2G20-1633]).
         """
+        # An EV signals the end of the session on the control pilot first:
+        # State B without delay on any abort (DIN [V2G-DC-651] ff., conformance
+        # SC-065, issue #146), not after the grace period below. A session that
+        # ended normally is already in State B and writes nothing.
+        ev_controller = getattr(self.comm_session, "ev_controller", None)
+        if ev_controller is not None:
+            ev_controller.abort_charging()
+
         if self.current_state.next_state == Pause:
             self.save_session_info()
             terminate_or_pause = SessionStopAction.PAUSE
@@ -405,8 +413,6 @@ class V2GCommunicationSession(SessionStateMachine):
             evse_controller = self.comm_session.evse_controller
             await evse_controller.update_data_link(terminate_or_pause)
             await evse_controller.session_ended(str(self.current_state), reason)
-        elif hasattr(self.comm_session, "ev_controller"):
-            await self.comm_session.ev_controller.enable_charging(False)
         logger.info(f"{terminate_or_pause.value.capitalize()}d the data link")
         await asyncio.sleep(3)
         try:
@@ -505,6 +511,8 @@ class V2GCommunicationSession(SessionStateMachine):
                     # Terminate or Pause on the EVCC side
                     await self.send(self.current_state.next_v2gtp_msg)
                     await self._update_state_info(self.current_state)
+                    if self.current_state.after_send:
+                        await self.current_state.after_send()
 
                 if self.current_state.next_state in (Terminate, Pause):
                     await self.stop(reason=self.comm_session.stop_reason.reason)

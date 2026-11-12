@@ -32,3 +32,12 @@ SAP builder strips DIN from any TLS offer, [V2G-DC-618]) and a TLS-off SECC is
 hard-refused if it lists a -20 protocol. Each file's header comment carries the
 full rationale. The ISO-20 envelope and ISO-2 PnC risk-based tests reuse the
 existing `iso20-eim-*` and `iso2-*` smoke personalities.
+
+## ISO-2 AC personalities (issue #146)
+
+The shipped ISO-2 baselines are DC, so no smoke personality walks the ISO-2 AC
+flow. `iso2-ac-evcc` / `iso2-ac-secc` layer an AC energy transfer mode over the
+ISO-2 baselines (EIM, TLS-off) and back the AC control-pilot timing E2E test
+(`e2e/test_ac_cp_state_log_order.py`), which reads the order of the vehicle
+side's log lines rather than a declarative outcome. Its ISO-20 case reuses the
+existing `iso20-ac-baseline-*` pair.

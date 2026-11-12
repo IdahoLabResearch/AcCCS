@@ -57,6 +57,9 @@ class StubCommSession:
     # EVCC ONGOING-poll cadence (issue #88). Defaults to 0 — un-paced — so a
     # test that isn't about pacing runs at full speed; the pacing tests set it.
     ongoing_poll_interval: float = 0.0
+    # AC unless a state or a test says otherwise, as on the real session
+    # (`V2GCommunicationSession.selected_charging_type_is_ac`).
+    selected_charging_type_is_ac: bool = True
     # Role-specific fields populated by states during a session. Allowing them
     # as Any keeps the stub honest about being a *stub* while still permitting
     # the assignments the production code does.
@@ -84,6 +87,9 @@ class StepResult:
     next_state: Optional[Type[State]]
     outbound_v2gtp: Any  # V2GTPMessage or None if state chose not to send.
     outbound_msg: Any  # State.message — the decoded outbound body/message.
+    # State.after_send — what the receive loop would await once the outbound
+    # message is on the wire (issue #146); None when the state set nothing.
+    after_send: Any = None
 
 
 class ScriptedPeer:
@@ -106,6 +112,7 @@ class ScriptedPeer:
             next_state=self.state.next_state,
             outbound_v2gtp=self.state.next_v2gtp_msg,
             outbound_msg=self.state.message,
+            after_send=self.state.after_send,
         )
         # If the state told us to advance, build the next state so subsequent
         # `feed()` calls hit the right `process_message`. Terminate is a leaf;

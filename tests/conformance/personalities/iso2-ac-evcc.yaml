@@ -1,0 +1,14 @@
+# ISO 15118-2 AC EVCC test personality (issue #146).
+#
+# The shipped ISO-2 baselines are DC (decoded from a DC reference capture), so
+# no shipped pair walks the ISO-2 AC flow. This framework fixture layers the
+# AC energy transfer mode over `iso2-evcc-baseline` so the control-pilot timing
+# E2E (`e2e/test_ac_cp_state_log_order.py`) can drive a real AC session:
+# PowerDeliveryReq(Start) -> ChargingStatus loop -> PowerDeliveryReq(Stop).
+# EIM / no TLS, inherited from the baseline.
+extends: iso2-evcc-baseline
+role: evcc
+message_field_tree:
+  ISO_15118_2:
+    ChargeParameterDiscoveryReq:
+      RequestedEnergyTransferMode: AC_three_phase_core

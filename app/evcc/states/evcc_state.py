@@ -327,11 +327,47 @@ class StateEVCC(State, ABC):
             reason: Additional information as to why the communication session is about
                     to be terminated. Helpful for further debugging.
         """
+        # State B first, before anything else on the way out (DIN
+        # [V2G-DC-651] ff. "without any delay", conformance SC-065, #146).
+        ev_controller = getattr(self.comm_session, "ev_controller", None)
+        if ev_controller is not None:
+            ev_controller.abort_charging()
+
         self.comm_session.stop_reason = StopNotification(
             False, reason, self.comm_session.writer.get_extra_info("peername")
         )
 
         self.next_state = Terminate
+
+    def drive_cp_after_send(self, enabled: bool) -> None:
+        """Change the control pilot right after the staged request is sent.
+
+        AC timing (conformance SC-001, issue #146): the EV is still in State B
+        when PowerDeliveryReq(Start) leaves and goes to C within 250 ms after
+        ([V2G2-846]/[847], [V2G20-1617]/[847]); it goes back to B within 250 ms
+        after sending PowerDeliveryReq(Stop) ([V2G2-848], [V2G20-848]) rather
+        than waiting for a response that may take seconds. DC keeps its
+        changes ahead of CableCheckReq and behind the stop response.
+        """
+        ev_controller = self.comm_session.ev_controller
+
+        async def _drive() -> None:
+            await ev_controller.enable_charging(enabled, settle=False)
+
+        self.after_send = _drive
+
+    def drive_cp_after_ac_start(self, power_delivery_req: PowerDeliveryReq) -> None:
+        """State C after an ISO 15118-20 AC PowerDeliveryReq that starts charging.
+
+        Only a Start with EVProcessing Finished starts charging: an Ongoing
+        request is still being worked out, and the Stop sent for a pause must
+        leave the pilot in State B (conformance SC-007).
+        """
+        if (
+            power_delivery_req.charge_progress == ChargeProgress.START
+            and power_delivery_req.ev_processing == Processing.FINISHED
+        ):
+            self.drive_cp_after_send(True)
 
     def stop_v20_charging(
         self, next_state: Type["State"], renegotiate_requested: bool = False
@@ -359,6 +395,10 @@ class StateEVCC(State, ABC):
             Namespace.ISO_V20_COMMON_MSG,
             ISOV20PayloadTypes.MAINSTREAM,
         )
+        if self.comm_session.selected_charging_type_is_ac:
+            # AC: State B once the stop is on the wire ([V2G20-848]). DC stays
+            # in C until the response ([V2G20-913]).
+            self.drive_cp_after_send(False)
 
         if renegotiate_requested:
             self.comm_session.renegotiation_requested = True

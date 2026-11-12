@@ -118,3 +118,62 @@ async def test_re_enabling_charging_clears_the_stop():
 
     assert await ctrl.continue_charging() is True
     assert (await ctrl.get_dc_ev_status()).ev_ready is True
+
+
+# --- issue #146: send-site drives, aborts, and repeated requests -------------
+
+
+async def test_a_drive_after_the_request_was_sent_does_not_wait_for_a_settle(
+    monkeypatch,
+):
+    # AC changes the pilot right after its PowerDeliveryReq left, so there is
+    # no later request for a settle to protect.
+    monkeypatch.setattr(simulator, "CP_STATE_B_SETTLE_S", 30)
+    monkeypatch.setattr(simulator, "CP_STATE_C_SETTLE_S", 30)
+    states = []
+    ctrl = _controller(states.append)
+
+    started = time.monotonic()
+    await ctrl.enable_charging(True, settle=False)
+    await ctrl.enable_charging(False, settle=False)
+
+    assert states == [PEVState.C, PEVState.B]
+    assert time.monotonic() - started < 1
+
+
+@pytest.mark.parametrize("charging", [False, True], ids=["idle", "charging"])
+async def test_abort_drives_state_b_at_once_and_clears_ev_ready(charging):
+    states = []
+    ctrl = _controller(states.append)
+    if charging:
+        await ctrl.enable_charging(True)
+
+    ctrl.abort_charging()  # synchronous: no settle, usable on any error path
+
+    assert states[-1] is PEVState.B
+    assert (await ctrl.get_dc_ev_status()).ev_ready is False
+
+
+async def test_abort_without_a_setter_still_runs():
+    _controller().abort_charging()
+
+
+async def test_a_repeated_state_is_neither_written_nor_settled_again(monkeypatch):
+    states = []
+    ctrl = _controller(states.append)
+    await ctrl.enable_charging(True)
+    monkeypatch.setattr(simulator, "CP_STATE_B_SETTLE_S", 30)
+    monkeypatch.setattr(simulator, "CP_STATE_C_SETTLE_S", 30)
+
+    # A renegotiation re-enables charging while the pilot is already in C.
+    started = time.monotonic()
+    await ctrl.enable_charging(True)
+
+    assert states == [PEVState.C]
+    assert time.monotonic() - started < 1
+
+    # An abort after the session already went back to B writes nothing new.
+    await ctrl.enable_charging(False, settle=False)
+    ctrl.abort_charging()
+
+    assert states == [PEVState.C, PEVState.B]

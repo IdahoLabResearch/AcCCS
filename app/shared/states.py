@@ -1,7 +1,7 @@
 import base64
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Optional, Type, Union
+from typing import TYPE_CHECKING, Awaitable, Callable, Optional, Type, Union
 
 from pydantic import ValidationError
 
@@ -114,6 +114,11 @@ class State(ABC):
         # shall be paused and certain session values shall be saved until the
         # session is resumed later on)
         self.next_state: Optional[Type["State"]] = None
+        # An optional action the receive loop runs right after the next
+        # message has been written to the socket. The EVCC uses it for the AC
+        # control-pilot changes the specs time from the moment a
+        # PowerDeliveryReq is sent (issue #146).
+        self.after_send: Optional[Callable[[], Awaitable[None]]] = None
         # The optional signature in a V2GMessage's header
         self.next_msg_signature: Optional[Signature] = None
         # The next message, which is either a

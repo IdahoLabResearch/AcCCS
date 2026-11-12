@@ -1,0 +1,15 @@
+# ISO 15118-2 AC SECC test personality (issue #146).
+#
+# The charger half of `iso2-ac-evcc.yaml`: layers the AC energy transfer mode
+# over `iso2-secc-baseline` so the control-pilot timing E2E
+# (`e2e/test_ac_cp_state_log_order.py`) can drive a real ISO-2 AC session.
+# EIM / no TLS, inherited from the baseline.
+extends: iso2-secc-baseline
+role: secc
+message_field_tree:
+  ISO_15118_2:
+    ServiceDiscoveryRes:
+      ChargeService:
+        SupportedEnergyTransferMode:
+          EnergyTransferMode:
+            - AC_three_phase_core

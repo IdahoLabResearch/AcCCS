@@ -864,7 +864,6 @@ class ChargeParameterDiscovery(StateEVCC):
                 ) = await ev_controller.process_sa_schedules_v2(
                     charge_params_res.sa_schedule_list.schedule_tuples
                 )
-            await self.comm_session.ev_controller.enable_charging(True)
             if self.comm_session.selected_charging_type_is_ac:
                 power_delivery_req = PowerDeliveryReq(
                     charge_progress=charge_progress,
@@ -879,7 +878,13 @@ class ChargeParameterDiscovery(StateEVCC):
                     Timeouts.POWER_DELIVERY_REQ,
                     Namespace.ISO_V2_MSG_DEF,
                 )
+                # AC: State B while the Start leaves, C right after
+                # ([V2G2-846]/[847]); only a Start begins charging.
+                if power_delivery_req.charge_progress == ChargeProgress.START:
+                    self.drive_cp_after_send(True)
             else:
+                # DC: State C before CableCheckReq ([V2G2-912]).
+                await ev_controller.enable_charging(True)
                 cable_check_req = CableCheckReq(
                     dc_ev_status=await ev_controller.get_dc_ev_status(),
                 )
@@ -1118,6 +1123,13 @@ class MeteringReceipt(StateEVCC):
                 Timeouts.POWER_DELIVERY_REQ,
                 Namespace.ISO_V2_MSG_DEF,
             )
+            # The session is ending: without this the PowerDelivery state
+            # would answer the stop response by resuming the charge loop.
+            self.comm_session.charging_session_stop_v2 = ChargingSession.TERMINATE
+            if self.comm_session.selected_charging_type_is_ac:
+                # AC: State B once the stop is on the wire ([V2G2-848]). DC
+                # stays in C until the response ([V2G2-913]).
+                self.drive_cp_after_send(False)
         elif notification == EVSENotification.RE_NEGOTIATION:
             logger.debug("SECC requested a renegotiation")
             self.comm_session.renegotiation_requested = True
@@ -1352,6 +1364,9 @@ class ChargingStatus(StateEVCC):
             Timeouts.POWER_DELIVERY_REQ,
             Namespace.ISO_V2_MSG_DEF,
         )
+        # AC: State B once the stop is on the wire, not after a response that
+        # may take seconds ([V2G2-848]).
+        self.drive_cp_after_send(False)
         self.comm_session.charging_session_stop_v2 = ChargingSession.TERMINATE
         # TODO Implement also a mechanism for pausing
         logger.debug(f"ChargeProgress is set to {ChargeProgress.STOP}")

@@ -977,7 +977,6 @@ class ScheduleExchange(StateEVCC):
                     else:
                         bpt_channel_selection = ChannelSelection.CHARGE
 
-            await self.comm_session.ev_controller.enable_charging(True)
             if self.comm_session.selected_charging_type_is_ac:
                 power_delivery_req = PowerDeliveryReq(
                     header=MessageHeader(
@@ -999,7 +998,10 @@ class ScheduleExchange(StateEVCC):
                     Namespace.ISO_V20_COMMON_MSG,
                     ISOV20PayloadTypes.MAINSTREAM,
                 )
+                self.drive_cp_after_ac_start(power_delivery_req)
             else:
+                # DC: State C before DC_CableCheckReq ([V2G20-912]).
+                await self.comm_session.ev_controller.enable_charging(True)
                 cable_check_req = DCCableCheckReq(
                     header=MessageHeader(
                         session_id=self.comm_session.session_id,
@@ -1263,6 +1265,8 @@ class PowerDelivery(StateEVCC):
             Namespace.ISO_V20_COMMON_MSG,
             ISOV20PayloadTypes.MAINSTREAM,
         )
+        if self.comm_session.selected_charging_type_is_ac:
+            self.drive_cp_after_ac_start(power_delivery_req)
 
 
 class SessionStop(StateEVCC):

@@ -685,10 +685,26 @@ class EVControllerInterface(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def enable_charging(self, enabled: bool) -> None:
+    async def enable_charging(self, enabled: bool, settle: bool = True) -> None:
         """
         Enables charging for the EVCC.
         Can be used as an indication to go to state C
+
+        `settle` holds the caller until the control pilot has settled, for a
+        change made before the request that depends on it. A change made right
+        after a request was sent (the AC send sites, issue #146) passes False.
+        Relevant for:
+        - DIN SPEC 70121
+        - ISO 15118-2
+        - ISO 15118-20
+        """
+
+    @abstractmethod
+    def abort_charging(self) -> None:
+        """
+        Signals an abort: go to state B at once, without any settle time.
+        Synchronous so every error path can call it before it does anything
+        else (DIN [V2G-DC-651] ff., "without any delay").
         Relevant for:
         - DIN SPEC 70121
         - ISO 15118-2
